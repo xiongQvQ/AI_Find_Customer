@@ -24,50 +24,58 @@ st.set_page_config(
 
 # Import common components
 from components.common import check_api_keys, display_api_status, display_quick_links
+from components.language_manager import get_language_manager, t
 
 # Main page
-st.title("🤖 AI Customer Finder")
-st.markdown("""
-### Open-Source B2B Customer Intelligence Tool
+st.title(f"🤖 {t('main.title')}")
+st.markdown(f"""
+### {t('main.subtitle')}
 
-This tool helps you:
-- 🔍 **Smart Company Search** - Find target customers by industry and region
-- 📧 **Contact Extraction** - Automatically extract emails, phones from websites
-- 👥 **Employee Search** - Locate decision makers and key contacts
+{t('main.description.intro')}
+- {t('main.description.search')}
+- {t('main.description.contact')}
+- {t('main.description.employee')}
 
 ---
 
-### Quick Start
-1. Ensure API keys are configured in `.env` file
-2. Select desired function from left navigation
-3. Fill in search criteria and execute
-4. View results and download data
+### {t('main.quick_start.title')}
+1. {t('main.quick_start.step1')}
+2. {t('main.quick_start.step2')}
+3. {t('main.quick_start.step3')}
+4. {t('main.quick_start.step4')}
 
-### Output File Location
-All results are saved in `output/` directory:
-- Company search results: `output/company/`
-- Contact information: `output/contact/`
-- Employee information: `output/employee/`
+### {t('main.output_location.title')}
+{t('main.output_location.description')}
+- {t('main.output_location.company')}
+- {t('main.output_location.contact')}
+- {t('main.output_location.employee')}
 """)
 
 # Check API keys
 api_status = check_api_keys()
 
 if not api_status["SERPER_API_KEY"]:
-    st.error("⚠️ Missing required API key: SERPER_API_KEY")
-    st.info("Please configure it in the .env file")
+    st.error(t('main.api_config.missing_key'))
     
-    with st.expander("📝 How to configure API keys"):
-        st.markdown("""
-        1. Create a `.env` file in the project root directory
-        2. Add your API keys:
-        ```
-        SERPER_API_KEY=your_serper_api_key_here
-        LLM_PROVIDER=openai  # or anthropic, google, huoshan
-        OPENAI_API_KEY=your_openai_key_here  # if using OpenAI
-        ```
-        3. Restart the application
-        """)
+    col_config1, col_config2 = st.columns(2)
+    
+    with col_config1:
+        st.info(t('main.api_config.recommended'))
+        if st.button(t('main.api_config.goto_settings'), type="primary"):
+            st.switch_page("pages/6_⚙️_System_Settings.py")
+    
+    with col_config2:
+        with st.expander(t('main.api_config.manual_config')):
+            st.markdown("""
+            1. Create a `.env` file in the project root directory
+            2. Add your API keys:
+            ```
+            SERPER_API_KEY=your_serper_api_key_here
+            LLM_PROVIDER=openai  # or anthropic, google, huoshan
+            OPENAI_API_KEY=your_openai_key_here  # if using OpenAI
+            ```
+            3. Restart the application
+            """)
     st.stop()
 
 # Display configuration status in sidebar
@@ -78,49 +86,60 @@ display_quick_links()
 
 # Feature cards
 st.markdown("---")
-st.subheader("🚀 Available Features")
+st.subheader(f"🚀 {t('main.features.title')}")
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
+col3, col4 = st.columns(2)
 
 with col1:
-    st.markdown("""
-    ### 🔍 Company Search
-    Search for companies by:
-    - Industry keywords
-    - Geographic location
-    - Custom search queries
-    - LinkedIn profiles
+    st.markdown(f"""
+    ### {t('main.features.company_search.title')}
+    {t('main.features.company_search.description')}
     
-    [Go to Company Search →](/Company_Search)
+    [{t('main.features.company_search.link')}](/Company_Search)
+    """)
+    
+    st.markdown(f"""
+    ### {t('main.features.ai_search.title')}
+    {t('main.features.ai_search.description')}
+    
+    [{t('main.features.ai_search.link')}](/Intelligent_Search)
     """)
 
 with col2:
-    st.markdown("""
-    ### 📧 Contact Extraction
-    Extract contact info from:
-    - Single website URL
-    - Batch CSV processing
-    - Company search results
-    - Contact pages crawling
+    st.markdown(f"""
+    ### {t('main.features.contact_extraction.title')}
+    {t('main.features.contact_extraction.description')}
     
-    [Go to Contact Extraction →](/Contact_Extraction)
+    [{t('main.features.contact_extraction.link')}](/Contact_Extraction)
     """)
 
 with col3:
-    st.markdown("""
-    ### 👥 Employee Search
-    Find employees by:
-    - Company name
-    - Job position/title
-    - Location filtering
-    - LinkedIn profiles
+    st.markdown(f"""
+    ### {t('main.features.employee_search.title')}
+    {t('main.features.employee_search.description')}
     
-    [Go to Employee Search →](/Employee_Search)
+    [{t('main.features.employee_search.link')}](/Employee_Search)
+    """)
+
+with col4:
+    st.markdown(f"""
+    ### {t('main.features.system_settings.title')}
+    {t('main.features.system_settings.description')}
+    
+    [{t('main.features.system_settings.link')}](/System_Settings)
+    """)
+    
+    st.markdown(f"""
+    ### {t('main.features.ai_dashboard.title')}
+    {t('main.features.ai_dashboard.description')}
+    
+    [{t('main.features.ai_dashboard.link')}](/AI_Analytics_Dashboard)
     """)
 
 # Statistics section
 st.markdown("---")
-st.subheader("📊 Usage Statistics")
+st.subheader(f"📊 {t('main.usage_stats.title')}")
 
 # Check for existing output files
 output_dir = "output"
@@ -137,15 +156,15 @@ if os.path.exists(output_dir):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Company Files", stats.get("company", 0))
+        st.metric(t('main.usage_stats.company_files'), stats.get("company", 0))
     
     with col2:
-        st.metric("Contact Files", stats.get("contact", 0))
+        st.metric(t('main.usage_stats.contact_files'), stats.get("contact", 0))
     
     with col3:
-        st.metric("Employee Files", stats.get("employee", 0))
+        st.metric(t('main.usage_stats.employee_files'), stats.get("employee", 0))
 else:
-    st.info("No output files generated yet. Start by searching for companies!")
+    st.info(t('main.usage_stats.no_files'))
 
 # Footer
 st.markdown("---")

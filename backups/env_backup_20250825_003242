@@ -1,0 +1,21 @@
+SERPER_API_KEY=4347bdb35252eaa535f95d768d06a0ba3bc0c42b
+
+# LLM Configuration
+LLM_PROVIDER=huoshan
+OPENAI_API_KEY=
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# GOOGLE_API_KEY=your_google_api_key_here
+
+# 火山引擎配置 (Huoshan/Volcano Engine Configuration)
+ARK_API_KEY=48baf91f-c04a-409d-b6e3-36b790af930b
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+ARK_MODEL=doubao-seed-1-6-250615
+
+# Website Extraction Configuration
+HEADLESS=true
+TIMEOUT=15000
+VISIT_CONTACT_PAGE=false
+
+# Prompt Template (optional)
+# SYSTEM_PROMPT="You are an expert at extracting contact information from website HTML content."
+# USER_PROMPT_TEMPLATE="Extract the following information from the HTML content: company name, email addresses, phone numbers, physical address, social media URLs." 

@@ -1,0 +1,310 @@
+{
+  "deployment_id": "20250825_003242",
+  "environment": "development",
+  "completed_at": "2025-08-25T00:32:52.570609",
+  "system_health": {
+    "report_metadata": {
+      "timestamp": "2025-08-25T00:32:51.109340",
+      "report_type": "comprehensive_system_status",
+      "generated_by": "LangGraph系统监控",
+      "report_version": "1.0"
+    },
+    "system_information": {
+      "system": {
+        "platform": "macOS-15.3.1-arm64-arm-64bit",
+        "system": "Darwin",
+        "release": "24.3.0",
+        "machine": "arm64",
+        "processor": "arm",
+        "python_version": "3.9.12",
+        "hostname": "Mac-mini.local",
+        "boot_time": "2025-07-24T22:30:24"
+      },
+      "cpu": {
+        "physical_cores": 10,
+        "logical_cores": 10,
+        "current_frequency": 4,
+        "usage_percent": 54.7
+      },
+      "memory": {
+        "total_gb": 16.0,
+        "available_gb": 2.67,
+        "used_gb": 5.63,
+        "percentage": 83.3
+      },
+      "disk": {
+        "total_gb": 931.32,
+        "used_gb": 14.83,
+        "free_gb": 702.07,
+        "percentage": 1.59
+      },
+      "network": {
+        "bytes_sent": 4717407232,
+        "bytes_received": 1079476224,
+        "packets_sent": 128336852,
+        "packets_received": 150610620
+      },
+      "timestamp": "2025-08-25T00:32:52.141854"
+    },
+    "application_status": {
+      "application_name": "LangGraph智能搜索系统",
+      "version": "1.0.0",
+      "environment": "production",
+      "uptime": "31天 2小时 2分钟",
+      "components": {
+        "logging_config": true,
+        "performance_manager": true,
+        "monitoring_integration": true,
+        "error_diagnostics": true
+      },
+      "dependencies": {
+        "environment_variables": {
+          "SERPER_API_KEY": true,
+          "OPENAI_API_KEY": false,
+          "ANTHROPIC_API_KEY": false,
+          "GOOGLE_API_KEY": false
+        },
+        "critical_files": {
+          "/Users/xiongbojian/learn/AI_Find_Customer/langgraph_search/workflows/base_graph.py": true,
+          "/Users/xiongbojian/learn/AI_Find_Customer/langgraph_search/state.py": true,
+          "/Users/xiongbojian/learn/AI_Find_Customer/config/logging_config.py": true,
+          "/Users/xiongbojian/learn/AI_Find_Customer/pages/7_🔍_Intelligent_Search_LangGraph.py": true
+        },
+        "log_directory": {
+          "exists": true,
+          "writable": true
+        }
+      },
+      "timestamp": "2025-08-25T00:32:52.142099"
+    },
+    "performance_metrics": {
+      "timestamp": "2025-08-25T00:32:52.252286",
+      "cache": {
+        "entries": 0,
+        "total_size_mb": 0.0,
+        "max_size_mb": 100.0,
+        "hit_rate": 0,
+        "hits": 0,
+        "misses": 0
+      },
+      "resources": {
+        "period_hours": 1,
+        "sample_count": 8,
+        "cpu": {
+          "avg": 15.725,
+          "max": 70.1,
+          "min": 0.0
+        },
+        "memory": {
+          "avg": 83.45,
+          "max": 83.8,
+          "min": 83.1
+        }
+      },
+      "execution": {
+        "message": "暂无执行历史"
+      },
+      "optimization_suggestions": [
+        {
+          "type": "resource_optimization",
+          "priority": "medium",
+          "title": "系统资源使用率过高",
+          "description": "检测到系统资源使用率超出正常范围",
+          "actions": [
+            "减少并发任务数量",
+            "优化内存使用",
+            "检查是否有资源泄漏"
+          ]
+        }
+      ],
+      "integrated_monitoring": {},
+      "resource_alerts": [],
+      "alert_count": 0,
+      "resource_trends": {
+        "memory_trend": "stable",
+        "cpu_trend": "stable",
+        "disk_trend": "stable",
+        "current_memory_usage": 83.3,
+        "current_cpu_usage": 0.0,
+        "current_disk_usage": 2.1,
+        "alert_level": "high"
+      }
+    },
+    "monitoring_status": {
+      "timestamp": "2025-08-25T00:32:52.569467",
+      "active_sessions": 0,
+      "completed_sessions": 0,
+      "average_execution_time": 0,
+      "average_success_rate": 0,
+      "system_performance": {
+        "timestamp": "2025-08-25T00:32:52.459722",
+        "cache": {
+          "entries": 0,
+          "total_size_mb": 0.0,
+          "max_size_mb": 100.0,
+          "hit_rate": 0,
+          "hits": 0,
+          "misses": 0
+        },
+        "resources": {
+          "period_hours": 1,
+          "sample_count": 10,
+          "cpu": {
+            "avg": 20.759999999999998,
+            "max": 81.8,
+            "min": 0.0
+          },
+          "memory": {
+            "avg": 83.42999999999999,
+            "max": 83.8,
+            "min": 83.1
+          }
+        },
+        "execution": {
+          "message": "暂无执行历史"
+        },
+        "optimization_suggestions": [],
+        "integrated_monitoring": {},
+        "resource_alerts": [],
+        "alert_count": 0
+      },
+      "monitoring_enabled": true,
+      "logging_integration": true,
+      "session_details": {
+        "active_sessions": 0,
+        "completed_sessions": 0,
+        "recent_sessions": []
+      }
+    },
+    "error_analysis": {
+      "message": "过去24小时内无错误记录",
+      "recent_critical_errors": []
+    },
+    "logging_system": {
+      "logging_enabled": true,
+      "log_directory": "/Users/xiongbojian/learn/AI_Find_Customer/logs",
+      "log_files": {
+        "performance.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:32:42.050979",
+          "exists": true
+        },
+        "integration_test.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:29:03.116069",
+          "exists": true
+        },
+        "deployment_20250825_003037.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:32:25.194805",
+          "exists": true
+        },
+        "api.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:08:27.636485",
+          "exists": true
+        },
+        "workflow.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:08:27.636429",
+          "exists": true
+        },
+        "deployment_20250825_002932.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:29:32.584284",
+          "exists": true
+        },
+        "user_activity.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:08:27.636655",
+          "exists": true
+        },
+        "deployment_20250825_003242.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:32:51.109331",
+          "exists": true
+        },
+        "error.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:08:27.636543",
+          "exists": true
+        },
+        "deployment_20250825_002946.log": {
+          "size_mb": 0.0,
+          "last_modified": "2025-08-25T00:29:48.207938",
+          "exists": true
+        },
+        "app.log": {
+          "size_mb": 0.04,
+          "last_modified": "2025-08-25T00:32:51.108764",
+          "exists": true
+        }
+      },
+      "performance_monitoring": {},
+      "error_tracking": {
+        "error_counts": {},
+        "recent_errors_count": 0,
+        "most_common_error": null
+      },
+      "timestamp": "2025-08-25T00:32:52.569717"
+    },
+    "health_assessment": {
+      "overall_status": "critical",
+      "overall_status_zh": "严重",
+      "health_score": 58.3,
+      "assessment_time": "2025-08-25T00:32:51.109340",
+      "issues_found": [],
+      "components_status": {
+        "logging_config": true,
+        "performance_manager": true,
+        "monitoring_integration": true,
+        "error_diagnostics": true
+      },
+      "detailed_scores": {
+        "system_resources": 16.599999999999994,
+        "component_availability": 100.0,
+        "error_rate": 50
+      }
+    },
+    "recommendations": [
+      {
+        "category": "resource_optimization",
+        "priority": "high",
+        "title": "内存使用优化",
+        "description": "当前内存使用率 83.4%，建议优化内存使用",
+        "actions": [
+          "检查是否有内存泄漏",
+          "优化数据结构和算法",
+          "实施内存缓存清理策略"
+        ]
+      },
+      {
+        "category": "monitoring_enhancement",
+        "priority": "low",
+        "title": "监控系统增强",
+        "description": "建议定期检查系统状态和性能指标",
+        "actions": [
+          "设置定期健康检查",
+          "配置告警阈值",
+          "建立监控仪表板"
+        ]
+      }
+    ],
+    "component_availability": {
+      "logging_config": true,
+      "performance_manager": true,
+      "monitoring_integration": true,
+      "error_diagnostics": true
+    }
+  },
+  "verification_results": {
+    "success": true,
+    "verifications": [
+      "系统健康检查 ⚠️ (得分: 0)",
+      "关键文件检查 ✅",
+      "鲁棒性AI评估节点 ✅",
+      "日志系统 ✅"
+    ],
+    "errors": []
+  }
+}

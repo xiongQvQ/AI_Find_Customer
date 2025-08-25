@@ -1,0 +1,15 @@
+# 优化版AI分析器额外依赖
+aiohttp>=3.8.0
+asyncio-throttle>=1.0.0
+memory-profiler>=0.60.0
+
+# 原有依赖保持不变
+streamlit>=1.28.0
+pandas>=1.5.0
+plotly>=5.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+openai>=1.0.0
+playwright>=1.40.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0

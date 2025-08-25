@@ -1,0 +1,114 @@
+# 国际物流贸易客户画像配置
+# 适用于B2B国际物流、运输、供应链服务
+
+profile_name: "International Logistics & Trade"
+description: "从事国际贸易、物流运输、供应链管理的企业客户"
+target_region: "global"
+scoring_method: "keyword"
+
+# 正向关键词
+positive_keywords:
+  # 核心物流关键词
+  "logistics": 15
+  "supply chain": 15
+  "shipping": 12
+  "freight": 12
+  "transportation": 10
+  "cargo": 10
+  "warehousing": 10
+  
+  # 国际贸易
+  "international trade": 15
+  "import": 12
+  "export": 12
+  "cross-border": 12
+  "global trade": 12
+  "international shipping": 15
+  
+  # 运输方式
+  "ocean freight": 10
+  "air freight": 10
+  "container": 10
+  "FCL": 8  # Full Container Load
+  "LCL": 8  # Less than Container Load
+  "multimodal": 9
+  
+  # 商业规模
+  "manufacturer": 10
+  "distributor": 10
+  "wholesaler": 8
+  "trading company": 12
+  "importer": 10
+  "exporter": 10
+  
+  # 地理覆盖
+  "global": 10
+  "international": 10
+  "worldwide": 8
+  "multi-country": 9
+  "Asia-Pacific": 8
+  "Europe": 8
+  "Americas": 8
+  
+  # 业务需求
+  "customs": 8
+  "compliance": 8
+  "documentation": 6
+  "tracking": 7
+  "visibility": 7
+  
+  # 行业特性
+  "3PL": 12  # Third Party Logistics
+  "4PL": 12  # Fourth Party Logistics
+  "forwarder": 10
+  "broker": 8
+
+# 负向关键词
+negative_keywords:
+  # 本地业务
+  "local delivery": -8
+  "domestic only": -10
+  "same-day": -6
+  
+  # 消费者市场
+  "personal": -8
+  "individual": -8
+  "consumer": -8
+  
+  # 小规模
+  "small package": -6
+  "courier": -6
+  
+  # 非相关行业
+  "digital only": -8
+  "virtual": -6
+  "software only": -5
+
+# 目标决策者职位
+target_positions:
+  - "Supply Chain Manager"
+  - "Logistics Manager" 
+  - "Operations Manager"
+  - "Procurement Manager"
+  - "Import/Export Manager"
+  - "VP of Operations"
+  - "Chief Operating Officer"
+  - "Trading Manager"
+  - "Business Development Manager"
+
+# 标签分类规则
+tagging_rules:
+  company_size:
+    large: ["multinational", "global", "fortune", "enterprise"]
+    medium: ["regional", "corporation", "trading company"]
+    small: ["local", "startup", "small business"]
+  
+  service_type:
+    manufacturer: ["manufacturing", "production", "factory"]
+    trader: ["trading", "import", "export", "distributor"]
+    logistics_provider: ["3PL", "4PL", "forwarder", "logistics"]
+    
+  geographic_scope:
+    global: ["global", "worldwide", "international"]
+    regional: ["regional", "Asia", "Europe", "Americas"]
+    domestic: ["domestic", "national", "local"]

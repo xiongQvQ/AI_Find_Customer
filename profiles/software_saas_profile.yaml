@@ -1,0 +1,95 @@
+# SaaS软件服务客户画像配置
+# 适用于B2B软件服务销售场景
+
+profile_name: "Enterprise SaaS Software"
+description: "面向企业的SaaS软件服务公司，重点关注中大型企业客户"
+target_region: "global"
+scoring_method: "keyword"
+
+# 正向关键词
+positive_keywords:
+  # 核心SaaS关键词
+  "SaaS": 15
+  "software as a service": 15
+  "cloud software": 12
+  "enterprise software": 12
+  "business software": 10
+  "platform": 8
+  
+  # 企业规模指标
+  "enterprise": 12
+  "corporation": 8
+  "multinational": 10
+  "fortune 500": 15
+  "large company": 8
+  
+  # 技术栈
+  "cloud computing": 10
+  "API": 8
+  "integration": 8
+  "automation": 9
+  "AI": 8
+  "machine learning": 8
+  "data analytics": 9
+  
+  # 业务需求
+  "digital transformation": 12
+  "workflow": 8
+  "productivity": 8
+  "efficiency": 7
+  "optimization": 8
+  "scalability": 9
+  
+  # 决策指标
+  "IT department": 10
+  "technology": 8
+  "innovation": 7
+  "modernization": 9
+  
+  # 国际化
+  "global": 8
+  "international": 8
+  "multi-region": 10
+
+# 负向关键词
+negative_keywords:
+  # 消费者市场
+  "consumer": -10
+  "personal": -8
+  "individual": -8
+  "B2C": -12
+  
+  # 小规模业务
+  "freelancer": -10
+  "small business": -6
+  "startup": -4
+  
+  # 非技术行业
+  "manual labor": -8
+  "traditional": -5
+  
+  # 竞争对手
+  "competitor": -5
+
+# 目标决策者职位
+target_positions:
+  - "CTO"
+  - "CIO"
+  - "VP of Technology"
+  - "IT Director"
+  - "Digital Transformation Manager"
+  - "Operations Manager"
+  - "CEO"
+  - "Business Development Manager"
+
+# 标签分类规则
+tagging_rules:
+  company_size:
+    enterprise: ["fortune 500", "multinational", "global", "enterprise"]
+    mid_market: ["corporation", "mid-size", "medium"]
+    small: ["startup", "small business", "SMB"]
+  
+  tech_readiness:
+    high: ["cloud", "API", "digital transformation"]
+    medium: ["technology", "software", "automation"]
+    low: ["traditional", "manual", "legacy"]

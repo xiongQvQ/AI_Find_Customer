@@ -1,0 +1,98 @@
+# 太阳能面板制造商客户画像配置
+# 适用于B2B太阳能设备销售场景
+
+profile_name: "Solar Panel Manufacturing"
+description: "专注于太阳能面板制造、分销和大型项目开发的企业"
+target_region: "global"
+scoring_method: "keyword"
+
+# 正向关键词（表示高匹配度的词汇）
+positive_keywords:
+  # 核心业务关键词
+  "solar panel": 15
+  "photovoltaic": 12
+  "solar energy": 10
+  "renewable energy": 8
+  "solar farm": 12
+  "solar power": 10
+  "solar module": 12
+  "PV module": 12
+  
+  # 制造和生产相关
+  "manufacturing": 8
+  "production": 6
+  "factory": 7
+  "facility": 5
+  
+  # 商业规模指标
+  "utility-scale": 15
+  "commercial": 8
+  "industrial": 7
+  "large-scale": 10
+  "enterprise": 6
+  
+  # 国际贸易指标
+  "export": 10
+  "import": 8
+  "international": 8
+  "global": 7
+  "worldwide": 7
+  "distribution": 8
+  "distributor": 9
+  "supplier": 7
+  
+  # 技术相关
+  "monocrystalline": 8
+  "polycrystalline": 8
+  "inverter": 6
+  "battery storage": 8
+  "grid-tie": 6
+  
+  # 项目类型
+  "EPC": 10  # Engineering, Procurement, Construction
+  "developer": 8
+  "installer": 6
+  "integrator": 8
+
+# 负向关键词（表示不匹配的词汇）
+negative_keywords:
+  # 住宅市场（通常订单量小）
+  "residential": -8
+  "home": -6
+  "DIY": -12
+  "retail": -8
+  
+  # 非相关行业
+  "automotive": -5
+  "fashion": -10
+  "food": -8
+  "entertainment": -10
+  "gaming": -8
+  
+  # 小规模指标
+  "hobby": -10
+  "personal": -8
+  "individual": -6
+
+# 目标决策者职位（用于员工数据分析）
+target_positions:
+  - "CEO"
+  - "CTO" 
+  - "VP of Operations"
+  - "Procurement Manager"
+  - "Supply Chain Manager"
+  - "Business Development Manager"
+  - "Sales Director"
+
+# 标签分类规则
+tagging_rules:
+  company_size:
+    large: ["fortune 500", "multinational", "global"]
+    medium: ["enterprise", "corporation", "inc", "ltd"]
+    small: ["startup", "small business"]
+  
+  business_type:
+    manufacturer: ["manufacturing", "production", "factory"]
+    distributor: ["distribution", "distributor", "wholesale"]
+    developer: ["developer", "EPC", "project"]
+    service: ["service", "consulting", "maintenance"]

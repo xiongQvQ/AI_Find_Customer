@@ -4,6 +4,7 @@ Common UI components for Streamlit app
 import streamlit as st
 import os
 from typing import Dict, List, Optional
+from .language_manager import get_language_manager, t
 
 def check_api_keys() -> Dict[str, bool]:
     """
@@ -30,6 +31,12 @@ def check_api_keys() -> Dict[str, bool]:
 
 def display_api_status():
     """Display API configuration status in sidebar"""
+    lm = get_language_manager()
+    
+    # 添加语言选择器
+    st.sidebar.header("🌐 " + t('common.language'))
+    lm.render_language_selector()
+    
     st.sidebar.header("⚙️ Configuration Status")
     
     api_status = check_api_keys()

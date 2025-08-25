@@ -12,7 +12,15 @@
       "mcp__zen__debug",
       "Bash(chmod:*)",
       "Bash(docker build:*)",
-      "mcp__zen__analyze"
+      "mcp__zen__analyze",
+      "mcp__zen__chat",
+      "Bash(streamlit run:*)",
+      "mcp__zen__planner",
+      "Bash(grep:*)",
+      "Bash(curl:*)",
+      "Bash(find:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
