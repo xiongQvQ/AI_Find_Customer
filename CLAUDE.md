@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Environment Setup
+
+This project uses Conda for virtual environment management. The environment name is `aifinder_env`.
+
+### Important: Always ensure you're in the correct environment before running any scripts:
+```bash
+conda activate aifinder_env
+```
+
 ## Project Overview
 
 This is an AI-powered B2B customer discovery tool for international trade and sales. The system automates the process of finding target companies, extracting contact information, and identifying key decision makers using search engine APIs and AI technology.

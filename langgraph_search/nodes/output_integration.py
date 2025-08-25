@@ -384,35 +384,67 @@ class OutputIntegrationNode:
                 }
                 writer.writerow(row)
     
-    def _company_to_dict(self, company: CompanyInfo) -> Dict[str, Any]:
-        """将CompanyInfo转换为字典"""
-        return {
-            'name': company.name,
-            'industry': company.industry,
-            'location': company.location,
-            'description': company.description,
-            'website': company.website_url,
-            'employee_count': getattr(company, 'employee_count', ''),
-            'founded_year': getattr(company, 'founded_year', ''),
-            'linkedin_url': getattr(company, 'linkedin_url', ''),
-            'ai_score': getattr(company, 'ai_score', ''),
-            'ai_reason': getattr(company, 'ai_reason', ''),
-            'is_qualified': getattr(company, 'is_qualified', False)
-        }
+    def _company_to_dict(self, company) -> Dict[str, Any]:
+        """将CompanyInfo或字典转换为标准字典格式"""
+        if isinstance(company, dict):
+            # 已经是字典，直接使用安全的get方法
+            return {
+                'name': company.get('name', ''),
+                'industry': company.get('industry', ''),
+                'location': company.get('location', ''),
+                'description': company.get('description', ''),
+                'website': company.get('website_url', '') or company.get('website', ''),
+                'employee_count': company.get('employee_count', ''),
+                'founded_year': company.get('founded_year', ''),
+                'linkedin_url': company.get('linkedin_url', ''),
+                'ai_score': company.get('ai_score', ''),
+                'ai_reason': company.get('ai_reason', ''),
+                'is_qualified': company.get('is_qualified', False)
+            }
+        else:
+            # Pydantic模型或其他对象，使用属性访问
+            return {
+                'name': getattr(company, 'name', ''),
+                'industry': getattr(company, 'industry', ''),
+                'location': getattr(company, 'location', ''),
+                'description': getattr(company, 'description', ''),
+                'website': getattr(company, 'website_url', '') or getattr(company, 'website', ''),
+                'employee_count': getattr(company, 'employee_count', ''),
+                'founded_year': getattr(company, 'founded_year', ''),
+                'linkedin_url': getattr(company, 'linkedin_url', ''),
+                'ai_score': getattr(company, 'ai_score', ''),
+                'ai_reason': getattr(company, 'ai_reason', ''),
+                'is_qualified': getattr(company, 'is_qualified', False)
+            }
     
-    def _employee_to_dict(self, employee: EmployeeInfo) -> Dict[str, Any]:
-        """将EmployeeInfo转换为字典"""
-        return {
-            'name': employee.name,
-            'position': employee.position,
-            'company': employee.company,
-            'linkedin_url': employee.linkedin_url,
-            'location': employee.location,
-            'description': employee.description,
-            'ai_score': getattr(employee, 'ai_score', ''),
-            'ai_reason': getattr(employee, 'ai_reason', ''),
-            'is_qualified': getattr(employee, 'is_qualified', False)
-        }
+    def _employee_to_dict(self, employee) -> Dict[str, Any]:
+        """将EmployeeInfo或字典转换为标准字典格式"""
+        if isinstance(employee, dict):
+            # 已经是字典，直接使用安全的get方法
+            return {
+                'name': employee.get('name', ''),
+                'position': employee.get('position', ''),
+                'company': employee.get('company', ''),
+                'linkedin_url': employee.get('linkedin_url', ''),
+                'location': employee.get('location', ''),
+                'description': employee.get('description', ''),
+                'ai_score': employee.get('ai_score', ''),
+                'ai_reason': employee.get('ai_reason', ''),
+                'is_qualified': employee.get('is_qualified', False)
+            }
+        else:
+            # Pydantic模型或其他对象，使用属性访问
+            return {
+                'name': getattr(employee, 'name', ''),
+                'position': getattr(employee, 'position', ''),
+                'company': getattr(employee, 'company', ''),
+                'linkedin_url': getattr(employee, 'linkedin_url', ''),
+                'location': getattr(employee, 'location', ''),
+                'description': getattr(employee, 'description', ''),
+                'ai_score': getattr(employee, 'ai_score', ''),
+                'ai_reason': getattr(employee, 'ai_reason', ''),
+                'is_qualified': getattr(employee, 'is_qualified', False)
+            }
     
     def _generate_search_report(
         self,
@@ -458,27 +490,47 @@ class OutputIntegrationNode:
         
         # 添加顶级结果统计
         if qualified_companies:
-            report["top_companies"] = [
-                {
-                    "name": c.name,
-                    "industry": c.industry,
-                    "ai_score": getattr(c, 'ai_score', 0)
-                }
-                for c in sorted(qualified_companies, key=lambda x: getattr(x, 'ai_score', 0), reverse=True)[:5]
-            ]
+            report["top_companies"] = []
+            for c in sorted(qualified_companies, key=lambda x: self._get_ai_score(x), reverse=True)[:5]:
+                if isinstance(c, dict):
+                    report["top_companies"].append({
+                        "name": c.get('name', ''),
+                        "industry": c.get('industry', ''),
+                        "ai_score": c.get('ai_score', 0)
+                    })
+                else:
+                    report["top_companies"].append({
+                        "name": getattr(c, 'name', ''),
+                        "industry": getattr(c, 'industry', ''),
+                        "ai_score": getattr(c, 'ai_score', 0)
+                    })
         
         if qualified_employees:
-            report["top_employees"] = [
-                {
-                    "name": e.name,
-                    "position": e.position,
-                    "company": e.company,
-                    "ai_score": getattr(e, 'ai_score', 0)
-                }
-                for e in sorted(qualified_employees, key=lambda x: getattr(x, 'ai_score', 0), reverse=True)[:10]
-            ]
+            report["top_employees"] = []
+            for e in sorted(qualified_employees, key=lambda x: self._get_ai_score(x), reverse=True)[:10]:
+                if isinstance(e, dict):
+                    report["top_employees"].append({
+                        "name": e.get('name', ''),
+                        "position": e.get('position', ''),
+                        "company": e.get('company', ''),
+                        "ai_score": e.get('ai_score', 0)
+                    })
+                else:
+                    report["top_employees"].append({
+                        "name": getattr(e, 'name', ''),
+                        "position": getattr(e, 'position', ''),
+                        "company": getattr(e, 'company', ''),
+                        "ai_score": getattr(e, 'ai_score', 0)
+                    })
         
         return report
+    
+    def _get_ai_score(self, item) -> float:
+        """安全地获取AI评分"""
+        if isinstance(item, dict):
+            return item.get('ai_score', 0)
+        else:
+            return getattr(item, 'ai_score', 0)
     
     def _calculate_success_rate(self, state: SearchState) -> float:
         """计算成功率"""

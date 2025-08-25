@@ -20,7 +20,22 @@
       "Bash(curl:*)",
       "Bash(find:*)",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(conda activate:*)",
+      "Bash(conda info:*)",
+      "Bash(ls:*)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python -c \"import streamlit; print(''Streamlit version:'', streamlit.__version__)\")",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/streamlit run pages/7_🔍_Intelligent_Search_LangGraph.py)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python -c \"import langgraph; print(''LangGraph installed'')\")",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python -c \"import langchain; print(''LangChain installed'')\")",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python -c \"\nimport sys\nprint(''Python version:'', sys.version)\nprint(''\\nChecking key dependencies:'')\ndependencies = [\n    ''playwright'',\n    ''pandas'',\n    ''requests'',\n    ''beautifulsoup4'',\n    ''pydantic'',\n    ''typing_extensions'',\n    ''langchain_openai'',\n    ''langchain_anthropic'',\n    ''langchain_google_genai''\n]\nfor dep in dependencies:\n    try:\n        __import__(dep.replace(''-'', ''_''))\n        print(f''✓ {dep} installed'')\n    except ImportError:\n        print(f''✗ {dep} NOT installed'')\n\")",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/pip install beautifulsoup4 langchain_anthropic langchain_google_genai)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/pip install psutil)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/streamlit run streamlit_app.py)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_langgraph_fixes.py)",
+      "Bash(rm:*)",
+      "mcp__zen__listmodels",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

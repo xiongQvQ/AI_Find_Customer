@@ -257,14 +257,25 @@ class EmployeeSearchNode:
                 company = future_to_company[future]
                 try:
                     employees = future.result(timeout=self.config.timeout_per_company)
+                    # 处理字典和对象两种情况
+                    if isinstance(company, dict):
+                        company_name = company.get('name', 'Unknown')
+                    else:
+                        company_name = getattr(company, 'name', 'Unknown')
+                    
                     if employees:
                         all_employees.extend(employees)
-                        self.logger.info(f"在 {company.name} 找到 {len(employees)} 名员工")
+                        self.logger.info(f"在 {company_name} 找到 {len(employees)} 名员工")
                     else:
-                        self.logger.warning(f"在 {company.name} 未找到员工")
+                        self.logger.warning(f"在 {company_name} 未找到员工")
                         
                 except Exception as e:
-                    self.logger.error(f"搜索 {company.name} 员工失败: {e}")
+                    # 处理字典和对象两种情况
+                    if isinstance(company, dict):
+                        company_name = company.get('name', 'Unknown')
+                    else:
+                        company_name = getattr(company, 'name', 'Unknown')
+                    self.logger.error(f"搜索 {company_name} 员工失败: {e}")
                     continue
         
         self.logger.info(f"并行搜索完成，总计找到 {len(all_employees)} 名员工")
@@ -275,8 +286,14 @@ class EmployeeSearchNode:
         """搜索单个公司的员工"""
         
         try:
+            # 处理字典和对象两种情况
+            if isinstance(company, dict):
+                company_name = company.get('name', '')
+            else:
+                company_name = getattr(company, 'name', '')
+            
             # 生成缓存键
-            cache_key = f"{company.name}_{search_criteria['position']}_{search_criteria['location']}"
+            cache_key = f"{company_name}_{search_criteria['position']}_{search_criteria['location']}"
             
             # 检查缓存
             if self.config.enable_cache and cache_key in self.search_cache:
@@ -293,7 +310,7 @@ class EmployeeSearchNode:
             
             # 执行搜索
             raw_employees = searcher.search_employees(
-                company_name=company.name,
+                company_name=company_name,
                 position=search_criteria["position"],
                 location=search_criteria["location"],
                 additional_keywords=search_criteria.get("additional_keywords")
@@ -321,7 +338,7 @@ class EmployeeSearchNode:
             return standardized_employees
             
         except Exception as e:
-            self.logger.error(f"搜索 {company.name} 员工时发生错误: {e}")
+            self.logger.error(f"搜索 {company_name} 员工时发生错误: {e}")
             return []
     
     def _standardize_employee_results(self, raw_employees: List[Dict[str, Any]], 
@@ -330,15 +347,23 @@ class EmployeeSearchNode:
         
         standardized_employees = []
         
+        # 处理字典和对象两种情况
+        if isinstance(company, dict):
+            company_name = company.get('name', '')
+            company_location = company.get('location', '')
+        else:
+            company_name = getattr(company, 'name', '')
+            company_location = getattr(company, 'location', '')
+        
         for raw_employee in raw_employees:
             try:
                 # 创建标准化的员工信息
                 employee = EmployeeInfo(
                     name=raw_employee.get("name", "").strip(),
                     position=raw_employee.get("position", ""),
-                    company=company.name,
+                    company=company_name,
                     linkedin_url=raw_employee.get("linkedin_url", raw_employee.get("url", "")),
-                    location=raw_employee.get("location", company.location or ""),
+                    location=raw_employee.get("location", company_location),
                     description=raw_employee.get("description", raw_employee.get("snippet", ""))
                 )
                 

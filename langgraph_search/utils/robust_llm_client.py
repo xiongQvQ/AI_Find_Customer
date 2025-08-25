@@ -11,6 +11,11 @@ import logging
 from enum import Enum
 import asyncio
 from functools import wraps
+import os
+from dotenv import load_dotenv
+
+# 确保加载环境变量
+load_dotenv()
 
 # 导入现有的LLM客户端
 try:

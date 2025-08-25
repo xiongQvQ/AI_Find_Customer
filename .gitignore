@@ -23,6 +23,8 @@ var/
 # Claude Code configuration
 CLAUDE.md
 .claude/
+claude.json
+.claude.json
 # Virtual Environment
 venv/
 ENV/

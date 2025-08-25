@@ -22,7 +22,7 @@ from ..utils.performance_manager import get_performance_manager, performance_cac
 @dataclass 
 class CompanySearchConfig:
     """公司搜索配置"""
-    max_results: int = 50
+    max_results: int = 20  # 降低到20个结果，避免前端显示问题
     gl: str = "us"
     search_type: str = "general"  # "general" or "linkedin" 
     timeout: int = 30
@@ -204,8 +204,8 @@ class CompanySearchNode:
     
     
     def _standardize_search_results(self, raw_results: List[Dict[str, Any]], 
-                                  state: SearchState) -> List[CompanyInfo]:
-        """将搜索结果标准化为CompanyInfo对象"""
+                                  state: SearchState) -> List[Dict[str, Any]]:
+        """将搜索结果标准化为字典格式（兼容LangGraph序列化）"""
         standardized_companies = []
         
         for raw_company in raw_results:
@@ -213,21 +213,26 @@ class CompanySearchNode:
                 # 提取域名
                 domain = self._extract_domain_from_result(raw_company)
                 
-                # 创建标准化的公司信息
-                company = CompanyInfo(
-                    name=raw_company.get("name", "").strip(),
-                    domain=domain,
-                    industry=raw_company.get("industry", ""),
-                    size=raw_company.get("size", ""),
-                    location=raw_company.get("location", raw_company.get("region", "")),
-                    description=raw_company.get("description", raw_company.get("snippet", "")),
-                    linkedin_url=raw_company.get("linkedin", ""),
-                    website_url=raw_company.get("url", "")
-                )
+                # 创建标准化的公司信息字典
+                company_dict = {
+                    "name": raw_company.get("name", "").strip(),
+                    "domain": domain,
+                    "industry": raw_company.get("industry", ""),
+                    "size": raw_company.get("size", ""),
+                    "location": raw_company.get("location", raw_company.get("region", "")),
+                    "description": raw_company.get("description", raw_company.get("snippet", "")),
+                    "linkedin_url": raw_company.get("linkedin", ""),
+                    "website_url": raw_company.get("url", ""),
+                    # AI评估相关字段初始化
+                    "ai_score": None,
+                    "ai_reason": None,
+                    "is_qualified": None
+                }
                 
                 # 只添加有效的公司信息
-                if company.name and (company.domain or company.linkedin_url or company.website_url):
-                    standardized_companies.append(company)
+                name = company_dict.get("name")
+                if name and (company_dict.get("domain") or company_dict.get("linkedin_url") or company_dict.get("website_url")):
+                    standardized_companies.append(company_dict)
                 
             except Exception as e:
                 self.logger.warning(f"标准化公司信息失败: {e}")

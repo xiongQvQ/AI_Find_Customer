@@ -65,10 +65,10 @@ class EmployeeInfo(BaseModel):
 
 class SearchResult(TypedDict):
     """搜索结果汇总"""
-    companies: List[CompanyInfo]
-    employees: List[EmployeeInfo] 
-    qualified_companies: List[CompanyInfo]
-    qualified_employees: List[EmployeeInfo]
+    companies: List[Dict[str, Any]]  # 改为字典类型以兼容LangGraph序列化
+    employees: List[Dict[str, Any]]  # 改为字典类型以兼容LangGraph序列化
+    qualified_companies: List[Dict[str, Any]]  # 改为字典类型以兼容LangGraph序列化
+    qualified_employees: List[Dict[str, Any]]  # 改为字典类型以兼容LangGraph序列化
     
     # 统计信息
     total_companies_found: int
