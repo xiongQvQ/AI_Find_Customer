@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..state import SearchState, create_initial_state
-from ..nodes.intent_recognition import intent_recognition_node
+from ..nodes.enhanced_intent_recognition import enhanced_intent_recognition_node
 from ..nodes.company_search import company_search_node
 from ..nodes.robust_ai_evaluation import robust_ai_evaluation_node
 from ..nodes.employee_search import employee_search_node
@@ -149,9 +149,9 @@ class SearchWorkflowGraph:
     # ============ 节点包装函数 ============
     
     def _intent_recognition_wrapper(self, state: SearchState) -> SearchState:
-        """意图识别节点包装器"""
+        """增强版意图识别节点包装器"""
         try:
-            result_state = intent_recognition_node.execute(state)
+            result_state = enhanced_intent_recognition_node.execute(state)
             result_state["current_node"] = "intent_recognition"
             return result_state
         except Exception as e:

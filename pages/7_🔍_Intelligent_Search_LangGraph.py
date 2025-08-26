@@ -294,7 +294,7 @@ def display_workflow_progress(state: Dict[str, Any]):
             """, unsafe_allow_html=True)
 
 def display_search_results(result: Dict[str, Any]):
-    """显示搜索结果 - 增强错误处理版本"""
+    """显示搜索结果 - 修复代码结构错误版本"""
     try:
         # 第一层验证：结果存在性
         if not result:
@@ -357,117 +357,121 @@ def display_search_results(result: Dict[str, Any]):
                 3. 可以尝试刷新页面以恢复完整功能
                 """)
             # 继续显示结果，不要返回
-    
-    except Exception as e:
-        st.error(f"❌ 结果显示异常: {str(e)}")
-        st.info("💡 结果解析出现问题，请重新搜索")
+
+        # 搜索摘要 - 移动到try块内，确保变量作用域正确
+        st.markdown("### 📊 搜索摘要")
         
-        # 显示调试信息
-        with st.expander("🔍 调试信息"):
-            st.write("**结果类型:**", type(result))
-            st.write("**结果内容:**", str(result)[:500] + "..." if len(str(result)) > 500 else str(result))
-        return
-    
-    # 搜索摘要
-    st.markdown("### 📊 搜索摘要")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    companies = search_results.get("companies", [])
-    qualified_companies = search_results.get("qualified_companies", [])
-    employees = search_results.get("employees", [])
-    qualified_employees = search_results.get("qualified_employees", [])
-    
-    with col1:
-        st.metric("找到公司", len(companies))
-    
-    with col2:
-        st.metric("合格公司", len(qualified_companies))
-    
-    with col3:
-        st.metric("找到员工", len(employees))
-    
-    with col4:
-        st.metric("合格员工", len(qualified_employees))
-    
-    # 意图识别结果
-    st.markdown("### 🧠 意图识别结果")
-    
-    intent = state.get("detected_intent", "unknown")
-    confidence = state.get("intent_confidence", 0.0)
-    reasoning = state.get("intent_reasoning", "")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        display_intent_badge(intent, confidence)
-    
-    with col2:
-        if reasoning:
-            with st.expander("📋 识别详情"):
-                st.text(reasoning)
-    
-    # 公司搜索结果
-    if qualified_companies:
-        st.markdown("### 🏢 推荐公司")
+        col1, col2, col3, col4 = st.columns(4)
         
-        # 筛选控制
-        col1, col2 = st.columns(2)
+        companies = search_results.get("companies", [])
+        qualified_companies = search_results.get("qualified_companies", [])
+        employees = search_results.get("employees", [])
+        qualified_employees = search_results.get("qualified_employees", [])
         
         with col1:
-            min_score = st.slider("最低AI评分", 0.0, 10.0, 0.0, 0.5)
+            st.metric("找到公司", len(companies))
         
         with col2:
-            show_all = st.checkbox("显示所有公司", value=False)
+            st.metric("合格公司", len(qualified_companies))
         
-        display_companies = qualified_companies if show_all else [
-            c for c in qualified_companies 
-            if safe_get_attribute(c, 'ai_score', 0) >= min_score
-        ]
+        with col3:
+            st.metric("找到员工", len(employees))
         
-        for i, company in enumerate(display_companies, 1):
-            display_company_result_card(company, i)
-    elif companies:  # 如果有公司但没有合格的，显示所有公司
-        st.markdown("### 🏢 搜索到的公司")
-        st.info("💡 没有公司达到推荐标准（AI评分≥60），显示所有搜索结果")
+        with col4:
+            st.metric("合格员工", len(qualified_employees))
         
-        # 显示所有公司
-        for i, company in enumerate(companies, 1):
-            display_company_result_card(company, i)
-    
-    # 员工搜索结果
-    if qualified_employees:
-        st.markdown("### 👥 推荐员工")
+        # 意图识别结果
+        st.markdown("### 🧠 意图识别结果")
         
-        for i, employee in enumerate(qualified_employees, 1):
-            display_employee_result_card(employee, i)
-    elif employees:  # 如果有员工但没有合格的，显示所有员工
-        st.markdown("### 👥 搜索到的员工")
-        st.info("💡 没有员工达到推荐标准（AI评分≥70），显示所有搜索结果")
+        intent = state.get("detected_intent", "unknown")
+        confidence = state.get("intent_confidence", 0.0)
+        reasoning = state.get("intent_reasoning", "")
         
-        # 显示所有员工
-        for i, employee in enumerate(employees, 1):
-            display_employee_result_card(employee, i)
-    
-    # 如果没有任何结果
-    if not companies and not employees:
-        st.warning("⚠️ 没有找到任何搜索结果")
-        st.info("""
-        💡 **建议：**
-        - 尝试使用更通用的搜索词
-        - 检查地区和行业设置是否过于具体
-        - 确保搜索查询描述清晰
-        """)
-    
-    # 错误和警告处理
-    display_errors_and_warnings(state)
-    
-    # 澄清建议
-    display_clarification_suggestions(state)
-    
-    # 导出功能
-    st.markdown("### 📥 导出结果")
-    export_search_results(state)
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            display_intent_badge(intent, confidence)
+        
+        with col2:
+            if reasoning:
+                with st.expander("📋 识别详情"):
+                    st.text(reasoning)
+        
+        # 公司搜索结果
+        if qualified_companies:
+            st.markdown("### 🏢 推荐公司")
+            
+            # 筛选控制
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                min_score = st.slider("最低AI评分", 0.0, 10.0, 0.0, 0.5)
+            
+            with col2:
+                show_all = st.checkbox("显示所有公司", value=False)
+            
+            display_companies = qualified_companies if show_all else [
+                c for c in qualified_companies 
+                if safe_get_attribute(c, 'ai_score', 0) >= min_score
+            ]
+            
+            for i, company in enumerate(display_companies, 1):
+                display_company_result_card(company, i)
+        elif companies:  # 如果有公司但没有合格的，显示所有公司
+            st.markdown("### 🏢 搜索到的公司")
+            st.info("💡 没有公司达到推荐标准（AI评分≥60），显示所有搜索结果")
+            
+            # 显示所有公司
+            for i, company in enumerate(companies, 1):
+                display_company_result_card(company, i)
+        
+        # 员工搜索结果
+        if qualified_employees:
+            st.markdown("### 👥 推荐员工")
+            
+            for i, employee in enumerate(qualified_employees, 1):
+                display_employee_result_card(employee, i)
+        elif employees:  # 如果有员工但没有合格的，显示所有员工
+            st.markdown("### 👥 搜索到的员工")
+            st.info("💡 没有员工达到推荐标准（AI评分≥70），显示所有搜索结果")
+            
+            # 显示所有员工
+            for i, employee in enumerate(employees, 1):
+                display_employee_result_card(employee, i)
+        
+        # 如果没有任何结果
+        if not companies and not employees:
+            st.warning("⚠️ 没有找到任何搜索结果")
+            st.info("""
+            💡 **建议：**
+            - 尝试使用更通用的搜索词
+            - 检查地区和行业设置是否过于具体
+            - 确保搜索查询描述清晰
+            """)
+        
+        # 错误和警告处理
+        display_errors_and_warnings(state)
+        
+        # 澄清建议
+        display_clarification_suggestions(state)
+        
+        # 导出功能
+        st.markdown("### 📥 导出结果")
+        export_search_results(state)
+        
+    except Exception as e:
+        st.error(f"❌ 搜索结果显示错误: {str(e)}")
+        st.info("💡 请尝试刷新页面重新搜索")
+        
+        # 提供调试信息
+        with st.expander("🔍 调试信息", expanded=False):
+            st.text(f"错误类型: {type(e).__name__}")
+            st.text(f"错误详情: {str(e)}")
+            if result:
+                st.text(f"结果类型: {type(result)}")
+                st.text(f"结果键: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
+            else:
+                st.text("结果为空")
 
 def display_company_result_card(company, rank: int):
     """显示公司结果卡片 - 增强安全性版本"""
@@ -787,33 +791,48 @@ def main():
     display_api_status()
     
     # 系统健康检查
-    if not check_system_health():
-        st.stop()
+    system_healthy = check_system_health()
+    search_graph = None
+    if system_healthy:
+        search_graph = initialize_langgraph_search()
     
-    # 初始化LangGraph搜索系统
-    search_graph = initialize_langgraph_search()
-    if not search_graph:
-        st.stop()
-    
-    # 主界面标签页
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🔍 智能搜索", 
-        "📊 搜索结果", 
-        "📈 搜索历史",
-        "⚡ 性能监控"
-    ])
-    
-    with tab1:
-        intelligent_search_interface(search_graph)
-    
-    with tab2:
-        search_results_interface()
-    
-    with tab3:
-        search_history_interface()
+    if system_healthy and search_graph:
+        # All checks passed, render the main UI
+        # 主界面标签页
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "🔍 智能搜索", 
+            "📊 搜索结果", 
+            "📈 搜索历史",
+            "⚡ 性能监控"
+        ])
         
-    with tab4:
-        performance_monitoring_interface()
+        with tab1:
+            intelligent_search_interface(search_graph)
+        
+        with tab2:
+            search_results_interface()
+        
+        with tab3:
+            search_history_interface()
+            
+        with tab4:
+            performance_monitoring_interface()
+    else:
+        # Initialization failed, show error guidance
+        st.error("❌ 系统初始化失败")
+        
+        if not system_healthy:
+            st.warning("⚠️ 系统健康检查未通过，请检查LangGraph模块配置")
+        elif not search_graph:
+            st.warning("⚠️ LangGraph搜索系统初始化失败，请检查模块安装")
+            
+        st.info("""
+        💡 **解决方案**:
+        1. 确保所有依赖模块已正确安装
+        2. 检查 `.env` 文件中的API密钥配置
+        3. 重启应用程序
+        4. 如果问题持续，请查看终端中的详细错误信息
+        """)
 
 def intelligent_search_interface(search_graph):
     """智能搜索界面"""
@@ -882,35 +901,125 @@ def intelligent_search_interface(search_graph):
         # 搜索按钮
         if user_query and not st.session_state.langgraph_search_in_progress:
             if st.button("🚀 开始智能搜索", type="primary", use_container_width=True):
-                execute_langgraph_search(
-                    search_graph, 
-                    user_query, 
-                    ai_evaluation_enabled=ai_evaluation_enabled,
-                    max_companies=max_companies,
-                    max_employees=max_employees
-                )
+                # 立即设置搜索状态以更新UI
+                st.session_state.langgraph_search_in_progress = True
+                # 保存搜索参数用于后续执行
+                st.session_state.pending_search = {
+                    'user_query': user_query,
+                    'ai_evaluation_enabled': ai_evaluation_enabled,
+                    'max_companies': max_companies,
+                    'max_employees': max_employees
+                }
+                st.rerun()  # 强制页面立即更新按钮状态
         
         elif st.session_state.langgraph_search_in_progress:
-            st.warning("🔄 搜索进行中...")
+            # 显示动态搜索状态
+            current_state = st.session_state.get('langgraph_current_state', {})
+            current_node = current_state.get('current_node', 'initializing')
+            workflow_path = current_state.get('workflow_path', [])
+            
+            # 状态指示器
+            status_text = get_search_status_text(current_node, workflow_path)
+            st.warning(f"🔄 {status_text}")
+            
+            # 显示进度条（如果有工作流路径）
+            if workflow_path:
+                progress_value = len(workflow_path) / 10  # 假设10步为完成
+                st.progress(min(progress_value, 1.0))
+                st.caption(f"工作流步骤: {' → '.join(workflow_path[-3:])}")  # 显示最后3步
+            
             if st.button("⏹️ 停止搜索", use_container_width=True):
                 st.session_state.langgraph_search_in_progress = False
+                if 'pending_search' in st.session_state:
+                    del st.session_state.pending_search
                 st.success("搜索已停止")
                 st.rerun()
         
         else:
             st.info("请先输入搜索需求")
     
-    # 实时进度显示
-    if st.session_state.langgraph_search_in_progress and 'langgraph_current_state' in st.session_state:
+    # 执行pending search（在UI更新后）
+    if st.session_state.get('pending_search') and st.session_state.langgraph_search_in_progress:
+        pending_params = st.session_state.pending_search
+        # 清除pending状态
+        del st.session_state.pending_search
+        # 执行搜索
+        execute_langgraph_search(
+            search_graph,
+            pending_params['user_query'],
+            ai_evaluation_enabled=pending_params['ai_evaluation_enabled'],
+            max_companies=pending_params['max_companies'],
+            max_employees=pending_params['max_employees']
+        )
+    
+    # 实时进度显示和自动刷新
+    if st.session_state.langgraph_search_in_progress:
         st.markdown("---")
+        
+        # 添加自动刷新机制
+        import time
+        if 'last_refresh' not in st.session_state:
+            st.session_state.last_refresh = time.time()
+        
+        # 每2秒自动刷新一次
+        current_time = time.time()
+        if current_time - st.session_state.last_refresh > 2:
+            st.session_state.last_refresh = current_time
+            st.rerun()
+        
         with st.container():
             st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-            display_workflow_progress(st.session_state.langgraph_current_state)
+            
+            # 显示当前状态
+            current_state = st.session_state.get('langgraph_current_state', {})
+            if current_state:
+                display_workflow_progress(current_state)
+            else:
+                st.info("🚀 搜索正在后台运行...")
+                st.caption("正在初始化搜索引擎...")
+            
             st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 添加刷新按钮
+        if st.button("🔄 刷新状态", key="refresh_status"):
+            st.rerun()
+
+def get_search_status_text(current_node: str, workflow_path: list) -> str:
+    """获取友好的搜索状态文本"""
+    status_map = {
+        'initializing': '正在初始化搜索工作流...',
+        'intent_recognition': '正在分析搜索意图...',
+        'company_search': '正在搜索公司信息...',
+        'employee_search': '正在搜索员工信息...',
+        'ai_evaluation': '正在进行AI智能评估...',
+        'output_integration': '正在整理搜索结果...',
+        'clarification': '正在澄清搜索意图...'
+    }
+    
+    # 根据工作流路径判断进度
+    if not workflow_path:
+        return '正在启动智能搜索...'
+    
+    latest_step = workflow_path[-1] if workflow_path else ''
+    
+    # 特殊处理一些状态
+    if 'company_search' in latest_step:
+        return '正在搜索目标公司...'
+    elif 'employee_search' in latest_step:
+        return '正在搜索关键员工...'
+    elif 'ai_evaluation' in latest_step:
+        return 'AI正在评估搜索结果...'
+    elif 'output_integration' in latest_step:
+        return '正在生成搜索报告...'
+    elif 'completed' in latest_step:
+        return '搜索即将完成...'
+    
+    # 使用默认映射
+    return status_map.get(current_node, f'正在执行: {current_node}')
 
 def execute_langgraph_search(search_graph, user_query: str, **kwargs):
     """执行LangGraph智能搜索 - 增强错误处理版本"""
-    st.session_state.langgraph_search_in_progress = True
+    # 注意：搜索状态已在调用前设置
     st.session_state.langgraph_current_state = {}
     
     # 创建进度显示容器
@@ -920,8 +1029,14 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
         with progress_placeholder.container():
             st.info("🚀 正在启动LangGraph智能搜索工作流...")
             
-            # 执行搜索
-            result = search_graph.execute_search(user_query, **kwargs)
+            # 执行搜索 - 在这里我们可以考虑添加进度回调
+            with st.spinner('正在执行智能搜索...'):
+                result = search_graph.execute_search(user_query, **kwargs)
+                
+                # 尝试获取最终状态用于UI显示
+                if result and result.get('success') and 'result' in result:
+                    final_state = result['result']
+                    st.session_state.langgraph_current_state = final_state
             
             # 保存结果到历史记录
             if 'langgraph_search_history' not in st.session_state:
@@ -941,30 +1056,83 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
             if result and result.get('success'):
                 state = result.get('result', {})
                 
-                # 验证状态完整性 - 防止白屏的关键检查
-                if not state:
-                    progress_placeholder.error("❌ 搜索结果状态为空，可能存在内部错误")
-                    handle_search_error("empty_state", "搜索结果状态为空", progress_placeholder)
-                    return
-                    
-                search_results = state.get('search_results', {})
-                if not isinstance(search_results, dict):
-                    progress_placeholder.error("❌ 搜索结果格式错误")
-                    handle_search_error("invalid_format", "搜索结果格式不正确", progress_placeholder)
-                    return
+                # 验证状态完整性 - 但不要完全阻止结果保存
+                validation_warnings = []
                 
-                # 检查输出集成错误 - 专门处理我们刚修复的问题
-                if 'output_integration_error' in state:
-                    error_msg = state['output_integration_error']
-                    progress_placeholder.error(f"❌ 输出集成错误: {error_msg}")
-                    handle_search_error("output_integration", error_msg, progress_placeholder)
-                    return
+                if not state:
+                    validation_warnings.append("搜索结果状态为空")
+                else:
+                    search_results = state.get('search_results', {})
+                    if not isinstance(search_results, dict):
+                        validation_warnings.append("搜索结果格式不正确")
+                    
+                    # 检查输出集成错误
+                    if 'output_integration_error' in state:
+                        validation_warnings.append(f"输出集成错误: {state['output_integration_error']}")
+                
+                # 如果有验证警告，显示但继续处理
+                if validation_warnings:
+                    for warning in validation_warnings:
+                        progress_placeholder.warning(f"⚠️ {warning}")
+                    st.warning("⚠️ 检测到数据问题，但仍会尝试显示结果")
+                    
+                    # 确保至少保存了基本的搜索结果供调试
+                    if not state:
+                        # 创建最小状态结构
+                        state = {"search_results": {"companies": [], "employees": [], "qualified_companies_count": 0, "qualified_employees_count": 0}}
+                        
+                # 继续处理，不要返回
+                search_results = state.get('search_results', {})
                 
                 companies_count = len(search_results.get('companies', []))
                 employees_count = len(search_results.get('employees', []))
+                qualified_companies_count = search_results.get('qualified_companies_count', 0)
                 
-                progress_placeholder.success(f"✅ 搜索完成！找到 {companies_count} 家公司，{employees_count} 名员工")
-                st.balloons()
+                # 检查AI评估状态
+                ai_evaluation_completed = state.get('ai_evaluation_completed', False)
+                ai_evaluation_enabled = state.get('ai_evaluation_enabled', False)
+                
+                if ai_evaluation_enabled and not ai_evaluation_completed:
+                    # AI评估启用但未完成 - 可能遇到了问题
+                    progress_placeholder.warning(f"⚠️ 搜索完成！找到 {companies_count} 家公司，{employees_count} 名员工，但AI评估未完成")
+                    st.warning("AI智能评估可能遇到问题，显示所有搜索结果供您参考")
+                elif ai_evaluation_enabled and ai_evaluation_completed:
+                    # AI评估正常完成
+                    progress_placeholder.success(f"✅ 搜索完成！找到 {companies_count} 家公司，{employees_count} 名员工，AI筛选出 {qualified_companies_count} 家合格公司")
+                    st.balloons()
+                else:
+                    # AI评估未启用
+                    progress_placeholder.success(f"✅ 搜索完成！找到 {companies_count} 家公司，{employees_count} 名员工")
+                    st.balloons()
+                
+                # 检查AI评估是否存在问题
+                companies = search_results.get('companies', [])
+                if companies and ai_evaluation_enabled:
+                    none_scores = sum(1 for c in companies if c.get('ai_score') is None)
+                    if none_scores > 0:
+                        st.warning(f"⚠️ 发现 {none_scores} 家公司的AI评分为空，可能是AI评估过程中遇到了问题。建议检查API配置或联系技术支持。")
+                        
+                        # 提供诊断信息
+                        with st.expander("🔧 AI评估诊断信息"):
+                            st.write(f"- AI评估启用: {ai_evaluation_enabled}")
+                            st.write(f"- AI评估完成: {ai_evaluation_completed}")
+                            st.write(f"- 总公司数: {companies_count}")
+                            st.write(f"- 有AI评分的公司: {companies_count - none_scores}")
+                            st.write(f"- AI评分为空的公司: {none_scores}")
+                            st.write(f"- 合格公司数: {qualified_companies_count}")
+                            
+                            # 显示工作流路径用于诊断
+                            workflow_path = state.get('workflow_path', [])
+                            if workflow_path:
+                                st.write(f"- 工作流路径: {' → '.join(workflow_path)}")
+                            
+                            # 显示错误和警告
+                            errors = state.get('errors', [])
+                            warnings = state.get('warnings', [])
+                            if errors:
+                                st.write(f"- 错误: {errors}")
+                            if warnings:
+                                st.write(f"- 警告: {warnings}")
                 
                 # 显示最终工作流状态
                 st.session_state.langgraph_current_state = state
@@ -976,9 +1144,57 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
                 st.info("💡 点击上方 '📊 搜索结果' 标签页查看详细结果")
                 
             else:
+                # 搜索失败的情况 - 但先检查是否有部分结果
                 error_msg = result.get('error', '未知错误') if result else '无响应结果'
-                progress_placeholder.error(f"❌ 搜索失败: {error_msg}")
-                handle_search_error("search_failed", error_msg, progress_placeholder)
+                
+                # 检查是否有部分搜索结果（可能搜索成功但AI评估失败）
+                if result and 'result' in result:
+                    partial_state = result.get('result', {})
+                    partial_search_results = partial_state.get('search_results', {})
+                    partial_companies = partial_search_results.get('companies', [])
+                    
+                    if partial_companies:
+                        # 有搜索结果但标记为失败 - 可能是AI评估问题
+                        companies_count = len(partial_companies)
+                        progress_placeholder.warning(f"⚠️ 搜索部分成功！找到 {companies_count} 家公司，但处理过程中遇到问题")
+                        st.warning(f"搜索找到了结果，但后续处理失败：{error_msg}")
+                        
+                        # 构造一个可用的结果结构供结果页面显示
+                        fixed_result = {
+                            'success': True,  # 标记为成功以便结果页面显示
+                            'result': partial_state,
+                            'error_context': error_msg  # 保存错误信息供调试
+                        }
+                        st.session_state.langgraph_search_results = fixed_result
+                        st.session_state.langgraph_current_state = partial_state
+                        history_record['success'] = True  # 标记为成功因为有结果
+                        
+                        with st.expander("🔧 问题诊断"):
+                            st.write(f"错误信息: {error_msg}")
+                            st.write(f"找到公司数: {companies_count}")
+                            st.write("建议：可以在结果页面查看已找到的公司信息")
+                            
+                        st.info("💡 点击上方 '📊 搜索结果' 标签页查看已找到的结果")
+                    else:
+                        # 完全没有结果的失败 - 但仍然保存错误信息供调试
+                        error_result = {
+                            'success': False,
+                            'error': error_msg,
+                            'result': {}
+                        }
+                        st.session_state.langgraph_search_results = error_result
+                        progress_placeholder.error(f"❌ 搜索失败: {error_msg}")
+                        handle_search_error("search_failed", error_msg, progress_placeholder)
+                else:
+                    # 完全没有结果的失败 - 保存错误信息
+                    error_result = {
+                        'success': False,
+                        'error': error_msg,
+                        'result': {}
+                    }
+                    st.session_state.langgraph_search_results = error_result
+                    progress_placeholder.error(f"❌ 搜索失败: {error_msg}")
+                    handle_search_error("search_failed", error_msg, progress_placeholder)
             
             # 添加到历史记录
             st.session_state.langgraph_search_history.append(history_record)
@@ -988,6 +1204,15 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
         error_str = str(e)
         progress_placeholder.error(f"❌ 搜索异常: {error_str}")
         
+        # 保存异常结果供调试
+        exception_result = {
+            'success': False,
+            'error': f"搜索异常: {error_str}",
+            'result': {},
+            'exception': True
+        }
+        st.session_state.langgraph_search_results = exception_result
+        
         # 添加异常到历史记录
         if 'langgraph_search_history' not in st.session_state:
             st.session_state.langgraph_search_history = []
@@ -995,7 +1220,7 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
         st.session_state.langgraph_search_history.append({
             'timestamp': datetime.now().isoformat(),
             'query': user_query,
-            'result': {'error': error_str, 'success': False},
+            'result': exception_result,
             'success': False
         })
         
@@ -1003,9 +1228,29 @@ def execute_langgraph_search(search_graph, user_query: str, **kwargs):
 
 def search_results_interface():
     """搜索结果界面"""
-    if 'langgraph_search_results' not in st.session_state or not st.session_state.langgraph_search_results:
-        st.info("暂无搜索结果。请先在'🔍 智能搜索'标签页执行搜索。")
+    # 调试信息
+    if 'langgraph_search_results' not in st.session_state:
+        st.info("❌ 搜索结果状态不存在。请先在'🔍 智能搜索'标签页执行搜索。")
         return
+    
+    if not st.session_state.langgraph_search_results:
+        st.info("❌ 搜索结果为空。请先在'🔍 智能搜索'标签页执行搜索。")
+        return
+    
+    # 显示调试信息（可选，帮助定位问题）
+    with st.expander("🔍 调试信息", expanded=False):
+        st.write("搜索结果状态存在:", 'langgraph_search_results' in st.session_state)
+        st.write("结果数据类型:", type(st.session_state.langgraph_search_results))
+        if st.session_state.langgraph_search_results:
+            result = st.session_state.langgraph_search_results
+            st.write("结果成功标志:", result.get('success'))
+            if result.get('success') and 'result' in result:
+                state = result['result']
+                search_results = state.get('search_results', {})
+                st.write("公司数量:", len(search_results.get('companies', [])))
+                st.write("员工数量:", len(search_results.get('employees', [])))
+                st.write("合格公司数量:", search_results.get('qualified_companies_count', 0))
+                st.write("合格员工数量:", search_results.get('qualified_employees_count', 0))
     
     st.markdown('<h2 class="section-header">📊 LangGraph搜索结果</h2>', unsafe_allow_html=True)
     

@@ -1,0 +1,1 @@
+{"version":3,"file":"tokens.mjs","sources":["../../../../../../packages/components/timeline/src/tokens.ts"],"sourcesContent":["export const TIMELINE_INJECTION_KEY = 'timeline'\n"],"names":[],"mappings":"AAAY,MAAC,sBAAsB,GAAG;;;;"}

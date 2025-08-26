@@ -76,7 +76,10 @@ if not api_status["SERPER_API_KEY"]:
             ```
             3. Restart the application
             """)
-    st.stop()
+    # Removed st.stop() to allow multi-page app routing to work properly
+else:
+    # Only show main content when API is configured
+    pass
 
 # Display configuration status in sidebar
 display_api_status()

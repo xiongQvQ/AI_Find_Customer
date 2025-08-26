@@ -35,7 +35,17 @@
       "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_langgraph_fixes.py)",
       "Bash(rm:*)",
       "mcp__zen__listmodels",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(timeout 15s streamlit run streamlit_app.py --headless)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_llm_status.py)",
+      "Bash(timeout:*)",
+      "Bash(pkill:*)",
+      "Bash(kill:*)",
+      "mcp__ide__executeCode",
+      "Bash(npm install)",
+      "Bash(sudo chown:*)",
+      "Bash(npm install:*)",
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_enhanced_intent.py)"
     ],
     "deny": []
   }

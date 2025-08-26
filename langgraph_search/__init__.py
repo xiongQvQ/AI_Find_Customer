@@ -8,7 +8,7 @@ __author__ = "AI开发团队"
 
 from .state import SearchState, create_initial_state, SearchIntent
 from .workflows.base_graph import SearchWorkflowGraph, create_search_graph
-from .nodes.intent_recognition import IntentRecognitionNode
+from .nodes.enhanced_intent_recognition import EnhancedIntentRecognitionNode
 from .utils.smart_router import SmartRouter
 
 __all__ = [
@@ -17,6 +17,6 @@ __all__ = [
     "SearchIntent",
     "SearchWorkflowGraph",
     "create_search_graph",
-    "IntentRecognitionNode", 
+    "EnhancedIntentRecognitionNode", 
     "SmartRouter"
 ]

@@ -1,0 +1,240 @@
+import type { InjectionKey, Ref, SetupContext } from 'vue';
+import type { AllowDragFunction, AllowDropFunction, FakeNode, NodeDropType } from '../tree.type';
+import type TreeStore from './tree-store';
+import type Node from './node';
+interface TreeNode {
+    node: Node;
+    $el?: HTMLElement;
+}
+interface DragOptions {
+    event: DragEvent;
+    treeNode: TreeNode;
+}
+interface Props {
+    props: {
+        allowDrag?: AllowDragFunction;
+        allowDrop?: AllowDropFunction;
+    };
+    ctx: SetupContext<string[]>;
+    el$: Ref<HTMLElement | null>;
+    dropIndicator$: Ref<HTMLElement | null>;
+    store: Ref<TreeStore>;
+}
+export interface DragEvents {
+    treeNodeDragStart: (options: DragOptions) => void;
+    treeNodeDragOver: (options: DragOptions) => void;
+    treeNodeDragEnd: (event: DragEvent) => void;
+}
+export declare const dragEventsKey: InjectionKey<DragEvents>;
+export declare function useDragNodeHandler({ props, ctx, el$, dropIndicator$, store, }: Props): {
+    dragState: Ref<{
+        allowDrop: boolean;
+        dropType: NodeDropType | null;
+        draggingNode: {
+            node: {
+                id: number;
+                text: string | null;
+                checked: boolean;
+                indeterminate: boolean;
+                data: import("../tree.type").TreeNodeData;
+                expanded: boolean;
+                parent: any | null;
+                visible: boolean;
+                isCurrent: boolean;
+                store: {
+                    currentNode: any | null;
+                    currentNodeKey: import("../tree.type").TreeKey | null;
+                    nodesMap: import("../tree.type").TreeStoreNodesMap;
+                    root: any;
+                    data: import("../tree.type").TreeNodeData[];
+                    lazy: boolean;
+                    load?: import("../tree.type").LoadFunction | undefined;
+                    filterNodeMethod?: import("../tree.type").FilterNodeMethodFunction | undefined;
+                    key: import("../tree.type").TreeKey;
+                    defaultCheckedKeys?: import("../tree.type").TreeKey[] | undefined;
+                    checkStrictly: boolean;
+                    defaultExpandedKeys?: import("../tree.type").TreeKey[] | undefined;
+                    autoExpandParent: boolean;
+                    defaultExpandAll: boolean;
+                    checkDescendants: boolean;
+                    props: {
+                        children?: string | undefined;
+                        label?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => string)) | undefined;
+                        disabled?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => boolean)) | undefined;
+                        isLeaf?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => boolean)) | undefined;
+                        class?: ((data: import("../tree.type").TreeNodeData, node: Node) => string | {
+                            [key: string]: boolean;
+                        }) | undefined;
+                    };
+                    initialize: () => void;
+                    filter: (value: import("../tree.type").FilterValue) => void;
+                    setData: (newVal: import("../tree.type").TreeData) => void;
+                    getNode: (data: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => Node;
+                    insertBefore: (data: import("../tree.type").TreeNodeData, refData: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => void;
+                    insertAfter: (data: import("../tree.type").TreeNodeData, refData: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => void;
+                    remove: (data: import("../tree.type").TreeNodeData | Node) => void;
+                    append: (data: import("../tree.type").TreeNodeData, parentData: import("../tree.type").TreeNodeData | import("../tree.type").TreeKey | Node) => void;
+                    _initDefaultCheckedNodes: () => void;
+                    _initDefaultCheckedNode: (node: Node) => void;
+                    setDefaultCheckedKey: (newVal: import("../tree.type").TreeKey[]) => void;
+                    registerNode: (node: Node) => void;
+                    deregisterNode: (node: Node) => void;
+                    getCheckedNodes: (leafOnly?: boolean, includeHalfChecked?: boolean) => import("../tree.type").TreeNodeData[];
+                    getCheckedKeys: (leafOnly?: boolean) => import("../tree.type").TreeKey[];
+                    getHalfCheckedNodes: () => import("../tree.type").TreeNodeData[];
+                    getHalfCheckedKeys: () => import("../tree.type").TreeKey[];
+                    _getAllNodes: () => Node[];
+                    updateChildren: (key: import("../tree.type").TreeKey, data: import("../tree.type").TreeData) => void;
+                    _setCheckedKeys: (key: import("../tree.type").TreeKey, leafOnly: boolean | undefined, checkedKeys: {
+                        [key: string]: boolean;
+                    }) => void;
+                    setCheckedNodes: (array: Node[], leafOnly?: boolean) => void;
+                    setCheckedKeys: (keys: import("../tree.type").TreeKey[], leafOnly?: boolean) => void;
+                    setDefaultExpandedKeys: (keys: import("../tree.type").TreeKey[]) => void;
+                    setChecked: (data: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData, checked: boolean, deep: boolean) => void;
+                    getCurrentNode: () => Node | null;
+                    setCurrentNode: (currentNode: Node) => void;
+                    setUserCurrentNode: (node: Node, shouldAutoExpandParent?: boolean) => void;
+                    setCurrentNodeKey: (key: import("../tree.type").TreeKey | null, shouldAutoExpandParent?: boolean) => void;
+                };
+                isLeafByUser: boolean | undefined;
+                isLeaf: boolean | undefined;
+                canFocus: boolean;
+                level: number;
+                loaded: boolean;
+                childNodes: any[];
+                loading: boolean;
+                initialize: () => void;
+                setData: (data: import("../tree.type").TreeNodeData) => void;
+                readonly label: string;
+                readonly key: import("../tree.type").TreeKey | null | undefined;
+                readonly disabled: boolean;
+                readonly nextSibling: any | null;
+                readonly previousSibling: any | null;
+                contains: (target: Node, deep?: boolean) => boolean;
+                remove: () => void;
+                insertChild: (child?: FakeNode | Node, index?: number, batch?: boolean) => void;
+                insertBefore: (child: FakeNode | Node, ref: Node) => void;
+                insertAfter: (child: FakeNode | Node, ref: Node) => void;
+                removeChild: (child: Node) => void;
+                removeChildByData: (data: import("../tree.type").TreeNodeData | null) => void;
+                expand: (callback?: (() => void) | null, expandParent?: boolean) => void;
+                doCreateChildren: (array: import("../tree.type").TreeNodeData[], defaultProps?: import("../tree.type").TreeNodeLoadedDefaultProps) => void;
+                collapse: () => void;
+                shouldLoadData: () => boolean;
+                updateLeafState: () => void;
+                setChecked: (value?: boolean | string, deep?: boolean, recursion?: boolean, passValue?: boolean) => void;
+                getChildren: (forceInit?: boolean) => import("../tree.type").TreeNodeData | import("../tree.type").TreeNodeData[] | null;
+                updateChildren: () => void;
+                loadData: (callback: (data?: import("../tree.type").TreeNodeData[]) => void, defaultProps?: import("../tree.type").TreeNodeLoadedDefaultProps) => void;
+                eachNode: (callback: (node: Node) => void) => void;
+                reInitChecked: () => void;
+            };
+            $el?: HTMLElement | undefined;
+        } | null;
+        showDropIndicator: boolean;
+        dropNode: {
+            node: {
+                id: number;
+                text: string | null;
+                checked: boolean;
+                indeterminate: boolean;
+                data: import("../tree.type").TreeNodeData;
+                expanded: boolean;
+                parent: any | null;
+                visible: boolean;
+                isCurrent: boolean;
+                store: {
+                    currentNode: any | null;
+                    currentNodeKey: import("../tree.type").TreeKey | null;
+                    nodesMap: import("../tree.type").TreeStoreNodesMap;
+                    root: any;
+                    data: import("../tree.type").TreeNodeData[];
+                    lazy: boolean;
+                    load?: import("../tree.type").LoadFunction | undefined;
+                    filterNodeMethod?: import("../tree.type").FilterNodeMethodFunction | undefined;
+                    key: import("../tree.type").TreeKey;
+                    defaultCheckedKeys?: import("../tree.type").TreeKey[] | undefined;
+                    checkStrictly: boolean;
+                    defaultExpandedKeys?: import("../tree.type").TreeKey[] | undefined;
+                    autoExpandParent: boolean;
+                    defaultExpandAll: boolean;
+                    checkDescendants: boolean;
+                    props: {
+                        children?: string | undefined;
+                        label?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => string)) | undefined;
+                        disabled?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => boolean)) | undefined;
+                        isLeaf?: (string | ((data: import("../tree.type").TreeNodeData, node: Node) => boolean)) | undefined;
+                        class?: ((data: import("../tree.type").TreeNodeData, node: Node) => string | {
+                            [key: string]: boolean;
+                        }) | undefined;
+                    };
+                    initialize: () => void;
+                    filter: (value: import("../tree.type").FilterValue) => void;
+                    setData: (newVal: import("../tree.type").TreeData) => void;
+                    getNode: (data: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => Node;
+                    insertBefore: (data: import("../tree.type").TreeNodeData, refData: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => void;
+                    insertAfter: (data: import("../tree.type").TreeNodeData, refData: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData | Node) => void;
+                    remove: (data: import("../tree.type").TreeNodeData | Node) => void;
+                    append: (data: import("../tree.type").TreeNodeData, parentData: import("../tree.type").TreeNodeData | import("../tree.type").TreeKey | Node) => void;
+                    _initDefaultCheckedNodes: () => void;
+                    _initDefaultCheckedNode: (node: Node) => void;
+                    setDefaultCheckedKey: (newVal: import("../tree.type").TreeKey[]) => void;
+                    registerNode: (node: Node) => void;
+                    deregisterNode: (node: Node) => void;
+                    getCheckedNodes: (leafOnly?: boolean, includeHalfChecked?: boolean) => import("../tree.type").TreeNodeData[];
+                    getCheckedKeys: (leafOnly?: boolean) => import("../tree.type").TreeKey[];
+                    getHalfCheckedNodes: () => import("../tree.type").TreeNodeData[];
+                    getHalfCheckedKeys: () => import("../tree.type").TreeKey[];
+                    _getAllNodes: () => Node[];
+                    updateChildren: (key: import("../tree.type").TreeKey, data: import("../tree.type").TreeData) => void;
+                    _setCheckedKeys: (key: import("../tree.type").TreeKey, leafOnly: boolean | undefined, checkedKeys: {
+                        [key: string]: boolean;
+                    }) => void;
+                    setCheckedNodes: (array: Node[], leafOnly?: boolean) => void;
+                    setCheckedKeys: (keys: import("../tree.type").TreeKey[], leafOnly?: boolean) => void;
+                    setDefaultExpandedKeys: (keys: import("../tree.type").TreeKey[]) => void;
+                    setChecked: (data: import("../tree.type").TreeKey | import("../tree.type").TreeNodeData, checked: boolean, deep: boolean) => void;
+                    getCurrentNode: () => Node | null;
+                    setCurrentNode: (currentNode: Node) => void;
+                    setUserCurrentNode: (node: Node, shouldAutoExpandParent?: boolean) => void;
+                    setCurrentNodeKey: (key: import("../tree.type").TreeKey | null, shouldAutoExpandParent?: boolean) => void;
+                };
+                isLeafByUser: boolean | undefined;
+                isLeaf: boolean | undefined;
+                canFocus: boolean;
+                level: number;
+                loaded: boolean;
+                childNodes: any[];
+                loading: boolean;
+                initialize: () => void;
+                setData: (data: import("../tree.type").TreeNodeData) => void;
+                readonly label: string;
+                readonly key: import("../tree.type").TreeKey | null | undefined;
+                readonly disabled: boolean;
+                readonly nextSibling: any | null;
+                readonly previousSibling: any | null;
+                contains: (target: Node, deep?: boolean) => boolean;
+                remove: () => void;
+                insertChild: (child?: FakeNode | Node, index?: number, batch?: boolean) => void;
+                insertBefore: (child: FakeNode | Node, ref: Node) => void;
+                insertAfter: (child: FakeNode | Node, ref: Node) => void;
+                removeChild: (child: Node) => void;
+                removeChildByData: (data: import("../tree.type").TreeNodeData | null) => void;
+                expand: (callback?: (() => void) | null, expandParent?: boolean) => void;
+                doCreateChildren: (array: import("../tree.type").TreeNodeData[], defaultProps?: import("../tree.type").TreeNodeLoadedDefaultProps) => void;
+                collapse: () => void;
+                shouldLoadData: () => boolean;
+                updateLeafState: () => void;
+                setChecked: (value?: boolean | string, deep?: boolean, recursion?: boolean, passValue?: boolean) => void;
+                getChildren: (forceInit?: boolean) => import("../tree.type").TreeNodeData | import("../tree.type").TreeNodeData[] | null;
+                updateChildren: () => void;
+                loadData: (callback: (data?: import("../tree.type").TreeNodeData[]) => void, defaultProps?: import("../tree.type").TreeNodeLoadedDefaultProps) => void;
+                eachNode: (callback: (node: Node) => void) => void;
+                reInitChecked: () => void;
+            };
+            $el?: HTMLElement | undefined;
+        } | null;
+    }>;
+};
+export {};

@@ -274,7 +274,7 @@ class OutputIntegrationNode:
                 "detected_intent": state["detected_intent"],
                 "intent_confidence": state["intent_confidence"],
                 "workflow_path": state["workflow_path"],
-                "search_params": state["search_params"],
+                "search_params": state["search_params"].dict() if hasattr(state["search_params"], 'dict') else state["search_params"].__dict__ if hasattr(state["search_params"], '__dict__') else str(state["search_params"]),
                 "ai_evaluation_enabled": state.get("ai_evaluation_enabled", False),
                 "errors": state.get("errors", []),
                 "warnings": state.get("warnings", []),
@@ -464,7 +464,7 @@ class OutputIntegrationNode:
                 "intent_confidence": state["intent_confidence"],
                 "workflow_path": state["workflow_path"]
             },
-            "search_params": state["search_params"],
+            "search_params": state["search_params"].dict() if hasattr(state["search_params"], 'dict') else state["search_params"].__dict__ if hasattr(state["search_params"], '__dict__') else str(state["search_params"]),
             "results_summary": {
                 "companies": {
                     "total_found": len(companies),
