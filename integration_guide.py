@@ -68,7 +68,7 @@ class AIAnalyzerManager:
         if self.use_optimized:
             try:
                 # 优先使用Streamlit兼容版本
-                from streamlit_compatible_ai_analyzer import StreamlitCompatibleAIAnalyzer
+                from core.ai_analyzer import AIAnalyzer as StreamlitCompatibleAIAnalyzer
                 print("✅ 使用Streamlit兼容AI分析器 (解决asyncio上下文问题)")
                 return StreamlitCompatibleAIAnalyzer(self.provider, **self.kwargs)
             except ImportError:
@@ -155,7 +155,7 @@ class EmployeeAIAnalyzerManager:
         if self.use_optimized:
             try:
                 # 优先使用Streamlit兼容版本
-                from streamlit_compatible_ai_analyzer import StreamlitCompatibleEmployeeAIAnalyzer
+                from core.ai_analyzer import AIAnalyzer as StreamlitCompatibleEmployeeAIAnalyzer
                 print("✅ 使用Streamlit兼容员工AI分析器")
                 return StreamlitCompatibleEmployeeAIAnalyzer(self.provider, **self.kwargs)
             except ImportError:

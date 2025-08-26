@@ -213,7 +213,7 @@ def run_unittest_tests(args):
     if args.integration:
         test_modules.extend([
             "integration.test_workflow_integration",
-            "integration.test_streamlit_integration"
+            # "integration.test_streamlit_integration"  # Removed - no longer using Streamlit
         ])
     if args.e2e:
         test_modules.append("e2e.test_end_to_end_scenarios")

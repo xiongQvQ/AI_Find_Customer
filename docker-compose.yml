@@ -1,16 +1,33 @@
 version: '3.8'
 
 services:
-  ai-customer-finder:
-    build: .
-    container_name: ai-customer-finder
+  # FastAPI Backend
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-finder-backend
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
       - ./output:/app/output
       - ./.env:/app/.env:ro
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - ai-finder-network
+
+  # Vue.js Frontend  
+  frontend:
+    build:
+      context: ./vue_app
+      dockerfile: Dockerfile
+    container_name: ai-finder-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
     restart: unless-stopped
     networks:
       - ai-finder-network

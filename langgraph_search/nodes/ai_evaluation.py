@@ -13,7 +13,7 @@ from dataclasses import dataclass
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from streamlit_compatible_ai_analyzer import StreamlitCompatibleAIAnalyzer
+from core.ai_analyzer import AIAnalyzer as StreamlitCompatibleAIAnalyzer
 from ..state import SearchState, CompanyInfo, EmployeeInfo, add_error_to_state, add_warning_to_state
 
 @dataclass

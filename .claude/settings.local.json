@@ -45,7 +45,10 @@
       "Bash(npm install)",
       "Bash(sudo chown:*)",
       "Bash(npm install:*)",
-      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_enhanced_intent.py)"
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_enhanced_intent.py)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }
