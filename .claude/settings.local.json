@@ -48,7 +48,11 @@
       "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_enhanced_intent.py)",
       "Bash(npm run dev:*)",
       "Bash(npm run build:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(bash:*)",
+      "mcp__zen__consensus",
+      "Bash(touch:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }

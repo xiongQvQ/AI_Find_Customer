@@ -61,11 +61,22 @@
           <template #extra>
             <el-progress :percentage="searchProgress" :format="formatProgress" :status="progressStatus" />
             <div class="progress-details">
-              <p class="progress-info">
-                <el-tag :type="getStatusTagType(searchStatus)" v-if="searchStatus">
+              <div class="grok-style-progress">
+                <div class="step-indicator">
+                  <span class="step-emoji">{{ getStepEmoji(currentStep) }}</span>
+                  <span class="step-text">{{ currentStep }}</span>
+                  <span class="animated-dots">
+                    <span class="dot dot1">.</span>
+                    <span class="dot dot2">.</span>
+                    <span class="dot dot3">.</span>
+                  </span>
+                </div>
+              </div>
+              
+              <p class="progress-info" v-if="searchStatus">
+                <el-tag :type="getStatusTagType(searchStatus)">
                   {{ getStatusText(searchStatus) }}
                 </el-tag>
-                {{ currentStep }}
               </p>
               
               <!-- 实时搜索统计 -->
@@ -199,11 +210,30 @@ export default {
     const currentSearchId = ref('')
     let eventSource = null
     
+    // URL解码函数
+    const decodeUrlString = (str) => {
+      if (!str) return str
+      try {
+        // 解码URL编码的字符串
+        return decodeURIComponent(str)
+      } catch (error) {
+        console.warn('URL解码失败:', error)
+        return str
+      }
+    }
+    
     const qualifiedCompanies = computed(() => {
       if (!searchResults.value?.search_results?.companies) return []
       return searchResults.value.search_results.companies.filter(
         company => company.is_qualified
-      )
+      ).map(company => ({
+        ...company,
+        name: decodeUrlString(company.name) || '未知公司',
+        industry: decodeUrlString(company.industry) || '未知行业',
+        location: decodeUrlString(company.location) || '未知位置',
+        description: decodeUrlString(company.description) || '暂无描述',
+        ai_reason: decodeUrlString(company.ai_reason) || company.ai_reason
+      }))
     })
     
     const startSearch = async () => {
@@ -253,12 +283,36 @@ export default {
       }
     }
 
+    const simulateProgressSteps = async (steps) => {
+      for (const step of steps) {
+        searchProgress.value = step.progress
+        currentStep.value = step.step
+        await new Promise(resolve => setTimeout(resolve, step.duration))
+      }
+    }
+
     const startEnhancedSearch = async () => {
       try {
-        searchProgress.value = 10
-        currentStep.value = '启动增强搜索...'
+        // Grok风格的进度步骤轮播 - 调整为与后端实际执行时间匹配
+        const progressSteps = [
+          { progress: 5, step: '🚀 启动增强搜索引擎...', duration: 2000 },
+          { progress: 10, step: '🧠 AI分析搜索意图...', duration: 5000 },
+          { progress: 20, step: '🔍 构建搜索策略...', duration: 3000 },
+          { progress: 25, step: '📊 调用搜索API...', duration: 8000 },
+          { progress: 40, step: '🌐 扫描互联网数据...', duration: 12000 },
+          { progress: 55, step: '⚡ LLM深度评估中...', duration: 15000 },
+          { progress: 65, step: '🔍 验证公司官网...', duration: 60000 }, // 官网验证是最耗时的部分
+          { progress: 80, step: '📈 计算匹配度分数...', duration: 20000 },
+          { progress: 90, step: '🎯 筛选符合条件企业...', duration: 10000 },
+          { progress: 95, step: '📋 整理搜索结果...', duration: 5000 },
+          { progress: 98, step: '✨ 最终优化处理...', duration: 8000 }
+        ]
         
-        const response = await axios.post('http://localhost:8000/enhanced-search', {
+        // 启动进度轮播
+        const progressPromise = simulateProgressSteps(progressSteps)
+        
+        // 同时发起API请求
+        const searchPromise = axios.post('http://localhost:8000/enhanced-search', {
           query: searchForm.value.query,
           ai_evaluation_enabled: searchForm.value.aiEvaluation,
           employee_search_enabled: searchForm.value.employeeSearch,
@@ -267,9 +321,12 @@ export default {
           max_optimization_rounds: 2
         })
 
+        // 等待两个Promise完成
+        const [, response] = await Promise.all([progressPromise, searchPromise])
+
         searchProgress.value = 100
         searchResults.value = response.data
-        currentStep.value = '搜索完成!'
+        currentStep.value = '🎉 搜索完成!'
         
         const totalCompanies = response.data.search_results?.qualified_companies_count || 0
         ElMessage.success(`增强搜索完成! 找到 ${totalCompanies} 家符合条件的公司`)
@@ -299,10 +356,10 @@ export default {
         }
         
         // 调用标准搜索API
-        const response = await axios.post('http://localhost:8000/intelligent-search', {
+        const response = await axios.post('http://localhost:8000/api/intelligent/search', {
           query: searchForm.value.query,
-          ai_evaluation_enabled: searchForm.value.aiEvaluation,
-          employee_search_enabled: searchForm.value.employeeSearch
+          enable_ai_analysis: searchForm.value.aiEvaluation,
+          enable_employee_search: searchForm.value.employeeSearch
         })
         
         searchResults.value = response.data
@@ -480,6 +537,13 @@ export default {
       }
       return statusTexts[status] || status
     }
+
+    const getStepEmoji = (step) => {
+      if (!step) return '🤖'
+      // 从步骤文本中提取emoji，如果没有则返回默认emoji
+      const emojiMatch = step.match(/^([🚀🧠🔍📊🌐⚡📈🎯📋✨🎉])/);
+      return emojiMatch ? emojiMatch[1] : '🤖'
+    }
     
     const newSearch = () => {
       searchResults.value = null
@@ -536,7 +600,8 @@ export default {
       openUrl,
       exportData,
       getStatusTagType,
-      getStatusText
+      getStatusText,
+      getStepEmoji
     }
   }
 }
@@ -644,5 +709,82 @@ export default {
 .export-section {
   text-align: center;
   padding: 20px 0;
+}
+
+/* Grok风格进度显示 */
+.grok-style-progress {
+  margin: 20px 0;
+  padding: 15px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  color: white;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.step-emoji {
+  font-size: 24px;
+  animation: pulse 2s infinite;
+}
+
+.step-text {
+  min-width: 200px;
+  text-align: left;
+}
+
+.animated-dots {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+}
+
+.dot {
+  font-size: 20px;
+  font-weight: bold;
+  animation: blink 1.4s infinite both;
+  color: #ffd04b;
+}
+
+.dot1 {
+  animation-delay: 0s;
+}
+
+.dot2 {
+  animation-delay: 0.2s;
+}
+
+.dot3 {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%, 80%, 100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 </style>

@@ -1,0 +1,214 @@
+name,canonicalName,countryCode,googleId,targetType
+Afghanistan,Afghanistan,AF,2004,Country
+Albania,Albania,AL,2008,Country
+Antarctica,Antarctica,AQ,2010,Country
+Algeria,Algeria,DZ,2012,Country
+American Samoa,American Samoa,AS,2016,Country
+Andorra,Andorra,AD,2020,Country
+Angola,Angola,AO,2024,Country
+Antigua and Barbuda,Antigua and Barbuda,AG,2028,Country
+Azerbaijan,Azerbaijan,AZ,2031,Country
+Argentina,Argentina,AR,2032,Country
+Australia,Australia,AU,2036,Country
+Austria,Austria,AT,2040,Country
+The Bahamas,The Bahamas,BS,2044,Country
+Bahrain,Bahrain,BH,2048,Country
+Bangladesh,Bangladesh,BD,2050,Country
+Armenia,Armenia,AM,2051,Country
+Barbados,Barbados,BB,2052,Country
+Belgium,Belgium,BE,2056,Country
+Bhutan,Bhutan,BT,2064,Country
+Bolivia,Bolivia,BO,2068,Country
+Bosnia and Herzegovina,Bosnia and Herzegovina,BA,2070,Country
+Botswana,Botswana,BW,2072,Country
+Brazil,Brazil,BR,2076,Country
+Belize,Belize,BZ,2084,Country
+Solomon Islands,Solomon Islands,SB,2090,Country
+Brunei,Brunei,BN,2096,Country
+Bulgaria,Bulgaria,BG,2100,Country
+Myanmar (Burma),Myanmar (Burma),MM,2104,Country
+Burundi,Burundi,BI,2108,Country
+Belarus,Belarus,BY,2112,Country
+Cambodia,Cambodia,KH,2116,Country
+Cameroon,Cameroon,CM,2120,Country
+Canada,Canada,CA,2124,Country
+Cape Verde,Cape Verde,CV,2132,Country
+Central African Republic,Central African Republic,CF,2140,Country
+Sri Lanka,Sri Lanka,LK,2144,Country
+Chad,Chad,TD,2148,Country
+Chile,Chile,CL,2152,Country
+China,China,CN,2156,Country
+Christmas Island,Christmas Island,CX,2162,Country
+Cocos (Keeling) Islands,Cocos (Keeling) Islands,CC,2166,Country
+Colombia,Colombia,CO,2170,Country
+Comoros,Comoros,KM,2174,Country
+Republic of the Congo,Republic of the Congo,CG,2178,Country
+Democratic Republic of the Congo,Democratic Republic of the Congo,CD,2180,Country
+Cook Islands,Cook Islands,CK,2184,Country
+Costa Rica,Costa Rica,CR,2188,Country
+Croatia,Croatia,HR,2191,Country
+Cyprus,Cyprus,CY,2196,Country
+Czechia,Czechia,CZ,2203,Country
+Benin,Benin,BJ,2204,Country
+Denmark,Denmark,DK,2208,Country
+Dominica,Dominica,DM,2212,Country
+Dominican Republic,Dominican Republic,DO,2214,Country
+Ecuador,Ecuador,EC,2218,Country
+El Salvador,El Salvador,SV,2222,Country
+Equatorial Guinea,Equatorial Guinea,GQ,2226,Country
+Ethiopia,Ethiopia,ET,2231,Country
+Eritrea,Eritrea,ER,2232,Country
+Estonia,Estonia,EE,2233,Country
+South Georgia and the South Sandwich Islands,South Georgia and the South Sandwich Islands,GS,2239,Country
+Fiji,Fiji,FJ,2242,Country
+Finland,Finland,FI,2246,Country
+France,France,FR,2250,Country
+French Polynesia,French Polynesia,PF,2258,Country
+French Southern and Antarctic Lands,French Southern and Antarctic Lands,TF,2260,Country
+Djibouti,Djibouti,DJ,2262,Country
+Gabon,Gabon,GA,2266,Country
+Georgia,Georgia,GE,2268,Country
+The Gambia,The Gambia,GM,2270,Country
+Germany,Germany,DE,2276,Country
+Ghana,Ghana,GH,2288,Country
+Kiribati,Kiribati,KI,2296,Country
+Greece,Greece,GR,2300,Country
+Grenada,Grenada,GD,2308,Country
+Guam,Guam,GU,2316,Country
+Guatemala,Guatemala,GT,2320,Country
+Guinea,Guinea,GN,2324,Country
+Guyana,Guyana,GY,2328,Country
+Haiti,Haiti,HT,2332,Country
+Heard Island and McDonald Islands,Heard Island and McDonald Islands,HM,2334,Country
+Vatican City,Vatican City,VA,2336,Country
+Honduras,Honduras,HN,2340,Country
+Hungary,Hungary,HU,2348,Country
+Iceland,Iceland,IS,2352,Country
+India,India,IN,2356,Country
+Indonesia,Indonesia,ID,2360,Country
+Iraq,Iraq,IQ,2368,Country
+Ireland,Ireland,IE,2372,Country
+Israel,Israel,IL,2376,Country
+Italy,Italy,IT,2380,Country
+Cote d'Ivoire,Cote d'Ivoire,CI,2384,Country
+Jamaica,Jamaica,JM,2388,Country
+Japan,Japan,JP,2392,Country
+Kazakhstan,Kazakhstan,KZ,2398,Country
+Jordan,Jordan,JO,2400,Country
+Kenya,Kenya,KE,2404,Country
+South Korea,South Korea,KR,2410,Country
+Kuwait,Kuwait,KW,2414,Country
+Kyrgyzstan,Kyrgyzstan,KG,2417,Country
+Laos,Laos,LA,2418,Country
+Lebanon,Lebanon,LB,2422,Country
+Lesotho,Lesotho,LS,2426,Country
+Latvia,Latvia,LV,2428,Country
+Liberia,Liberia,LR,2430,Country
+Libya,Libya,LY,2434,Country
+Liechtenstein,Liechtenstein,LI,2438,Country
+Lithuania,Lithuania,LT,2440,Country
+Luxembourg,Luxembourg,LU,2442,Country
+Madagascar,Madagascar,MG,2450,Country
+Malawi,Malawi,MW,2454,Country
+Malaysia,Malaysia,MY,2458,Country
+Maldives,Maldives,MV,2462,Country
+Mali,Mali,ML,2466,Country
+Malta,Malta,MT,2470,Country
+Mauritania,Mauritania,MR,2478,Country
+Mauritius,Mauritius,MU,2480,Country
+Mexico,Mexico,MX,2484,Country
+Monaco,Monaco,MC,2492,Country
+Mongolia,Mongolia,MN,2496,Country
+Moldova,Moldova,MD,2498,Country
+Montenegro,Montenegro,ME,2499,Country
+Morocco,Morocco,MA,2504,Country
+Mozambique,Mozambique,MZ,2508,Country
+Oman,Oman,OM,2512,Country
+Namibia,Namibia,NA,2516,Country
+Nauru,Nauru,NR,2520,Country
+Nepal,Nepal,NP,2524,Country
+Netherlands,Netherlands,NL,2528,Country
+Curacao,Curacao,CW,2531,Country
+Sint Maarten,Sint Maarten,SX,2534,Country
+Caribbean Netherlands,Caribbean Netherlands,BQ,2535,Country
+New Caledonia,New Caledonia,NC,2540,Country
+Vanuatu,Vanuatu,VU,2548,Country
+New Zealand,New Zealand,NZ,2554,Country
+Nicaragua,Nicaragua,NI,2558,Country
+Niger,Niger,NE,2562,Country
+Nigeria,Nigeria,NG,2566,Country
+Niue,Niue,NU,2570,Country
+Norfolk Island,Norfolk Island,NF,2574,Country
+Norway,Norway,NO,2578,Country
+Northern Mariana Islands,Northern Mariana Islands,MP,2580,Country
+United States Minor Outlying Islands,United States Minor Outlying Islands,UM,2581,Country
+Federated States of Micronesia,Federated States of Micronesia,FM,2583,Country
+Marshall Islands,Marshall Islands,MH,2584,Country
+Palau,Palau,PW,2585,Country
+Pakistan,Pakistan,PK,2586,Country
+Panama,Panama,PA,2591,Country
+Papua New Guinea,Papua New Guinea,PG,2598,Country
+Paraguay,Paraguay,PY,2600,Country
+Peru,Peru,PE,2604,Country
+Philippines,Philippines,PH,2608,Country
+Pitcairn Islands,Pitcairn Islands,PN,2612,Country
+Poland,Poland,PL,2616,Country
+Portugal,Portugal,PT,2620,Country
+Guinea-Bissau,Guinea-Bissau,GW,2624,Country
+Timor-Leste,Timor-Leste,TL,2626,Country
+Qatar,Qatar,QA,2634,Country
+Romania,Romania,RO,2642,Country
+Russia,Russia,RU,2643,Country
+Rwanda,Rwanda,RW,2646,Country
+"Saint Helena, Ascension and Tristan da Cunha","Saint Helena, Ascension and Tristan da Cunha",SH,2654,Country
+Saint Kitts and Nevis,Saint Kitts and Nevis,KN,2659,Country
+Saint Lucia,Saint Lucia,LC,2662,Country
+Saint Pierre and Miquelon,Saint Pierre and Miquelon,PM,2666,Country
+Saint Vincent and the Grenadines,Saint Vincent and the Grenadines,VC,2670,Country
+San Marino,San Marino,SM,2674,Country
+Sao Tome and Principe,Sao Tome and Principe,ST,2678,Country
+Saudi Arabia,Saudi Arabia,SA,2682,Country
+Senegal,Senegal,SN,2686,Country
+Serbia,Serbia,RS,2688,Country
+Seychelles,Seychelles,SC,2690,Country
+Sierra Leone,Sierra Leone,SL,2694,Country
+Singapore,Singapore,SG,2702,Country
+Slovakia,Slovakia,SK,2703,Country
+Vietnam,Vietnam,VN,2704,Country
+Slovenia,Slovenia,SI,2705,Country
+Somalia,Somalia,SO,2706,Country
+South Africa,South Africa,ZA,2710,Country
+Zimbabwe,Zimbabwe,ZW,2716,Country
+Spain,Spain,ES,2724,Country
+Suriname,Suriname,SR,2740,Country
+Swaziland,Swaziland,SZ,2748,Country
+Sweden,Sweden,SE,2752,Country
+Switzerland,Switzerland,CH,2756,Country
+Tajikistan,Tajikistan,TJ,2762,Country
+Thailand,Thailand,TH,2764,Country
+Togo,Togo,TG,2768,Country
+Tokelau,Tokelau,TK,2772,Country
+Tonga,Tonga,TO,2776,Country
+Trinidad and Tobago,Trinidad and Tobago,TT,2780,Country
+United Arab Emirates,United Arab Emirates,AE,2784,Country
+Tunisia,Tunisia,TN,2788,Country
+Turkey,Turkey,TR,2792,Country
+Turkmenistan,Turkmenistan,TM,2795,Country
+Tuvalu,Tuvalu,TV,2798,Country
+Uganda,Uganda,UG,2800,Country
+Ukraine,Ukraine,UA,2804,Country
+Macedonia (FYROM),Macedonia (FYROM),MK,2807,Country
+Egypt,Egypt,EG,2818,Country
+United Kingdom,United Kingdom,GB,2826,Country
+Guernsey,Guernsey,GG,2831,Country
+Jersey,Jersey,JE,2832,Country
+Tanzania,Tanzania,TZ,2834,Country
+United States,United States,US,2840,Country
+Burkina Faso,Burkina Faso,BF,2854,Country
+Uruguay,Uruguay,UY,2858,Country
+Uzbekistan,Uzbekistan,UZ,2860,Country
+Venezuela,Venezuela,VE,2862,Country
+Wallis and Futuna,Wallis and Futuna,WF,2876,Country
+Samoa,Samoa,WS,2882,Country
+Yemen,Yemen,YE,2887,Country
+Zambia,Zambia,ZM,2894,Country

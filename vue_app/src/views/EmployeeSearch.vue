@@ -304,11 +304,11 @@ export default {
         }
         
         // 调用后端API
-        const response = await axios.post('http://localhost:8000/employee-search', {
+        const response = await axios.post('http://localhost:8000/api/employee/search', {
           company_name: searchForm.value.companyName,
           company_domain: searchForm.value.companyDomain,
           target_position: searchForm.value.targetPosition,
-          options: searchForm.value.options
+          search_options: searchForm.value.options
         })
         
         searchProgress.value = 100

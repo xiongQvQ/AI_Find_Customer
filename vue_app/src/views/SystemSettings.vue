@@ -297,11 +297,13 @@ export default {
     
     const loadSettings = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/api-status')
-        apiStatus.value = response.data
+        // 获取系统状态
+        const statusResponse = await axios.get('http://localhost:8000/status')
+        apiStatus.value = statusResponse.data
         
-        // 从状态中推断一些设置
-        settings.value.LLM_PROVIDER = response.data.LLM_PROVIDER || 'none'
+        // 获取配置设置
+        const configResponse = await axios.get('http://localhost:8000/config')
+        Object.assign(settings.value, configResponse.data)
         
         ElMessage.success('配置状态已加载')
       } catch (error) {
@@ -313,13 +315,14 @@ export default {
       saving.value = true
       
       try {
-        // 这里应该调用后端API保存设置
-        // 目前只是模拟
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await axios.post('http://localhost:8000/config', settings.value)
         
         ElMessage.success('配置已保存！请重启应用以生效')
+        
+        // 重新加载状态以确保同步
+        await loadSettings()
       } catch (error) {
-        ElMessage.error('保存配置失败: ' + error.message)
+        ElMessage.error('保存配置失败: ' + (error.response?.data?.detail || error.message))
       } finally {
         saving.value = false
       }
