@@ -43,6 +43,11 @@ class CompanyInfo(BaseModel):
     source: str = Field(..., description="数据来源")
     search_query: Optional[str] = Field(None, description="使用的搜索查询")
     
+    # 关键词来源信息
+    source_keyword: Optional[str] = Field(None, description="生成此结果的关键词")
+    keyword_type: Optional[str] = Field(None, description="关键词类型: exact | broad | contextual")
+    search_round: Optional[int] = Field(None, description="搜索轮次")
+    
     # AI分析字段
     is_company: Optional[bool] = Field(None, description="是否为真实公司")
     ai_score: Optional[float] = Field(None, description="AI综合评分", ge=0, le=1)
@@ -76,6 +81,11 @@ class EmployeeInfo(BaseModel):
     confidence_score: Optional[float] = Field(None, description="匹配置信度", ge=0, le=1)
     email_verified: Optional[str] = Field(None, description="邮箱验证状态: verified | unverified | unknown")
     source: str = Field(..., description="数据来源")
+    
+    # 关键词来源信息
+    source_keyword: Optional[str] = Field(None, description="生成此结果的关键词")
+    keyword_type: Optional[str] = Field(None, description="关键词类型: exact | broad | contextual")
+    search_round: Optional[int] = Field(None, description="搜索轮次")
     
     # AI分析字段（与CompanyInfo保持一致）
     ai_score: Optional[float] = Field(None, description="AI相关性评分", ge=0, le=1)

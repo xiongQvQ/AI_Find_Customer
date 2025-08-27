@@ -95,7 +95,7 @@ class LLMClient:
         """初始化火山引擎客户端"""
         api_key = os.getenv("ARK_API_KEY")
         base_url = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-        model = os.getenv("ARK_MODEL", "doubao-1-5-pro-256k-250115")
+        model = os.getenv("ARK_MODEL", "doubao-seed-1-6-250615")
         
         if api_key:
             # 使用requests库进行HTTP调用（火山引擎SDK可能不可用）

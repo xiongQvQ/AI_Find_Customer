@@ -124,10 +124,13 @@ class CompanySearchRequest(BaseModel):
     industry: Optional[str] = None
     region: Optional[str] = None
     search_type: str = "general"  # "general" or "linkedin"
-    gl: str = "us"
-    num_results: int = 30
+    country_code: str = "us"  # 修改字段名匹配前端
+    gl: Optional[str] = None  # 兼容字段
+    max_results: int = 30  # 修改字段名匹配前端
+    num_results: Optional[int] = None  # 兼容字段
     custom_query: Optional[str] = None
     keywords: Optional[List[str]] = None
+    use_llm_optimization: bool = True  # 新增字段匹配前端
 
 class CompanySearchResponse(BaseModel):
     success: bool
@@ -561,6 +564,7 @@ async def enhanced_search(request: EnhancedSearchRequest):
         )
 
 @app.post("/company-search", response_model=CompanySearchResponse)
+@app.post("/api/company/search", response_model=CompanySearchResponse)
 async def company_search(request: CompanySearchRequest):
     """
     公司搜索接口
@@ -643,6 +647,10 @@ async def company_search(request: CompanySearchRequest):
     try:
         start_time = datetime.now()
         
+        # 处理兼容字段
+        gl_code = request.country_code or request.gl or "us"
+        max_results = request.max_results or request.num_results or 30
+        
         # 创建CompanySearcher实例并执行搜索
         searcher = CompanySearcher()
         result = searcher.search_companies(
@@ -651,20 +659,48 @@ async def company_search(request: CompanySearchRequest):
             region=request.region,
             custom_query=request.custom_query,
             keywords=request.keywords,
-            gl=request.gl,
-            num_results=request.num_results
+            gl=gl_code,
+            num_results=max_results
         )
         
         execution_time = (datetime.now() - start_time).total_seconds()
         
         if result["success"]:
             companies = result["data"]
+            # 确保返回的数据格式正确，包含前端需要的字段
+            formatted_companies = []
+            for company in companies:
+                # 确保所有字段都有默认值，避免 undefined
+                formatted_company = {
+                    'name': company.get('name', 'Unknown Company'),
+                    'industry': company.get('industry', request.industry or 'Unknown Industry'),
+                    'location': company.get('location', request.region or 'Unknown Location'),
+                    'description': company.get('description', 'No description available'),
+                    'website_url': company.get('url') or company.get('website_url', ''),
+                    'url': company.get('url') or company.get('website_url', ''),
+                    'domain': company.get('domain', ''),
+                    'linkedin_url': company.get('linkedin', ''),
+                    'linkedin': company.get('linkedin', ''),
+                    'type': company.get('type', 'search_result'),
+                    # AI分析字段，确保有默认值
+                    'ai_score': company.get('ai_score', 0.5),
+                    'is_company': company.get('is_company', True),
+                    'ai_reason': company.get('ai_reason', 'Standard analysis'),
+                    'relevance_score': company.get('relevance_score', 0.7),
+                    'analysis_confidence': company.get('analysis_confidence', 0.6),
+                    # 添加位置匹配信息
+                    'location_match': company.get('location_match', True),
+                    'matched_location': company.get('matched_location', ''),
+                    'extracted_locations': company.get('extracted_locations', [])
+                }
+                formatted_companies.append(formatted_company)
+            
             return CompanySearchResponse(
                 success=True,
                 search_id=search_id,
-                message=f"Company search completed successfully. Found {len(companies)} companies.",
-                total_companies=len(companies),
-                companies=companies,
+                message=f"Company search completed successfully. Found {len(formatted_companies)} companies.",
+                total_companies=len(formatted_companies),
+                companies=formatted_companies,
                 execution_time=execution_time,
                 output_file=result["output_file"]
             )

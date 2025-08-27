@@ -486,7 +486,7 @@ class CompanySearcher:
         return result
     
     def _search_linkedin_companies(self, industry, region, keywords, gl, num_results):
-        """Search for companies on LinkedIn with intelligent keyword optimization"""
+        """Search for companies on LinkedIn with intelligent keyword optimization and multi-query aggregation"""
         
         # 使用LLM生成优化的关键词
         keyword_result = self._generate_optimized_keywords(
@@ -496,33 +496,85 @@ class CompanySearcher:
             search_mode="linkedin"
         )
         
-        # 构建搜索查询
-        query_parts = ["site:linkedin.com/company"]
-        
-        # 使用优化后的关键词
         optimized_keywords = keyword_result.get("optimized_keywords", [])
-        if optimized_keywords:
-            # 使用第一个主要关键词作为核心搜索词
-            primary_keyword = optimized_keywords[0]
-            query_parts.append(f'"{primary_keyword}"')
-            print(f"🎯 使用主要关键词: {primary_keyword}")
-        elif industry:
-            # 回退到原始行业关键词
-            query_parts.append(f'"{industry}"')
-            print(f"🔄 回退到原始关键词: {industry}")
+        all_companies = []
+        seen_companies = set()  # 用于去重
         
-        # 地区信息通过gl参数处理，避免混合语言查询
-        # 不再添加原始region到查询字符串，防止中英文混合导致搜索结果混乱
-        
-        # 添加额外关键词
-        if keywords:
-            query_parts.extend(keywords)
-        
-        query = " ".join(query_parts)
-        print(f"🔍 LinkedIn搜索查询: {query}")
-        
+        # 如果有优化关键词，对每个关键词进行搜索并汇总
+        if optimized_keywords and len(optimized_keywords) > 1:
+            print(f"🔄 执行多关键词搜索策略，共 {len(optimized_keywords)} 个关键词")
+            
+            # 每个关键词分配的结果数量
+            results_per_keyword = max(num_results // len(optimized_keywords), 5)
+            
+            for i, keyword in enumerate(optimized_keywords[:3]):  # 最多使用前3个关键词
+                print(f"🎯 第{i+1}轮搜索 - 关键词: {keyword}")
+                
+                # 构建单个关键词的纯净搜索查询 - 每轮只使用一个关键词
+                query_parts = ["site:linkedin.com/company"]
+                
+                # 移除关键词中的所有引号，直接使用纯净关键词（无引号包装）
+                clean_keyword = keyword.replace('"', '').strip()
+                query_parts.append(clean_keyword)
+                
+                # 注意：不添加其他关键词，保证每轮搜索的纯净性
+                # 每个关键词应该独立搜索，避免混合查询
+                
+                query = " ".join(query_parts)
+                print(f"🔍 LinkedIn纯净搜索查询 {i+1}: {query}")
+                
+                try:
+                    # 执行单个关键词搜索
+                    companies = self._execute_single_linkedin_search(
+                        query, gl, results_per_keyword, keyword_result.get("serper_params", {}), region
+                    )
+                    
+                    # 去重合并结果
+                    for company in companies:
+                        company_key = (company.get('name', ''), company.get('url', ''))
+                        if company_key not in seen_companies and company.get('name'):
+                            seen_companies.add(company_key)
+                            # 标记搜索轮次
+                            company['search_round'] = i + 1
+                            company['search_keyword'] = keyword
+                            all_companies.append(company)
+                    
+                    print(f"✅ 第{i+1}轮搜索完成，找到 {len(companies)} 家公司，累计去重后 {len(all_companies)} 家")
+                    
+                    # 避免过于频繁的API调用
+                    if i < len(optimized_keywords) - 1:
+                        time.sleep(0.5)
+                        
+                except Exception as e:
+                    print(f"⚠️ 第{i+1}轮搜索失败: {str(e)}")
+                    continue
+            
+            print(f"🎉 多关键词搜索完成，总共找到 {len(all_companies)} 家去重后的公司")
+            return all_companies
+            
+        else:
+            # 回退到单关键词搜索（原逻辑）
+            print("🔄 回退到单关键词搜索模式")
+            keyword_to_use = optimized_keywords[0] if optimized_keywords else industry
+            
+            query_parts = ["site:linkedin.com/company"]
+            if keyword_to_use:
+                query_parts.append(f'"{keyword_to_use}"')
+                print(f"🎯 使用关键词: {keyword_to_use}")
+            
+            if keywords:
+                query_parts.extend(keywords)
+            
+            query = " ".join(query_parts)
+            print(f"🔍 LinkedIn搜索查询: {query}")
+            
+            return self._execute_single_linkedin_search(
+                query, gl, num_results, keyword_result.get("serper_params", {}), region
+            )
+    
+    def _execute_single_linkedin_search(self, query, gl, num_results, serper_params, region):
+        """执行单次LinkedIn搜索的辅助方法"""
         # Serper API limitation: num must be <= 20 for certain queries
-        # to avoid "Query not allowed" error
         safe_num_results = min(num_results, 20)
         
         # 构建基础payload
@@ -533,7 +585,6 @@ class CompanySearcher:
         }
         
         # 添加LLM建议的优化参数
-        serper_params = keyword_result.get("serper_params", {})
         if serper_params:
             print(f"📡 使用优化的Serper参数: {serper_params}")
             for key, value in serper_params.items():

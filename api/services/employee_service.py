@@ -76,12 +76,16 @@ class EmployeeSearchService:
             
             logger.info(f"开始员工搜索: {search_id}")
             logger.info(f"目标公司: {request.company_name}, 职位: {request.target_positions}")
+            logger.info(f"搜索器状态: {'可用' if self.searcher else '不可用'}")
             
             # 步骤1: LLM关键词优化
             optimized_params = await self._optimize_search_params(request)
+            logger.info(f"LLM优化参数: {optimized_params}")
             
             # 执行员工搜索
+            logger.info("🔄 开始执行员工搜索")
             employees = await self._execute_employee_search(request, optimized_params)
+            logger.info(f"✅ 员工搜索完成，找到 {len(employees)} 名员工")
             
             # AI分析和评分（如果有员工结果）
             if employees and self.keyword_generator:
@@ -130,65 +134,158 @@ class EmployeeSearchService:
             )
     
     async def _execute_employee_search(self, request: EmployeeSearchRequest, optimized_params: Dict[str, Any]) -> List[EmployeeInfo]:
-        """执行员工搜索的核心逻辑"""
+        """执行员工搜索的核心逻辑 - 参考公司搜索的多关键词策略"""
         
         if not self.searcher:
             # 没有搜索器时使用模拟数据
-            logger.warning("🔧 员工搜索器不可用，使用模拟数据")
+            logger.warning("🔧 员工搜索器不可用，使用增强模拟数据")
             return self._generate_enhanced_mock_employees(request, optimized_params)
         
+        logger.info(f"✅ 员工搜索器可用，开始实际搜索")
+        
         try:
-            # 使用真实的员工搜索器
-            logger.info(f"🔍 开始真实员工搜索")
-            logger.info(f"优化关键词: {optimized_params.get('keywords')}")
-            
-            # 使用优化后的关键词进行搜索
+            # 获取LLM生成的关键词
             keywords = optimized_params.get('keywords', [])
-            if keywords:
-                # 使用LLM生成的关键词
-                logger.info(f"📝 使用LLM优化关键词: {keywords}")
-                search_query = ' '.join(keywords)
-            else:
+            query_variants = optimized_params.get('query_variants', [])
+            
+            if not keywords:
                 # 回退到基础查询
-                search_query = f"{request.company_name} {' '.join(request.target_positions)}"
-                logger.info(f"📝 使用基础查询: {search_query}")
+                keywords = [f"{request.company_name} {' '.join(request.target_positions)}"]
+                query_variants = [{"query": keywords[0], "type": "basic"}]
+                logger.info(f"📝 使用基础查询关键词: {keywords}")
+            else:
+                logger.info(f"📝 使用LLM优化关键词: {keywords}")
             
-            # 调用真实搜索器
-            search_result = self.searcher.search_employees(
-                company_name=request.company_name,
-                position=request.target_positions[0] if request.target_positions else "manager",
-                location=optimized_params.get('location', ''),
-                country=request.company_name,  # 使用公司名作为国家过滤
-                additional_keywords=keywords,  # 传递LLM生成的关键词
-                gl=optimized_params.get('gl', request.country_code),  # 使用优化后的国家代码
-                num_results=request.max_results
-            )
+            # 🔄 执行多关键词搜索策略（参考公司搜索）
+            logger.info(f"🔄 执行多关键词员工搜索策略，共 {len(keywords)} 个关键词")
+            logger.info(f"👥 用户搜索请求: 公司={request.company_name}, 职位={request.target_positions}, 国家={request.country_code}")
             
-            # 转换为标准格式
-            employees = []
-            raw_results = search_result.get('employees', []) if isinstance(search_result, dict) else []
-            for result in raw_results[:request.max_results]:
-                employee = EmployeeInfo(
-                    name=result.get('name', 'Unknown'),
-                    position=result.get('position', request.target_positions[0] if request.target_positions else 'Employee'),
-                    company=request.company_name,
-                    linkedin_url=result.get('linkedin_url'),
-                    email=result.get('email'),
-                    phone=result.get('phone'),
-                    location=result.get('location'),
-                    summary=result.get('summary'),
-                    experience_years=result.get('experience_years'),
-                    confidence_score=result.get('confidence_score', 0.8),
-                    email_verified=result.get('email_verified', 'unknown'),
-                    source=result.get('source', 'linkedin_search')
-                )
-                employees.append(employee)
+            all_employees = []
+            employee_urls_seen = set()  # 用于去重
+            search_stats = []  # 记录每轮搜索统计
             
-            logger.info(f"✅ 真实搜索完成，找到 {len(employees)} 名员工")
-            return employees
+            for i, keyword in enumerate(keywords, 1):
+                try:
+                    logger.info(f"🎯 第{i}轮搜索 - 关键词: {keyword}")
+                    
+                    # 构建简化的员工搜索查询（不直接使用复杂的LLM关键词）
+                    # 使用更简单、直接的查询格式
+                    position = request.target_positions[0] if request.target_positions else "manager"
+                    if i == 1:
+                        # 第1轮：基础查询
+                        simple_query = f'"{request.company_name}" "{position}"'
+                        logger.info(f"🔧 第{i}轮搜索策略: 基础查询 - 公司名 + 职位")
+                    elif i == 2:
+                        # 第2轮：加入位置信息
+                        simple_query = f'"{request.company_name}" "{position}" "{optimized_params.get("location", "")}"'
+                        logger.info(f"🔧 第{i}轮搜索策略: 位置增强 - 公司名 + 职位 + 地理位置")
+                    else:
+                        # 第3轮：使用原LLM关键词但简化
+                        simple_query = f'"{request.company_name}" "{position}" {keyword.split()[-1]}'  # 取关键词的最后一部分
+                        logger.info(f"🔧 第{i}轮搜索策略: LLM增强 - 公司名 + 职位 + LLM关键词片段")
+                    
+                    search_query = f"site:linkedin.com/in {simple_query}"
+                    logger.info(f"🔍 LinkedIn员工搜索查询 {i}: {search_query}")
+                    logger.info(f"📄 原始LLM关键词 {i}: {keyword}")
+                    logger.info(f"🔧 简化搜索查询 {i}: {simple_query}")
+                    
+                    # 使用优化的Serper参数
+                    serper_params = {
+                        'gl': optimized_params.get('gl', request.country_code),
+                        'location': optimized_params.get('location', self._get_location_by_country(request.country_code))
+                    }
+                    logger.info(f"📡 使用优化的Serper参数: {serper_params}")
+                    
+                    # 调用真实搜索器，使用简化查询
+                    search_result = self.searcher.search_employees(
+                        company_name=request.company_name,
+                        position=position,  # 使用上面定义的position变量
+                        location=optimized_params.get('location', '') if i == 2 else '',  # 只在第2轮使用位置
+                        country=request.country_code,
+                        additional_keywords=[],  # 不使用复杂的额外关键词
+                        gl=optimized_params.get('gl', request.country_code),
+                        num_results=min(10, request.max_results)  # 每轮最多10个结果
+                    )
+                    
+                    # 处理搜索结果并去重
+                    round_employees = []
+                    raw_results = search_result.get('data', []) if isinstance(search_result, dict) else []
+                    
+                    # 详细记录原始搜索数据
+                    logger.info(f"📊 第{i}轮原始搜索结果数据:")
+                    logger.info(f"   - 搜索结果类型: {type(search_result)}")
+                    logger.info(f"   - 原始结果条数: {len(raw_results)}")
+                    if raw_results:
+                        logger.info(f"   - 示例结果结构: {list(raw_results[0].keys()) if raw_results[0] else 'Empty result'}")
+                        logger.info(f"   - 前3个结果预览:")
+                        for idx, result in enumerate(raw_results[:3], 1):
+                            name = result.get('name', 'Unknown')
+                            position = result.get('position', 'Unknown')
+                            linkedin = result.get('linkedin_url', '')
+                            logger.info(f"     {idx}. {name} - {position} ({linkedin[:50]}...)")
+                    
+                    # 获取当前关键词的类型信息
+                    current_variant = query_variants[i-1] if i-1 < len(query_variants) else {"type": "unknown"}
+                    keyword_type = current_variant.get('type', 'unknown')
+                    
+                    for result in raw_results:
+                        # 使用LinkedIn URL作为去重键
+                        linkedin_url = result.get('linkedin_url', '')
+                        if linkedin_url and linkedin_url not in employee_urls_seen:
+                            employee = EmployeeInfo(
+                                name=result.get('name', 'Unknown'),
+                                position=result.get('position', request.target_positions[0] if request.target_positions else 'Employee'),
+                                company=request.company_name,
+                                linkedin_url=linkedin_url,
+                                email=result.get('email'),
+                                phone=result.get('phone'),
+                                location=result.get('location'),
+                                summary=result.get('summary'),
+                                experience_years=result.get('experience_years'),
+                                confidence_score=result.get('confidence_score', 0.8),
+                                email_verified=result.get('email_verified', 'unknown'),
+                                source=f"linkedin_search_round_{i}",
+                                # 新增关键词来源信息
+                                source_keyword=keyword,
+                                keyword_type=keyword_type,
+                                search_round=i
+                            )
+                            round_employees.append(employee)
+                            employee_urls_seen.add(linkedin_url)
+                    
+                    all_employees.extend(round_employees)
+                    
+                    # 记录详细的搜索统计
+                    round_stat = {
+                        "round": i,
+                        "keyword": keyword,
+                        "keyword_type": keyword_type,
+                        "raw_count": len(raw_results),
+                        "valid_count": len(round_employees),
+                        "cumulative_total": len(all_employees)
+                    }
+                    search_stats.append(round_stat)
+                    
+                    logger.info(f"✅ 第{i}轮搜索完成:")
+                    logger.info(f"   🔍 关键词: {keyword} ({keyword_type})")
+                    logger.info(f"   📊 原始结果: {len(raw_results)} 个")
+                    logger.info(f"   ✨ 有效结果: {len(round_employees)} 个（去重后）")
+                    logger.info(f"   🎯 累计总数: {len(all_employees)} 名员工")
+                    
+                except Exception as e:
+                    logger.error(f"❌ 第{i}轮员工搜索失败: {e}")
+                    continue
+            
+            logger.info(f"🎉 多关键词员工搜索完成，总共找到 {len(all_employees)} 名去重后的员工")
+            
+            # 按置信度排序并限制结果数量
+            all_employees.sort(key=lambda x: x.confidence_score or 0, reverse=True)
+            return all_employees[:request.max_results]
             
         except Exception as e:
-            logger.error(f"❌ 员工搜索失败，使用增强模拟数据: {e}")
+            logger.error(f"❌ 员工搜索完全失败，使用增强模拟数据: {e}")
+            import traceback
+            logger.error(f"❌ 详细错误信息: {traceback.format_exc()}")
             return self._generate_enhanced_mock_employees(request, optimized_params)
     
     async def _simulate_search_delay(self):
@@ -337,44 +434,81 @@ class EmployeeSearchService:
     
     async def _optimize_search_params(self, request: EmployeeSearchRequest) -> Dict[str, Any]:
         """
-        优化员工搜索参数：LLM关键词生成 + 职位增强
+        优化员工搜索参数：LLM关键词生成 + 职位增强 + 多样化搜索策略
         """
         result = {
             'enhanced_positions': request.target_positions.copy(),
             'keywords': [],
-            'country_code': request.country_code,
-            'location': ''
+            'gl': request.country_code.upper(),
+            'location': self._get_location_by_country(request.country_code)
         }
         
         try:
             if self.keyword_generator:
-                # 为员工搜索生成专业关键词
-                for position in request.target_positions:
-                    # 构造员工搜索的行业上下文
-                    search_context = f"{position} at {request.company_name}"
-                    
-                    logger.info(f"🧠 为职位生成关键词: {position}")
-                    
-                    keyword_result = self.keyword_generator.generate_search_keywords(
-                        industry=search_context,
-                        target_country=request.country_code,
-                        search_type="linkedin"  # 员工搜索主要使用LinkedIn
-                    )
-                    
-                    if keyword_result.get('success'):
+                # 🤖 使用LLM生成员工搜索关键词
+                positions_str = " ".join(request.target_positions)
+                search_context = f"{positions_str} employees at {request.company_name}"
+                
+                logger.info(f"🤖 使用LLM生成关键词: {search_context} -> {request.country_code.upper()}")
+                
+                keyword_result = self.keyword_generator.generate_search_keywords(
+                    industry=search_context,
+                    target_country=request.country_code,
+                    search_type="linkedin"  # 员工搜索主要使用LinkedIn
+                )
+                
+                # 详细记录LLM生成结果的原始数据
+                logger.info(f"📊 LLM关键词生成详细结果: {keyword_result}")
+                
+                if keyword_result.get('success'):
+                    # 获取LLM生成的多样化查询变体
+                    if 'query_variants' in keyword_result:
+                        queries = []
+                        logger.info(f"🔍 发现 {len(keyword_result['query_variants'])} 个查询变体")
+                        for i, variant in enumerate(keyword_result['query_variants'][:3], 1):  # 取前3个变体
+                            query = variant.get('query', '')
+                            variant_type = variant.get('type', 'unknown')
+                            if query:
+                                queries.append(query)
+                                logger.info(f"📝 关键词变体{i}({variant_type}): {query}")
+                        result['keywords'] = queries
+                        logger.info(f"✅ LLM关键词生成成功: {queries}")
+                        logger.info(f"🎯 将使用分别搜索策略，逐个关键词执行搜索")
+                    else:
+                        # 回退到primary_keywords
                         primary_keywords = keyword_result.get('primary_keywords', [])
                         if primary_keywords:
-                            result['keywords'].extend(primary_keywords[:3])  # 每个职位取前3个关键词
-                            logger.info(f"✅ 生成关键词: {primary_keywords[:3]}")
-                    else:
-                        logger.warning(f"❌ 关键词生成失败: {position}")
+                            result['keywords'] = primary_keywords[:3]
+                            logger.info(f"✅ 使用主关键词: {primary_keywords[:3]}")
+                            # 为主关键词创建query_variants结构
+                            result['query_variants'] = [
+                                {"query": keyword, "type": "primary"} 
+                                for keyword in primary_keywords[:3]
+                            ]
+                            for i, keyword in enumerate(primary_keywords[:3], 1):
+                                logger.info(f"📝 主关键词{i}: {keyword}")
+                        logger.info(f"🎯 将使用分别搜索策略，逐个关键词执行搜索")
+                else:
+                    error_msg = keyword_result.get('error', '未知错误')
+                    logger.warning(f"❌ LLM关键词生成失败: {error_msg}")
                         
         except Exception as e:
             logger.error(f"❌ 搜索参数优化失败: {e}")
         
-        # 确保至少有基础关键词
+        # 确保至少有基础关键词（生成多样化查询）
         if not result['keywords']:
-            result['keywords'] = [f"{pos} {request.company_name}" for pos in request.target_positions]
+            result['keywords'] = [
+                f"{request.company_name} {positions_str}",  # 基础查询
+                f"{positions_str} at {request.company_name}",  # 职位导向
+                f"{request.company_name} executive {positions_str}"  # 高管导向
+            ]
+            result['query_variants'] = [
+                {"query": result['keywords'][0], "type": "basic"},
+                {"query": result['keywords'][1], "type": "position_focused"},
+                {"query": result['keywords'][2], "type": "executive_focused"}
+            ]
+            logger.info(f"🔧 使用回退关键词: {result['keywords']}")
+            logger.info(f"🔧 使用回退查询变体: {result['query_variants']}")
         
         return result
     

@@ -91,7 +91,7 @@ LLM_PROVIDER=huoshan  # 选项: openai, anthropic, google, huoshan, none
 # 火山引擎配置（推荐国内用户使用）
 ARK_API_KEY=your_ark_api_key_here
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL=doubao-1-5-pro-256k-250115
+ARK_MODEL=doubao-seed-1-6-250615
 
 # 或者使用其他LLM服务
 # OPENAI_API_KEY=your_openai_api_key_here

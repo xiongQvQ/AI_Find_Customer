@@ -339,7 +339,7 @@ class UnifiedLLMProcessor:
         elif self.provider == "huoshan" or self.provider == "volcano":
             self.api_key = os.getenv("ARK_API_KEY")
             self.ark_base_url = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-            self.ark_model = os.getenv("ARK_MODEL", "doubao-1-5-pro-256k-250115")
+            self.ark_model = os.getenv("ARK_MODEL", "doubao-seed-1-6-250615")
             if not self.api_key:
                 print("Warning: No API key found for Huoshan/Volcano. LLM extraction will be disabled.")
         elif self.provider == "none":

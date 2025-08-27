@@ -91,7 +91,7 @@ LLM_PROVIDER=huoshan  # Options: openai, anthropic, google, huoshan, none
 # Volcano Engine Configuration (recommended for users in China)
 ARK_API_KEY=your_ark_api_key_here
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL=doubao-1-5-pro-256k-250115
+ARK_MODEL=doubao-seed-1-6-250615
 
 # Or use other LLM services
 # OPENAI_API_KEY=your_openai_api_key_here

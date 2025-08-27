@@ -607,7 +607,7 @@ export default {
             analysis_confidence: company.analysis_confidence
           }))
           
-          ElMessage.success(`搜索完成，找到 ${data.total_companies} 家公司`)
+          ElMessage.success(`搜索完成，找到 ${data.total_found} 家公司`)
         } else {
           throw new Error(data.error || '搜索失败')
         }

@@ -130,20 +130,10 @@ class CompanyAnalyzer:
         prompt = self._build_analysis_prompt(company, search_industry, search_region)
         
         try:
-            # 调用LLM分析
-            if hasattr(self.llm_generator, 'analyze_company'):
-                response = await self.llm_generator.analyze_company(prompt)
-            else:
-                # 使用通用生成方法
-                response = await self.llm_generator.generate_keywords(
-                    industry="公司分析",
-                    region="",
-                    gl="",
-                    custom_prompt=prompt
-                )
-            
-            # 解析LLM响应
-            return self._parse_llm_response(response, company)
+            # 这个LLM生成器主要用于关键词生成，不支持公司分析
+            # 直接使用基础分析逻辑
+            logger.info("LLM生成器不支持公司分析，使用基础分析逻辑")
+            return self._basic_company_analysis(company, search_industry)
             
         except Exception as e:
             logger.error(f"LLM分析失败: {e}")

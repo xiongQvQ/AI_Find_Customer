@@ -254,7 +254,7 @@ class LLMKeywordGenerator:
                     f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
-                    timeout=30
+                    timeout=60  # 增加到60秒，适应复杂LLM推理
                 )
                 
                 if response.status_code == 200:
@@ -303,18 +303,10 @@ class LLMKeywordGenerator:
         llm_response = self._call_llm(prompt)
         
         if not llm_response:
-            # LLM调用失败，使用智能回退方案
-            print(f"⚠️ LLM调用失败，使用智能回退方案")
-            result = self._smart_simulation(industry, target_country, search_type)
-            
-            # 缓存回退结果
-            self.cache[cache_key] = {
-                "timestamp": time.time(),
-                "data": result
-            }
-            
-            print(f"✅ 回退方案生成关键词成功: {len(result.get('primary_keywords', []))} 个主关键词")
-            return result
+            # LLM调用失败，直接抛出异常
+            error_msg = f"❌ LLM调用失败，无法生成关键词"
+            print(error_msg)
+            raise Exception(error_msg)
         
         # 解析LLM响应
         result = self._parse_llm_response(llm_response, industry, target_country, search_type)
@@ -325,7 +317,24 @@ class LLMKeywordGenerator:
             "data": result
         }
         
-        print(f"✅ LLM生成关键词成功: {len(result.get('primary_keywords', []))} 个主关键词")
+        # 详细记录生成的关键词
+        primary_keywords = result.get('primary_keywords', [])
+        query_variants = result.get('query_variants', [])
+        print(f"✅ LLM生成关键词成功: {len(primary_keywords)} 个主关键词")
+        if primary_keywords:
+            for i, keyword in enumerate(primary_keywords, 1):
+                print(f"📝 主关键词{i}: {keyword}")
+        if query_variants:
+            print(f"🔍 生成查询变体: {len(query_variants)} 个")
+            for i, variant in enumerate(query_variants, 1):
+                variant_type = variant.get('type', 'unknown')
+                query = variant.get('query', '')
+                print(f"📝 查询变体{i}({variant_type}): {query}")
+        
+        # 记录搜索策略信息
+        search_strategy = result.get('search_strategy', '')
+        if search_strategy:
+            print(f"🎯 搜索策略: {search_strategy}")
         return result
     
     def _build_keyword_prompt(self, industry: str, target_country: str, search_type: str) -> str:
@@ -391,7 +400,7 @@ class LLMKeywordGenerator:
     "query_variants": [
         {{
             "type": "exact",
-            "query": "\"具体术语\" companies",
+            "query": "具体术语 companies",
             "description": "精确匹配策略说明"
         }},
         {{
@@ -412,14 +421,19 @@ class LLMKeywordGenerator:
 }}
 ```
 
+**重要提醒：**
+- query字段中不要使用双引号包围术语，直接写术语即可
+- 例如使用：electric vehicle companies 而不是 "electric vehicle" companies
+- 避免JSON中的引号嵌套问题
+
 **例子参考：**
 美国搜索"新能源汽车":
-- 精确: "electric vehicle" companies
+- 精确: electric vehicle companies
 - 广泛: EV automotive industry
 - 上下文: clean energy transportation solutions
 
 中国搜索"artificial intelligence":
-- 精确: "人工智能" 公司
+- 精确: 人工智能 公司
 - 广泛: AI 科技 企业
 - 上下文: 智能技术 解决方案
 
@@ -428,16 +442,43 @@ class LLMKeywordGenerator:
         return prompt
     
     def _parse_llm_response(self, response: str, industry: str, target_country: str, search_type: str) -> Dict[str, Any]:
-        """解析LLM响应"""
+        """解析LLM响应 - 增强的JSON解析逻辑"""
         try:
-            # 尝试提取JSON内容
+            # 多重JSON解析策略
+            result = None
+            
+            # 策略1: 寻找完整的JSON块
             json_start = response.find('{')
             json_end = response.rfind('}') + 1
             
             if json_start != -1 and json_end > json_start:
                 json_content = response[json_start:json_end]
-                result = json.loads(json_content)
                 
+                try:
+                    # 先尝试直接解析
+                    result = json.loads(json_content)
+                    print(f"✅ JSON解析成功 - 策略1")
+                except json.JSONDecodeError as je:
+                    print(f"⚠️ JSON解析失败 - 策略1: {je}")
+                    print(f"原始JSON内容: {json_content[:200]}...")
+                    
+                    # 策略2: 清理常见的JSON格式问题
+                    try:
+                        # 移除多余的逗号和修复常见格式错误
+                        cleaned_content = self._clean_json_content(json_content)
+                        result = json.loads(cleaned_content)
+                        print(f"✅ JSON解析成功 - 策略2 (清理后)")
+                    except json.JSONDecodeError as je2:
+                        print(f"⚠️ JSON清理后仍解析失败 - 策略2: {je2}")
+                        print(f"清理后JSON内容: {cleaned_content[:200]}...")
+                        
+                        # 策略3: 使用正则表达式提取关键信息
+                        result = self._extract_json_by_regex(response)
+                        if result:
+                            print(f"✅ JSON解析成功 - 策略3 (正则提取)")
+            
+            # 如果JSON解析成功，验证并转换
+            if result and isinstance(result, dict):
                 # 验证必需的字段（新格式）
                 if "query_variants" in result and len(result["query_variants"]) >= 3:
                     # 转换为兼容格式
@@ -446,15 +487,77 @@ class LLMKeywordGenerator:
                     converted_result["generated_by"] = "llm"
                     converted_result["llm_provider"] = self.llm_provider
                     return converted_result
+                else:
+                    print(f"⚠️ JSON格式验证失败: 缺少必需字段或query_variants数量不足")
             
-            # JSON解析失败，尝试文本解析
+            # 所有JSON解析策略都失败，尝试文本解析
+            print(f"🔄 JSON解析失败，尝试文本解析")
             return self._parse_text_response(response, industry, target_country, search_type)
             
         except Exception as e:
-            error_msg = f"⚠️ LLM响应解析失败: {str(e)}，使用回退方案"
-            print(error_msg)
-            # 使用智能模拟作为回退
-            return self._smart_simulation(industry, target_country, search_type)
+            print(f"❌ LLM响应解析完全失败: {str(e)}")
+            print(f"原始响应内容: {response[:300]}...")
+            # 这里不再使用回退方案，而是抛出异常让上层处理
+            raise Exception(f"LLM响应解析失败，无法生成关键词: {str(e)}")
+    
+    def _clean_json_content(self, json_content: str) -> str:
+        """清理JSON内容中的常见格式错误"""
+        import re
+        
+        # 移除多余的逗号
+        cleaned = re.sub(r',\s*}', '}', json_content)
+        cleaned = re.sub(r',\s*]', ']', cleaned)
+        
+        # 修复缺少逗号的情况 (简单规则)
+        cleaned = re.sub(r'"\s*\n\s*"', '",\n"', cleaned)
+        cleaned = re.sub(r'}\s*\n\s*{', '},\n{', cleaned)
+        
+        # 移除注释
+        cleaned = re.sub(r'//.*$', '', cleaned, flags=re.MULTILINE)
+        
+        # 规范化引号
+        cleaned = cleaned.replace('"', '"').replace('"', '"')
+        
+        return cleaned.strip()
+    
+    def _extract_json_by_regex(self, response: str) -> Optional[Dict]:
+        """使用正则表达式提取JSON信息 - 当JSON解析失败时的备用方案"""
+        import re
+        
+        try:
+            # 提取query_variants数组中的query字段
+            query_pattern = r'"query"\s*:\s*"([^"]+)"'
+            queries = re.findall(query_pattern, response)
+            
+            if len(queries) >= 3:
+                # 构建标准的query_variants格式
+                query_variants = []
+                types = ['exact', 'broad', 'contextual']
+                
+                for i, query in enumerate(queries[:3]):
+                    query_variants.append({
+                        'type': types[i] if i < len(types) else 'general',
+                        'query': query,
+                        'description': f'正则提取的查询{i+1}'
+                    })
+                
+                # 尝试提取其他字段
+                country_match = re.search(r'"country_code"\s*:\s*"([^"]+)"', response)
+                location_match = re.search(r'"location"\s*:\s*"([^"]+)"', response)
+                strategy_match = re.search(r'"search_strategy"\s*:\s*"([^"]+)"', response)
+                
+                return {
+                    'query_variants': query_variants,
+                    'country_code': country_match.group(1) if country_match else 'US',
+                    'location': location_match.group(1) if location_match else '',
+                    'search_strategy': strategy_match.group(1) if strategy_match else '正则提取的多变体查询策略',
+                    'explanation': '通过正则表达式从损坏的JSON中提取的查询信息'
+                }
+                
+        except Exception as e:
+            print(f"⚠️ 正则表达式提取也失败: {e}")
+            
+        return None
     
     def _convert_query_variants_to_legacy(self, llm_result: Dict, industry: str, target_country: str, search_type: str) -> Dict[str, Any]:
         """转换新的查询变体格式为兼容的旧格式"""
@@ -651,34 +754,34 @@ class LLMKeywordGenerator:
         
         basic_translations = {
             'US': {
-                '新能源汽车': ['"electric vehicle" companies', 'EV automotive industry', 'clean energy transportation'],
-                '人工智能': ['"artificial intelligence" companies', 'AI technology firms', 'machine learning solutions'],
-                '生物技术': ['"biotechnology" companies', 'biotech industry', 'life sciences firms'],
-                '金融科技': ['"fintech" companies', 'financial technology', 'digital banking solutions'],
-                '半导体': ['"semiconductor" companies', 'chip manufacturing', 'integrated circuits industry'],
-                '软件开发': ['"software development" companies', 'tech companies', 'software solutions'],
-                '云计算': ['"cloud computing" companies', 'cloud services', 'SaaS providers'],
-                '网络安全': ['"cybersecurity" companies', 'information security', 'network security firms']
+                '新能源汽车': ['electric vehicle companies', 'EV automotive industry', 'clean energy transportation'],
+                '人工智能': ['artificial intelligence companies', 'AI technology firms', 'machine learning solutions'],
+                '生物技术': ['biotechnology companies', 'biotech industry', 'life sciences firms'],
+                '金融科技': ['fintech companies', 'financial technology', 'digital banking solutions'],
+                '半导体': ['semiconductor companies', 'chip manufacturing', 'integrated circuits industry'],
+                '软件开发': ['software development companies', 'tech companies', 'software solutions'],
+                '云计算': ['cloud computing companies', 'cloud services', 'SaaS providers'],
+                '网络安全': ['cybersecurity companies', 'information security', 'network security firms']
             },
             'CN': {
-                'electric vehicle': ['"新能源汽车" 公司', '电动汽车 企业', '清洁能源 交通'],
-                'artificial intelligence': ['"人工智能" 公司', 'AI 科技 企业', '机器学习 解决方案'],
-                'biotechnology': ['"生物技术" 公司', '生物科技 企业', '生命科学 公司'],
-                'fintech': ['"金融科技" 公司', '金融技术 企业', '数字银行 解决方案'],
-                'semiconductor': ['"半导体" 公司', '芯片 制造', '集成电路 产业'],
-                'software': ['"软件" 公司', '软件开发 企业', '科技 公司'],
-                'cloud computing': ['"云计算" 公司', '云服务 提供商', '云平台 企业'],
-                'cybersecurity': ['"网络安全" 公司', '信息安全 企业', '数据安全 解决方案']
+                'electric vehicle': ['新能源汽车 公司', '电动汽车 企业', '清洁能源 交通'],
+                'artificial intelligence': ['人工智能 公司', 'AI 科技 企业', '机器学习 解决方案'],
+                'biotechnology': ['生物技术 公司', '生物科技 企业', '生命科学 公司'],
+                'fintech': ['金融科技 公司', '金融技术 企业', '数字银行 解决方案'],
+                'semiconductor': ['半导体 公司', '芯片 制造', '集成电路 产业'],
+                'software': ['软件 公司', '软件开发 企业', '科技 公司'],
+                'cloud computing': ['云计算 公司', '云服务 提供商', '云平台 企业'],
+                'cybersecurity': ['网络安全 公司', '信息安全 企业', '数据安全 解决方案']
             }
         }
         
         # 查找翻译
         country_dict = basic_translations.get(resolved_country_code, {})
-        queries = country_dict.get(industry.lower(), [f'"{industry}" companies', f'{industry} industry', f'{industry} business'])
+        queries = country_dict.get(industry.lower(), [f'{industry} companies', f'{industry} industry', f'{industry} business'])
         
-        if not queries or queries == [f'"{industry}" companies']:
+        if not queries or queries == [f'{industry} companies']:
             # 没有找到翻译，生成默认查询
-            queries = [f'"{industry}" companies', f'{industry} industry', f'{industry} business']
+            queries = [f'{industry} companies', f'{industry} industry', f'{industry} business']
         
         print(f"⚠️ LLM不可用，使用基础翻译字典: {queries}")
         

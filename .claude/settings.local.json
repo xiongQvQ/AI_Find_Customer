@@ -56,7 +56,10 @@
       "Bash(echo:*)",
       "Bash(pip search:*)",
       "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_employee_search_api.py)",
-      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_employee_llm_verification.py)"
+      "Bash(~/softwave/miniconda3/envs/aifinder_env/bin/python test_employee_llm_verification.py)",
+      "Bash(./stop.sh)",
+      "Bash(./start.sh:*)",
+      "Bash(ping:*)"
     ],
     "deny": []
   }
