@@ -20,6 +20,14 @@ except ImportError as e:
     print(f"警告: 公司搜索模块不可用: {e}")
     COMPANY_SEARCH_AVAILABLE = False
 
+# 导入LLM关键词生成器
+try:
+    from core.llm_keyword_generator import LLMKeywordGenerator
+    LLM_KEYWORD_AVAILABLE = True
+except ImportError as e:
+    print(f"警告: LLM关键词生成器不可用: {e}")
+    LLM_KEYWORD_AVAILABLE = False
+
 # 导入公司分析服务
 try:
     from .company_analyzer import get_company_analyzer
@@ -38,6 +46,7 @@ class CompanySearchService:
         """初始化公司搜索服务"""
         self.searcher = None
         self.analyzer = None
+        self.keyword_generator = None
         
         if COMPANY_SEARCH_AVAILABLE:
             try:
@@ -54,6 +63,14 @@ class CompanySearchService:
             except Exception as e:
                 logger.error(f"❌ 公司分析器初始化失败: {e}")
                 self.analyzer = None
+                
+        if LLM_KEYWORD_AVAILABLE:
+            try:
+                self.keyword_generator = LLMKeywordGenerator()
+                logger.info("✅ LLM关键词生成器初始化成功")
+            except Exception as e:
+                logger.error(f"❌ LLM关键词生成器初始化失败: {e}")
+                self.keyword_generator = None
     
     async def search_companies(self, request: CompanySearchRequest) -> CompanySearchResponse:
         """
@@ -76,17 +93,21 @@ class CompanySearchService:
             # 验证请求参数
             self._validate_request(request)
             
+            # 步骤1: LLM关键词生成和国家代码转换
+            optimized_params = await self._optimize_search_params(request)
+            
             # 执行搜索
             logger.info(f"开始公司搜索: {search_id}")
-            logger.info(f"搜索参数: 行业={request.industry}, 地区={request.region}, 类型={request.search_type}")
+            logger.info(f"原始搜索参数: 行业={request.industry}, 地区={request.region}, 类型={request.search_type}")
+            logger.info(f"优化搜索参数: 关键词={optimized_params.get('keywords')}, 国家代码={optimized_params.get('gl')}")
             
             search_result = self.searcher.search_companies(
                 search_mode=request.search_type,
-                industry=request.industry,
-                region=request.region,
+                industry=optimized_params.get('industry', request.industry),
+                region=optimized_params.get('region', request.region),
                 custom_query=request.custom_query,
-                keywords=request.keywords,
-                gl=request.country_code,
+                keywords=optimized_params.get('keywords', request.keywords),
+                gl=optimized_params.get('gl', request.country_code),
                 num_results=request.max_results
             )
             
@@ -257,6 +278,70 @@ class CompanySearchService:
         # 这里可以实现数据库查询逻辑
         # 目前返回空列表
         return []
+    
+    async def _optimize_search_params(self, request: CompanySearchRequest) -> Dict[str, Any]:
+        """
+        优化搜索参数：LLM关键词生成 + 国家代码转换
+        
+        Args:
+            request: 原始搜索请求
+            
+        Returns:
+            Dict: 优化后的搜索参数
+        """
+        result = {
+            'industry': request.industry,
+            'region': request.region,
+            'keywords': request.keywords,
+            'gl': request.country_code
+        }
+        
+        try:
+            # 步骤1: 国家代码转换
+            if request.region and self.keyword_generator:
+                converted_country = self.keyword_generator._resolve_country_code(request.region)
+                if converted_country:
+                    result['gl'] = converted_country
+                    logger.info(f"🌍 国家转换: {request.region} → {converted_country}")
+            
+            # 步骤2: LLM关键词生成
+            if request.use_llm_optimization and self.keyword_generator and request.industry:
+                target_country = result['gl'] or 'us'  # 默认美国
+                
+                logger.info(f"🧠 开始LLM关键词生成: 行业={request.industry}, 国家={target_country}")
+                
+                keyword_result = self.keyword_generator.generate_search_keywords(
+                    industry=request.industry,
+                    target_country=target_country,
+                    search_type=request.search_type
+                )
+                
+                if keyword_result.get('success'):
+                    # 使用LLM生成的关键词
+                    primary_keywords = keyword_result.get('primary_keywords', [])
+                    if primary_keywords:
+                        result['keywords'] = primary_keywords[:5]  # 取前5个关键词
+                        logger.info(f"✅ LLM生成关键词: {result['keywords']}")
+                    
+                    # 更新行业和地区描述（如果LLM提供了优化的版本）
+                    if keyword_result.get('optimized_industry'):
+                        result['industry'] = keyword_result['optimized_industry']
+                    if keyword_result.get('optimized_region'):
+                        result['region'] = keyword_result['optimized_region']
+                        
+                else:
+                    logger.warning("❌ LLM关键词生成失败，使用原始参数")
+            
+            # 步骤3: 兜底处理
+            if not result.get('keywords') and request.industry:
+                # 如果没有生成关键词，使用基础翻译
+                result['keywords'] = [request.industry]
+                
+        except Exception as e:
+            logger.error(f"❌ 搜索参数优化失败: {e}")
+            # 发生错误时返回原始参数
+            
+        return result
 
 
 # 全局服务实例

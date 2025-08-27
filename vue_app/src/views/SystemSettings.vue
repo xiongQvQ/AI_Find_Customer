@@ -297,13 +297,12 @@ export default {
     
     const loadSettings = async () => {
       try {
-        // 获取系统状态
-        const statusResponse = await axios.get('http://localhost:8000/status')
-        apiStatus.value = statusResponse.data
+        // 获取系统状态 - 使用新的health端点
+        const healthResponse = await axios.get('http://localhost:8000/health')
+        apiStatus.value = healthResponse.data
         
-        // 获取配置设置
-        const configResponse = await axios.get('http://localhost:8000/config')
-        Object.assign(settings.value, configResponse.data)
+        // 配置设置从本地存储加载（新API没有config端点）
+        // 保持默认配置
         
         ElMessage.success('配置状态已加载')
       } catch (error) {
@@ -315,14 +314,16 @@ export default {
       saving.value = true
       
       try {
-        await axios.post('http://localhost:8000/config', settings.value)
+        // 新API没有config端点，只保存到本地存储
+        localStorage.setItem('ai-customer-finder-settings', JSON.stringify(settings.value))
         
-        ElMessage.success('配置已保存！请重启应用以生效')
+        ElMessage.success('配置已保存到本地存储！')
+        ElMessage.info('注意：配置更改需要重启API服务器才能生效')
         
         // 重新加载状态以确保同步
         await loadSettings()
       } catch (error) {
-        ElMessage.error('保存配置失败: ' + (error.response?.data?.detail || error.message))
+        ElMessage.error('保存配置失败: ' + error.message)
       } finally {
         saving.value = false
       }

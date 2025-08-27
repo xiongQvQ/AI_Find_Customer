@@ -568,7 +568,8 @@ export default {
             region: searchForm.value.region || null,
             search_type: searchForm.value.searchType,
             country_code: searchForm.value.gl,
-            max_results: 30
+            max_results: 30,
+            use_llm_optimization: true
           })
         })
         
@@ -594,9 +595,9 @@ export default {
             industry: decodeUrlString(company.industry) || decodeUrlString(searchForm.value.industry) || '未知行业',
             location: decodeUrlString(company.location) || decodeUrlString(searchForm.value.region) || '未知位置', 
             description: decodeUrlString(company.description) || '暂无描述',
-            url: company.website_url || '',
+            url: company.website_url || company.url || '',
             domain: decodeUrlString(company.domain) || '',
-            linkedin: company.linkedin_url || '',
+            linkedin: company.linkedin_url || company.linkedin || '',
             type: decodeUrlString(company.type) || '',
             // AI分析字段
             ai_score: company.ai_score,
@@ -606,7 +607,7 @@ export default {
             analysis_confidence: company.analysis_confidence
           }))
           
-          ElMessage.success(`搜索完成，找到 ${data.total_found} 家公司`)
+          ElMessage.success(`搜索完成，找到 ${data.total_companies} 家公司`)
         } else {
           throw new Error(data.error || '搜索失败')
         }

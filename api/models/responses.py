@@ -76,6 +76,12 @@ class EmployeeInfo(BaseModel):
     confidence_score: Optional[float] = Field(None, description="匹配置信度", ge=0, le=1)
     email_verified: Optional[str] = Field(None, description="邮箱验证状态: verified | unverified | unknown")
     source: str = Field(..., description="数据来源")
+    
+    # AI分析字段（与CompanyInfo保持一致）
+    ai_score: Optional[float] = Field(None, description="AI相关性评分", ge=0, le=1)
+    ai_reason: Optional[str] = Field(None, description="AI分析原因")
+    relevance_score: Optional[float] = Field(None, description="相关性评分", ge=0, le=1)
+    analysis_confidence: Optional[float] = Field(None, description="分析置信度", ge=0, le=1)
 
 
 class EmployeeSearchResponse(BaseResponse):

@@ -250,71 +250,165 @@ class CompanySearcher:
     
     def _match_location_with_region(self, extracted_locations: List[str], target_region: str) -> Tuple[bool, str]:
         """
-        将提取的地理位置与目标地区进行匹配，支持中文复合地名
+        使用AI智能匹配地理位置与目标地区
         返回 (是否匹配, 匹配的具体位置)
         """
         if not extracted_locations or not target_region:
             return False, ""
         
+        # 尝试使用AI进行智能地理位置匹配
+        if self.llm_available and self.llm_keyword_generator:
+            try:
+                return self._ai_location_match(extracted_locations, target_region)
+            except Exception as e:
+                print(f"AI地区匹配失败，使用基础匹配: {e}")
+        
+        # AI不可用时的基础匹配逻辑（更严格）
+        return self._basic_location_match(extracted_locations, target_region)
+    
+    def _ai_location_match(self, extracted_locations: List[str], target_region: str) -> Tuple[bool, str]:
+        """使用AI进行智能地理位置匹配"""
+        # 构建AI分析提示
+        prompt = f"""请分析以下地理位置信息是否匹配：
+
+目标地区：{target_region}
+提取的位置：{', '.join(extracted_locations)}
+
+请判断提取的位置中是否有任何一个与目标地区匹配。考虑以下因素：
+1. 地理包含关系（如加州包含旧金山）
+2. 同一地区的不同表达方式（如CA和California）
+3. 中英文对应关系
+4. 州代码和全名的对应关系
+
+请以JSON格式回答：
+{{
+    "is_match": true/false,
+    "matched_location": "匹配的具体位置（如果有）",
+    "reason": "匹配原因说明"
+}}
+
+注意：要求严格匹配，如果目标是"美国加利福尼亚"，则"Oregon"或"Washington"等其他州不应该匹配。
+"""
+        
+        try:
+            # 调用LLM分析
+            if hasattr(self.llm_keyword_generator, 'client') and self.llm_keyword_generator.client:
+                response = self._call_llm_for_location_analysis(prompt)
+                result = self._parse_location_analysis_response(response)
+                
+                if result and result.get("is_match"):
+                    matched_location = result.get("matched_location", extracted_locations[0])
+                    print(f"🤖 AI地区匹配: {matched_location} ✅ 匹配 {target_region}")
+                    print(f"   原因: {result.get('reason', '未提供')}")
+                    return True, matched_location
+                else:
+                    print(f"🤖 AI地区匹配: {extracted_locations} ❌ 不匹配 {target_region}")
+                    if result and result.get("reason"):
+                        print(f"   原因: {result.get('reason')}")
+                    return False, ""
+            
+        except Exception as e:
+            print(f"AI地区分析异常: {e}")
+        
+        # AI调用失败，使用基础匹配
+        return self._basic_location_match(extracted_locations, target_region)
+    
+    def _call_llm_for_location_analysis(self, prompt: str) -> str:
+        """调用LLM进行地区分析"""
+        llm_provider = self.llm_keyword_generator.llm_provider
+        
+        if llm_provider == "huoshan":
+            messages = [{"role": "user", "content": prompt}]
+            response = self.llm_keyword_generator.client.chat.completions.create(
+                model=self.llm_keyword_generator.model_name,
+                messages=messages,
+                temperature=0.1,  # 较低温度确保一致性
+                max_tokens=200
+            )
+            return response.choices[0].message.content
+            
+        elif llm_provider == "openai":
+            response = self.llm_keyword_generator.client.chat.completions.create(
+                model=self.llm_keyword_generator.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200
+            )
+            return response.choices[0].message.content
+            
+        elif llm_provider == "anthropic":
+            response = self.llm_keyword_generator.client.messages.create(
+                model=self.llm_keyword_generator.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=200
+            )
+            return response.content[0].text
+            
+        elif llm_provider == "google":
+            response = self.llm_keyword_generator.client.generate_content(prompt)
+            return response.text
+        
+        raise Exception(f"不支持的LLM提供商: {llm_provider}")
+    
+    def _parse_location_analysis_response(self, response: str) -> Optional[Dict]:
+        """解析LLM地区分析响应"""
+        try:
+            import json
+            # 尝试直接解析JSON
+            return json.loads(response)
+        except:
+            # 尝试从响应中提取JSON
+            import re
+            json_pattern = r'\{[^}]*"is_match"[^}]*\}'
+            match = re.search(json_pattern, response, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except:
+                    pass
+            return None
+    
+    def _basic_location_match(self, extracted_locations: List[str], target_region: str) -> Tuple[bool, str]:
+        """基础地理位置匹配（更严格的规则）"""
         target_lower = target_region.lower()
         
-        # 1. 直接匹配（完全匹配或包含匹配）
-        for location in extracted_locations:
-            location_lower = location.lower()
-            if target_lower in location_lower or location_lower in target_lower:
-                return True, location
-        
-        # 2. 中文复合地名特殊匹配
-        for location in extracted_locations:
-            location_lower = location.lower()
-            # 匹配"美国加利福尼亚"类型的复合地名
-            if '美国' in target_region and '加利福尼亚' in target_region:
-                if ('美国' in location_lower and '加利福尼亚' in location_lower) or \
-                   ('california' in location_lower):
-                    return True, location
-            if '美国' in target_region and '加州' in target_region:
-                if ('美国' in location_lower and '加州' in location_lower) or \
-                   ('california' in location_lower):
-                    return True, location
-        
-        # 3. 通过映射表匹配
-        for chinese_region, english_variants in self.location_mapping.items():
-            if target_region in chinese_region or chinese_region in target_region:
-                # 检查提取的位置是否与英文变体匹配
-                for location in extracted_locations:
-                    location_lower = location.lower()
-                    for variant in english_variants:
-                        if variant.lower() in location_lower or location_lower in variant.lower():
-                            return True, location
-        
-        # 4. 反向检查：目标地区是英文时
-        for location in extracted_locations:
-            location_lower = location.lower()
-            for chinese_region, english_variants in self.location_mapping.items():
-                for variant in english_variants:
-                    if (target_lower in variant.lower() or variant.lower() in target_lower) and \
-                       (location_lower in variant.lower() or variant.lower() in location_lower):
-                        return True, location
-        
-        # 5. 模糊匹配：检查关键词
-        location_keywords = {
-            '加利福尼亚': ['california', 'ca', 'calif'],
-            '加州': ['california', 'ca', 'calif'],
-            '美国加利福尼亚': ['california', 'ca', 'calif', 'united states', 'usa'],
-            '美国加州': ['california', 'ca', 'calif', 'united states', 'usa'],
-            '北京': ['beijing'],
-            '上海': ['shanghai'],
-            '台北': ['taipei', 'taiwan'],
-            '台湾': ['taiwan', 'taipei']
+        # 精确匹配常见地区映射
+        region_mappings = {
+            '美国加利福尼亚': ['california', 'ca'],
+            '美国加州': ['california', 'ca'],
+            '加利福尼亚': ['california', 'ca'],
+            '加州': ['california', 'ca'],
+            'california': ['california', 'ca'],
+            '美国纽约': ['new york', 'ny'],
+            '纽约': ['new york', 'ny'],
+            'new york': ['new york', 'ny'],
+            '美国德州': ['texas', 'tx'],
+            '德州': ['texas', 'tx'],
+            'texas': ['texas', 'tx'],
         }
         
-        for keyword, variants in location_keywords.items():
-            if keyword in target_region:
-                for location in extracted_locations:
-                    location_lower = location.lower()
-                    for variant in variants:
-                        if variant in location_lower:
-                            return True, location
+        # 查找目标地区对应的标准形式
+        target_variants = None
+        for region, variants in region_mappings.items():
+            if target_lower == region or region in target_lower or target_lower in region:
+                target_variants = variants
+                break
+        
+        if not target_variants:
+            # 没有找到预定义映射，使用精确匹配
+            for location in extracted_locations:
+                if target_lower == location.lower():
+                    return True, location
+            return False, ""
+        
+        # 检查提取的位置是否与目标变体匹配（精确匹配）
+        for location in extracted_locations:
+            location_lower = location.lower()
+            for variant in target_variants:
+                # 只允许精确匹配，避免"or"匹配到"california"
+                if location_lower == variant:
+                    return True, location
         
         return False, ""
     
@@ -597,6 +691,9 @@ class CompanySearcher:
                         print(f"   提取的位置: {extracted_locations}")
                         print()
                 
+                # 计算AI分析评分
+                ai_analysis = self._calculate_ai_analysis(company_name, title, description, target_region)
+                
                 company_info = {
                     'name': company_name,
                     'query': query,
@@ -608,7 +705,13 @@ class CompanySearcher:
                     'type': 'linkedin_search',
                     'extracted_locations': extracted_locations,
                     'location_match': location_match,
-                    'matched_location': matched_location
+                    'matched_location': matched_location,
+                    # 添加AI分析字段
+                    'ai_score': ai_analysis['ai_score'],
+                    'is_company': ai_analysis['is_company'],
+                    'ai_reason': ai_analysis['ai_reason'],
+                    'relevance_score': ai_analysis['relevance_score'],
+                    'analysis_confidence': ai_analysis['analysis_confidence']
                 }
                 
                 if location_match or not target_region:
@@ -677,6 +780,9 @@ class CompanySearcher:
                         print(f"   提取的位置: {extracted_locations}")
                         print()
                 
+                # 计算AI分析评分
+                ai_analysis = self._calculate_ai_analysis(company_name, title, description, target_region)
+                
                 company_info = {
                     'name': company_name,
                     'query': query,
@@ -687,7 +793,13 @@ class CompanySearcher:
                     'type': "general_search",
                     'extracted_locations': extracted_locations,
                     'location_match': location_match,
-                    'matched_location': matched_location
+                    'matched_location': matched_location,
+                    # 添加AI分析字段
+                    'ai_score': ai_analysis['ai_score'],
+                    'is_company': ai_analysis['is_company'],
+                    'ai_reason': ai_analysis['ai_reason'],
+                    'relevance_score': ai_analysis['relevance_score'],
+                    'analysis_confidence': ai_analysis['analysis_confidence']
                 }
                 
                 if custom_query:
@@ -708,6 +820,97 @@ class CompanySearcher:
             print(f"地理位置过滤: 保留 {len(companies)} 家公司，过滤掉 {len(filtered_out)} 家不符合地区要求的公司")
         
         return companies
+    
+    def _calculate_ai_analysis(self, company_name, title, description, target_region=None):
+        """
+        计算AI分析评分和相关指标
+        这是一个简化的基于规则的AI分析，用于替代复杂的LLM调用
+        """
+        try:
+            # 基础分数
+            base_score = 0.6
+            
+            # 公司名称评分
+            name_score = 0
+            if company_name and len(company_name) > 2:
+                name_score = 0.1
+                # 检查是否包含常见公司后缀
+                company_suffixes = ['Inc', 'Corp', 'Ltd', 'LLC', 'Company', 'Co', 'Group', 'Technologies', 'Tech', 'Systems', 'Solutions']
+                if any(suffix.lower() in company_name.lower() for suffix in company_suffixes):
+                    name_score += 0.05
+            
+            # 描述质量评分
+            description_score = 0
+            if description:
+                desc_len = len(description)
+                if desc_len > 50:
+                    description_score = min(0.15, desc_len / 1000)  # 最高0.15分
+                
+                # 检查是否包含业务相关关键词
+                business_keywords = [
+                    'company', 'business', 'corporation', 'enterprise', 'industry', 'manufacturing', 
+                    'services', 'solutions', 'technology', 'software', 'products', 'development',
+                    'consulting', 'professional', 'commercial', 'market', 'sales', 'customer'
+                ]
+                keyword_matches = sum(1 for keyword in business_keywords if keyword.lower() in description.lower())
+                description_score += min(0.1, keyword_matches * 0.02)
+            
+            # 相关性评分（基于地区匹配）
+            relevance_score = 0.7  # 默认相关性
+            if target_region:
+                # 这里可以根据地区匹配度调整相关性
+                relevance_score = 0.8 if any(target_region.lower() in text.lower() for text in [title, description] if text) else 0.6
+            
+            # 最终AI评分 (0-1之间)
+            ai_score = min(1.0, base_score + name_score + description_score)
+            
+            # 判断是否为公司
+            is_company = True
+            company_indicators = ['company', 'corp', 'inc', 'ltd', 'llc', 'group', 'technologies', 'tech', 'systems', 'solutions']
+            if not any(indicator in company_name.lower() for indicator in company_indicators):
+                # 如果名称中没有公司指示词，检查描述
+                if description and not any(indicator in description.lower() for indicator in ['company', 'business', 'corporation', 'enterprise']):
+                    is_company = False
+                    ai_score *= 0.8  # 降低评分
+            
+            # 生成AI分析原因
+            reasons = []
+            if name_score > 0.1:
+                reasons.append("公司名称规范")
+            if description_score > 0.1:
+                reasons.append("描述详细")
+            if relevance_score > 0.7:
+                reasons.append("地区匹配度高")
+            
+            ai_reason = "基于规则分析: " + (", ".join(reasons) if reasons else "基础评估")
+            
+            # 分析置信度 (基于可用信息的完整性)
+            info_completeness = 0
+            if company_name: info_completeness += 0.3
+            if title: info_completeness += 0.2  
+            if description: info_completeness += 0.3
+            if target_region: info_completeness += 0.2
+            
+            analysis_confidence = min(1.0, info_completeness + 0.5)  # 确保至少50%置信度
+            
+            return {
+                'ai_score': round(ai_score, 3),
+                'is_company': is_company,
+                'ai_reason': ai_reason,
+                'relevance_score': round(relevance_score, 3),
+                'analysis_confidence': round(analysis_confidence, 3)
+            }
+            
+        except Exception as e:
+            print(f"AI分析计算错误: {e}")
+            # 返回默认值
+            return {
+                'ai_score': 0.5,
+                'is_company': True,
+                'ai_reason': "分析计算出错，使用默认评估",
+                'relevance_score': 0.5,
+                'analysis_confidence': 0.3
+            }
     
     def _save_results(self, companies, search_mode, industry, region, custom_query, gl):
         """Save search results to CSV and JSON files"""

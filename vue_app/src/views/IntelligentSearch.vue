@@ -263,20 +263,23 @@ export default {
 
     const startAsyncSearch = async () => {
       try {
-        // 启动异步搜索
-        const response = await axios.post('http://localhost:8000/async-search', {
+        // 使用智能搜索API（同步）
+        currentStep.value = '启动智能搜索...'
+        const response = await axios.post('http://localhost:8000/api/intelligent/search', {
           query: searchForm.value.query,
-          ai_evaluation_enabled: searchForm.value.aiEvaluation,
-          employee_search_enabled: searchForm.value.employeeSearch,
-          preferred_strategy: searchForm.value.preferredStrategy,
-          enable_optimization: searchForm.value.enableOptimization
+          include_employees: searchForm.value.employeeSearch,
+          max_results: 50,
+          country_code: 'us'
         })
 
-        currentSearchId.value = response.data.search_id
-        currentStep.value = '搜索已启动，连接实时进度...'
+        // 模拟搜索ID和完成状态
+        const searchId = `search_${Date.now()}`
+        currentSearchId.value = searchId
+        currentStep.value = '搜索完成'
         
-        // 建立SSE连接获取实时进度
-        setupEventSource(response.data.search_id)
+        // 直接设置结果，不使用SSE
+        searchResults.value = response.data.results || []
+        searching.value = false
         
       } catch (error) {
         throw error
@@ -312,13 +315,11 @@ export default {
         const progressPromise = simulateProgressSteps(progressSteps)
         
         // 同时发起API请求
-        const searchPromise = axios.post('http://localhost:8000/enhanced-search', {
+        const searchPromise = axios.post('http://localhost:8000/api/intelligent/search', {
           query: searchForm.value.query,
-          ai_evaluation_enabled: searchForm.value.aiEvaluation,
-          employee_search_enabled: searchForm.value.employeeSearch,
-          preferred_strategy: searchForm.value.preferredStrategy,
-          enable_optimization: searchForm.value.enableOptimization,
-          max_optimization_rounds: 2
+          include_employees: searchForm.value.employeeSearch,
+          max_results: 50,
+          country_code: 'us'
         })
 
         // 等待两个Promise完成
@@ -499,17 +500,10 @@ export default {
     }
 
     const cancelSearch = async () => {
-      if (currentSearchId.value && searchForm.value.searchMode === 'async') {
-        try {
-          await axios.delete(`http://localhost:8000/async-search/${currentSearchId.value}`)
-          ElMessage.info('搜索已取消')
-        } catch (error) {
-          console.error('取消搜索失败:', error)
-        }
-      }
-      
+      // 同步搜索模式下直接重置状态
       resetSearchState()
       searching.value = false
+      ElMessage.info('搜索已取消')
     }
 
     const getStatusTagType = (status) => {
@@ -560,19 +554,45 @@ export default {
     
     const exportData = async (format) => {
       try {
-        const response = await axios.get(`http://localhost:8000/export/${format}`, {
-          params: { 
-            search_id: searchResults.value?.search_id,
-            type: 'qualified'
-          }
-        })
+        if (!searchResults.value || searchResults.value.length === 0) {
+          ElMessage.warning('没有搜索结果可导出')
+          return
+        }
+
+        let exportData, mimeType, fileName
+        
+        if (format === 'json') {
+          exportData = JSON.stringify(searchResults.value, null, 2)
+          mimeType = 'application/json'
+          fileName = `intelligent_search_results.json`
+        } else if (format === 'csv') {
+          // 转换为CSV格式
+          const csvHeaders = ['Company Name', 'Industry', 'Location', 'AI Score', 'Website', 'Description']
+          const csvRows = [csvHeaders.join(',')]
+          
+          searchResults.value.forEach(result => {
+            const row = [
+              `"${result.name || ''}"`,
+              `"${result.industry || ''}"`,
+              `"${result.location || ''}"`,
+              result.ai_score || '',
+              `"${result.website || ''}"`,
+              `"${(result.description || '').replace(/"/g, '""')}"`
+            ]
+            csvRows.push(row.join(','))
+          })
+          
+          exportData = csvRows.join('\n')
+          mimeType = 'text/csv'
+          fileName = `intelligent_search_results.csv`
+        }
         
         // 触发下载
-        const blob = new Blob([format === 'json' ? JSON.stringify(response.data, null, 2) : response.data])
+        const blob = new Blob([exportData], { type: mimeType })
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `search_results.${format}`
+        a.download = fileName
         a.click()
         window.URL.revokeObjectURL(url)
         

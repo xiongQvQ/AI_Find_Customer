@@ -194,6 +194,23 @@
                     <p><strong>简介:</strong> {{ employee.summary }}</p>
                   </div>
                   
+                  <!-- AI分析信息 -->
+                  <div v-if="employee.ai_score !== undefined" class="ai-analysis">
+                    <div class="ai-score">
+                      <span class="ai-label">🤖 AI评分:</span>
+                      <el-tag 
+                        :type="getAiScoreType(employee.ai_score)" 
+                        size="small"
+                      >
+                        {{ (employee.ai_score * 100).toFixed(0) }}%
+                      </el-tag>
+                    </div>
+                    <div v-if="employee.ai_reason" class="ai-reason">
+                      <span class="ai-label">💭 分析:</span>
+                      <span class="ai-reason-text">{{ employee.ai_reason }}</span>
+                    </div>
+                  </div>
+                  
                   <div class="employee-source">
                     <el-text type="info" size="small">
                       数据来源: {{ employee.source || 'Multiple Sources' }}
@@ -307,8 +324,11 @@ export default {
         const response = await axios.post('http://localhost:8000/api/employee/search', {
           company_name: searchForm.value.companyName,
           company_domain: searchForm.value.companyDomain,
-          target_position: searchForm.value.targetPosition,
-          search_options: searchForm.value.options
+          target_positions: searchForm.value.targetPosition.split(',').map(p => p.trim()).filter(p => p),
+          search_options: searchForm.value.options,
+          country_code: 'us',  // 默认美国，后续可添加国家选择
+          max_results: 10,
+          use_llm_optimization: true  // 启用LLM优化
         })
         
         searchProgress.value = 100
@@ -317,7 +337,7 @@ export default {
         await new Promise(resolve => setTimeout(resolve, 500))
         
         searchResults.value = response.data
-        ElMessage.success(`搜索完成! 找到 ${response.data.total_employees} 名员工`)
+        ElMessage.success(`搜索完成! 找到 ${response.data.total_found} 名员工`)
         
       } catch (error) {
         console.error('员工搜索失败:', error)
@@ -357,6 +377,13 @@ export default {
       return 'info'
     }
     
+    const getAiScoreType = (score) => {
+      if (score >= 0.8) return 'success'
+      if (score >= 0.6) return 'warning'
+      if (score >= 0.4) return 'info'
+      return 'danger'
+    }
+    
     const copyContact = async (employee) => {
       const contactInfo = []
       if (employee.name) contactInfo.push(`姓名: ${employee.name}`)
@@ -382,15 +409,47 @@ export default {
     
     const exportEmployees = async (format) => {
       try {
-        const response = await axios.get(`http://localhost:8000/export/${format}`, {
-          params: { search_id: searchResults.value?.search_id }
-        })
+        if (!searchResults.value || searchResults.value.length === 0) {
+          ElMessage.warning('没有员工数据可导出')
+          return
+        }
+
+        let exportData, mimeType, fileName
         
-        const blob = new Blob([format === 'json' ? JSON.stringify(response.data, null, 2) : response.data])
+        if (format === 'json') {
+          exportData = JSON.stringify(searchResults.value, null, 2)
+          mimeType = 'application/json'
+          fileName = `employee_search_results.json`
+        } else if (format === 'csv') {
+          // 转换为CSV格式
+          const csvHeaders = ['Name', 'Position', 'Email', 'Phone', 'LinkedIn URL', 'AI Score', 'Relevance Score', 'Source']
+          const csvRows = [csvHeaders.join(',')]
+          
+          searchResults.value.forEach(employee => {
+            const row = [
+              `"${employee.name || ''}"`,
+              `"${employee.position || ''}"`,
+              `"${employee.email || ''}"`,
+              `"${employee.phone || ''}"`,
+              `"${employee.linkedin_url || ''}"`,
+              employee.ai_score || '',
+              employee.relevance_score || '',
+              `"${employee.source || ''}"`
+            ]
+            csvRows.push(row.join(','))
+          })
+          
+          exportData = csvRows.join('\n')
+          mimeType = 'text/csv'
+          fileName = `employee_search_results.csv`
+        }
+        
+        // 触发下载
+        const blob = new Blob([exportData], { type: mimeType })
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `employees.${format}`
+        a.download = fileName
         a.click()
         window.URL.revokeObjectURL(url)
         
@@ -417,6 +476,7 @@ export default {
       getStepStatus,
       formatProgress,
       getConfidenceType,
+      getAiScoreType,
       copyContact,
       addToList,
       exportEmployees
@@ -554,6 +614,39 @@ export default {
   background: #f5f7fa;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.ai-analysis {
+  margin: 15px 0;
+  padding: 10px;
+  background: #f0f9ff;
+  border: 1px solid #e1f5fe;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.ai-score {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.ai-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ai-label {
+  font-weight: 500;
+  color: #2196f3;
+  flex-shrink: 0;
+}
+
+.ai-reason-text {
+  color: #666;
+  line-height: 1.4;
 }
 
 .employee-source {

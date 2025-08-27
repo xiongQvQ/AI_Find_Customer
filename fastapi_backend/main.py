@@ -688,6 +688,7 @@ async def company_search(request: CompanySearchRequest):
         )
 
 @app.post("/employee-search", response_model=EmployeeSearchResponse)
+@app.post("/api/employee/search", response_model=EmployeeSearchResponse)
 async def employee_search(request: EmployeeSearchRequest):
     """
     员工搜索接口
@@ -815,6 +816,81 @@ async def employee_search(request: EmployeeSearchRequest):
             detail=f"Employee search failed: {str(e)}"
         )
 
+def _calculate_employee_ai_analysis(employee_name: str, employee_position: str, employee_summary: str, target_position: str, company_name: str = None):
+    """计算员工AI分析评分和相关指标"""
+    
+    # 基础评分
+    base_score = 0.5
+    
+    # 名称评分
+    name_score = 0.1 if employee_name and len(employee_name) > 1 else 0
+    
+    # 职位匹配评分
+    position_score = 0
+    if employee_position and target_position:
+        employee_pos_lower = employee_position.lower()
+        target_pos_lower = target_position.lower()
+        
+        # 完全匹配
+        if employee_pos_lower == target_pos_lower:
+            position_score = 0.3
+        # 关键词匹配
+        elif target_pos_lower in employee_pos_lower or employee_pos_lower in target_pos_lower:
+            position_score = 0.2
+        # 相关职位匹配 (CEO, 总经理, 经理等)
+        elif any(keyword in employee_pos_lower for keyword in ['ceo', '总经理', '经理', 'manager', '主管', 'director', '总监']):
+            if any(keyword in target_pos_lower for keyword in ['ceo', '总经理', '经理', 'manager', '主管', 'director', '总监']):
+                position_score = 0.15
+        else:
+            position_score = 0.05
+    
+    # 简介评分
+    summary_score = 0.1 if employee_summary and len(employee_summary) > 10 else 0
+    
+    # 计算总体AI评分
+    ai_score = min(base_score + name_score + position_score + summary_score, 1.0)
+    
+    # 判断是否为目标角色
+    is_target_role = position_score >= 0.15  # 至少有相关职位匹配
+    
+    # 相关性评分 (基于职位匹配程度)
+    relevance_score = max(position_score * 3, 0.3)  # 将职位评分放大作为相关性
+    
+    # 分析置信度
+    analysis_confidence = 0.7 if is_target_role else 0.5
+    if position_score >= 0.3:  # 完全匹配
+        analysis_confidence = 0.9
+    elif position_score >= 0.2:  # 部分匹配
+        analysis_confidence = 0.8
+    
+    # 生成AI分析原因
+    ai_reason = []
+    if position_score >= 0.3:
+        ai_reason.append("职位完全匹配")
+    elif position_score >= 0.2:
+        ai_reason.append("职位高度相关")
+    elif position_score >= 0.1:
+        ai_reason.append("职位相关")
+    else:
+        ai_reason.append("职位匹配度一般")
+    
+    if name_score > 0:
+        ai_reason.append("有效员工姓名")
+    if summary_score > 0:
+        ai_reason.append("包含工作经验描述")
+    if company_name:
+        ai_reason.append(f"属于目标公司{company_name}")
+    
+    reason_text = "、".join(ai_reason)
+    
+    return {
+        'ai_score': round(ai_score, 3),
+        'is_target_role': is_target_role,
+        'ai_reason': reason_text,
+        'relevance_score': round(relevance_score, 3), 
+        'analysis_confidence': round(analysis_confidence, 3)
+    }
+
 async def _search_employees(company_name: str, company_domain: str, target_position: str, options: List[str]) -> List[Dict[str, Any]]:
     """
     搜索员工信息的核心逻辑
@@ -841,6 +917,9 @@ async def _search_employees(company_name: str, company_domain: str, target_posit
         email_domain = random.choice(email_domains)
         email = f"{name.lower()}{i+1}@{email_domain}"
         
+        # 计算AI分析评分
+        ai_analysis = _calculate_employee_ai_analysis(name, position, f"在{company_name}担任{position}，有{random.randint(2, 10)}年相关工作经验。", target_position, company_name)
+        
         employee = {
             'name': name,
             'position': position,
@@ -851,7 +930,13 @@ async def _search_employees(company_name: str, company_domain: str, target_posit
             'summary': f"在{company_name}担任{position}，有{random.randint(2, 10)}年相关工作经验。",
             'confidence': random.randint(60, 95),
             'email_verified': random.choice(['verified', 'unverified', 'verified']),
-            'source': 'LinkedIn Search'
+            'source': 'LinkedIn Search',
+            # AI分析字段
+            'ai_score': ai_analysis['ai_score'],
+            'is_target_role': ai_analysis['is_target_role'], 
+            'ai_reason': ai_analysis['ai_reason'],
+            'relevance_score': ai_analysis['relevance_score'],
+            'analysis_confidence': ai_analysis['analysis_confidence']
         }
         
         employees.append(employee)
