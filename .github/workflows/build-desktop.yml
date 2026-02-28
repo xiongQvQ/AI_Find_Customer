@@ -243,11 +243,6 @@ jobs:
           key: rust-windows-${{ hashFiles('packaging/tauri/src-tauri/Cargo.lock') }}
           restore-keys: rust-windows-
 
-      # ── 12. Install NSIS (required by Tauri for EXE installer) ───────────────
-      - name: Install NSIS
-        run: choco install nsis --no-progress -y
-        shell: pwsh
-
       # ── 13. Install Tauri JS deps (includes pre-built cargo-tauri binary) ─────
       # Delete lockfile so npm resolves Windows-native @tauri-apps/cli binary
       # (macOS-generated lockfile references the darwin binary, causing make errors)
@@ -264,9 +259,11 @@ jobs:
       - name: Build Tauri EXE (NSIS installer)
         shell: pwsh
         run: |
-          # Prepend MSVC linker bin so it wins over Git's link.exe
-          $msvcBin = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64"
-          if (Test-Path $msvcBin) { $env:PATH = "$msvcBin;$env:PATH" }
+          # Prepend MSVC linker bin so it wins over Git's /usr/bin/link.exe
+          # Use VCToolsInstallDir set by ilammy/msvc-dev-cmd (version-independent)
+          $msvcBin = "$env:VCToolsInstallDir\bin\HostX64\x64"
+          if ($msvcBin -and (Test-Path $msvcBin)) { $env:PATH = "$msvcBin;$env:PATH" }
+          Write-Host "MSVC bin: $msvcBin"
           Set-Location packaging/tauri/src-tauri
           ..\node_modules\.bin\tauri build --bundles nsis `
             --config '{"build":{"beforeBuildCommand":""}}'
