@@ -211,7 +211,8 @@ jobs:
         run: |
           $exe = "packaging/dist/AIHunter/AIHunter.exe"
           if (Test-Path $exe) { Write-Host "OK: $exe exists" } else { Write-Error "MISSING: $exe"; exit 1 }
-          python -c "import os,glob; dist='packaging/dist/AIHunter/_internal'; [print(f'  {p}/: {len(glob.glob(os.path.join(dist,p,chr(42)+\".pyd\")))} .pyd  {len([f for f in glob.glob(os.path.join(dist,p,chr(42)+\".py\")) if chr(95)+chr(95) not in f])} raw .py') for p in ['agents','api','config','graph','tools','observability','license']]"
+          Set-Content -Path verify_bundle.py -Value "import os, glob`ndist = 'packaging/dist/AIHunter/_internal'`nfor p in ['agents','api','config','graph','tools','observability','license']:`n    d = os.path.join(dist, p)`n    pyds = glob.glob(os.path.join(d, '*.pyd'))`n    pys = [f for f in glob.glob(os.path.join(d, '*.py')) if '__init__' not in f]`n    print(f'  {p}/: {len(pyds)} .pyd  {len(pys)} raw .py')"
+          python verify_bundle.py
 
       # ── 8. Node.js (for frontend build) ──────────────────────────────────────
       - name: Set up Node.js
