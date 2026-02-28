@@ -259,13 +259,16 @@ jobs:
           npm install
 
       # ── 14. Build Tauri EXE installer ────────────────────────────────────────
-      # Use npx tauri (from @tauri-apps/cli) — avoids ~10min cargo install tauri-cli
-      # Must run from src-tauri/ where Cargo.toml [package] section lives
+      # IMPORTANT: must use pwsh (not bash) to avoid Git Bash's /usr/bin/link.exe
+      # shadowing MSVC's link.exe, which causes "extra operand" linker errors.
       - name: Build Tauri EXE (NSIS installer)
-        shell: bash
+        shell: pwsh
         run: |
-          cd packaging/tauri/src-tauri
-          ../node_modules/.bin/tauri build --bundles nsis \
+          # Prepend MSVC linker bin so it wins over Git's link.exe
+          $msvcBin = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64"
+          if (Test-Path $msvcBin) { $env:PATH = "$msvcBin;$env:PATH" }
+          Set-Location packaging/tauri/src-tauri
+          ..\node_modules\.bin\tauri build --bundles nsis `
             --config '{"build":{"beforeBuildCommand":""}}'
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
