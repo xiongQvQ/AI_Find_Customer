@@ -164,6 +164,11 @@ fi
 $PYTHON_CMD -c "import json,sys; json.dump(sys.argv[1:-1], open(sys.argv[-1],'w'))" "${COMPILE_FILES[@]}" "$FILES_JSON_PY"
 
 SETUP_PY="$BUILD_TMP/cython_setup.py"
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    SETUP_PY_PY="$(cygpath -w "$SETUP_PY")"
+else
+    SETUP_PY_PY="$SETUP_PY"
+fi
 cat > "$SETUP_PY" << 'PYEOF'
 from __future__ import annotations
 import sys, os, json
@@ -217,7 +222,7 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-$PYTHON_CMD "$SETUP_PY" "$FILES_JSON_PY" "$BUILD_TMP_PY" 2>&1 | grep -v "^$" | grep -v "^Compiling " | grep -v "^copying " || true
+$PYTHON_CMD "$SETUP_PY_PY" "$FILES_JSON_PY" "$BUILD_TMP_PY" 2>&1 | grep -v "^$" | grep -v "^Compiling " | grep -v "^copying "
 
 echo "    Cython compilation done."
 
