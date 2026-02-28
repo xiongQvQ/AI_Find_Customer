@@ -271,7 +271,7 @@ jobs:
         shell: bash
         run: |
           cd packaging/tauri/src-tauri
-          npx --prefix .. tauri build --bundles nsis \
+          ../node_modules/.bin/tauri build --bundles nsis \
             --config '{"build":{"beforeBuildCommand":""}}'
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
