@@ -501,14 +501,15 @@ pyinstaller \
 # Cleanup temp build dir
 rm -rf "$BUILD_TMP"
 
-# Remove litellm proxy internals with deeply nested paths that break Windows
-# NSIS MAX_PATH (260 char) limit during installer creation.
+# Remove litellm proxy server and test dirs — they contain deeply nested paths
+# that breach Windows NSIS MAX_PATH (260 char) limit during installer creation.
+# The app uses litellm as an LLM client only; the proxy server is never needed.
 if [ -d "$DIST_DIR/AIHunter/_internal/litellm" ]; then
-    echo "==> Pruning litellm proxy internals (long-path risk)..."
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/guardrails" 2>/dev/null || true
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/tests" 2>/dev/null || true
+    echo "==> Pruning litellm proxy/tests (long-path risk on Windows)..."
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy" 2>/dev/null || true
     rm -rf "$DIST_DIR/AIHunter/_internal/litellm/tests" 2>/dev/null || true
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/example_config_yaml" 2>/dev/null || true
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/fine_tuning" 2>/dev/null || true
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/realtime_api" 2>/dev/null || true
     echo "    Done."
 fi
 

@@ -276,7 +276,15 @@ jobs:
         id: exe
         shell: pwsh
         run: |
-          $EXE = (Get-ChildItem -Recurse -Filter "*-setup.exe" packaging/tauri/src-tauri/target/release/bundle/nsis | Select-Object -First 1).FullName
+          $bundleDir = "packaging/tauri/src-tauri/target/release/bundle"
+          if (-not (Test-Path $bundleDir)) {
+            Write-Error "Bundle dir missing: $bundleDir — Tauri build likely failed above"
+            exit 1
+          }
+          Write-Host "==> Bundle dir contents:"
+          Get-ChildItem -Recurse $bundleDir | Select-Object FullName | Format-List
+          $EXE = (Get-ChildItem -Recurse -Filter "*-setup.exe" $bundleDir | Select-Object -First 1).FullName
+          if (-not $EXE) { Write-Error "No *-setup.exe found under $bundleDir"; exit 1 }
           echo "path=$EXE" >> $env:GITHUB_OUTPUT
           echo "name=$(Split-Path $EXE -Leaf)" >> $env:GITHUB_OUTPUT
           Write-Host "Found: $EXE"
