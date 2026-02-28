@@ -1,0 +1,321 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - "v*"           # trigger on version tags: v1.0.0, v1.2.3, etc.
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+    inputs:
+      platform:
+        description: "Platform to build"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
+
+# ── Concurrency: cancel in-progress builds on the same ref ──────────────────
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # macOS → DMG
+  # ────────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-14          # Apple Silicon (arm64) runner
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'macos'
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python 3.12 ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. Cache pip packages ───────────────────────────────────────────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-macos-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: pip-macos-
+
+      # ── 4. Build Python backend (Cython + PyInstaller) ──────────────────────
+      - name: Build Python backend
+        run: |
+          chmod +x packaging/build_backend.sh
+          packaging/build_backend.sh mac --no-venv
+        env:
+          # Ensure pip install goes to the GitHub-provided Python env
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+      # ── 5. Verify backend bundle ─────────────────────────────────────────────
+      - name: Verify backend bundle
+        run: |
+          ls -lh packaging/dist/AIHunter/AIHunter
+          echo "==> Checking for raw .py source files (should be 0):"
+          python3 -c "
+          import os, glob
+          dist = 'packaging/dist/AIHunter/_internal'
+          for pkg in ['agents','api','config','graph','tools','observability','license']:
+              d = os.path.join(dist, pkg)
+              sos  = glob.glob(os.path.join(d, '*.so'))
+              pys  = [f for f in glob.glob(os.path.join(d,'*.py')) if '__init__' not in f]
+              print(f'  {pkg}/: {len(sos)} .so  {len(pys)} raw .py')
+          "
+
+      # ── 6. Node.js + Bun (for frontend build) ───────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── 7. Build frontend ────────────────────────────────────────────────────
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # ── 8. Rust toolchain (for Tauri) ────────────────────────────────────────
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      # ── 9. Cache Rust build artifacts ───────────────────────────────────────
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packaging/tauri/target
+          key: rust-macos-${{ hashFiles('packaging/tauri/src-tauri/Cargo.lock') }}
+          restore-keys: rust-macos-
+
+      # ── 10. Install Tauri CLI ─────────────────────────────────────────────────
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # ── 11. Install Tauri JS deps ─────────────────────────────────────────────
+      - name: Install Tauri JS dependencies
+        run: |
+          cd packaging/tauri
+          npm ci
+
+      # ── 12. Build Tauri DMG ───────────────────────────────────────────────────
+      - name: Build Tauri DMG
+        run: |
+          cd packaging/tauri/src-tauri
+          cargo tauri build --bundles dmg \
+            --config '{"build":{"beforeBuildCommand":""}}'
+        env:
+          # Disable code signing for CI builds (no Apple Developer cert)
+          APPLE_SIGNING_IDENTITY: "-"
+          TAURI_SIGNING_PRIVATE_KEY: ""
+
+      # ── 13. Locate and rename artifact ───────────────────────────────────────
+      - name: Locate DMG artifact
+        id: dmg
+        run: |
+          DMG=$(find packaging/tauri/src-tauri/target/release/bundle/dmg -name "*.dmg" | head -1)
+          echo "path=$DMG" >> $GITHUB_OUTPUT
+          echo "name=$(basename $DMG)" >> $GITHUB_OUTPUT
+          echo "Found: $DMG"
+
+      # ── 14. Upload DMG artifact ───────────────────────────────────────────────
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIHunter-macOS-dmg
+          path: ${{ steps.dmg.outputs.path }}
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Windows → EXE (NSIS installer)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'windows'
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python 3.12 ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. Cache pip packages ───────────────────────────────────────────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-windows-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: pip-windows-
+
+      # ── 4. Install Visual C++ Build Tools (required by Cython) ──────────────
+      #    windows-latest already ships with VS Build Tools — just verify cl.exe
+      - name: Verify MSVC cl.exe
+        shell: cmd
+        run: where cl || echo "cl.exe not found, may need VS setup"
+
+      # ── 5. Install build dependencies ────────────────────────────────────────
+      - name: Install Python build dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install cython pyinstaller
+          pip install -r backend/requirements.txt
+
+      # ── 6. Build Python backend (Cython .pyd + PyInstaller) ─────────────────
+      - name: Build Python backend (Windows)
+        shell: bash
+        run: |
+          chmod +x packaging/build_backend.sh
+          packaging/build_backend.sh win --no-venv
+
+      # ── 7. Verify backend bundle ─────────────────────────────────────────────
+      - name: Verify backend bundle
+        shell: bash
+        run: |
+          ls -lh packaging/dist/AIHunter/AIHunter.exe
+          python -c "
+          import os, glob
+          dist = 'packaging/dist/AIHunter/_internal'
+          for pkg in ['agents','api','config','graph','tools','observability','license']:
+              d = os.path.join(dist, pkg)
+              pyds = glob.glob(os.path.join(d, '*.pyd'))
+              pys  = [f for f in glob.glob(os.path.join(d,'*.py')) if '__init__' not in f]
+              print(f'  {pkg}/: {len(pyds)} .pyd  {len(pys)} raw .py')
+          "
+
+      # ── 8. Node.js (for frontend build) ──────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── 9. Build frontend ─────────────────────────────────────────────────────
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # ── 10. Rust toolchain (for Tauri) ───────────────────────────────────────
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # ── 11. Cache Rust build artifacts ──────────────────────────────────────
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            packaging\tauri\target
+          key: rust-windows-${{ hashFiles('packaging/tauri/src-tauri/Cargo.lock') }}
+          restore-keys: rust-windows-
+
+      # ── 12. Install NSIS (required by Tauri for EXE installer) ───────────────
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+        shell: pwsh
+
+      # ── 13. Install Tauri CLI ────────────────────────────────────────────────
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # ── 14. Install Tauri JS deps ────────────────────────────────────────────
+      - name: Install Tauri JS dependencies
+        run: |
+          cd packaging/tauri
+          npm ci
+
+      # ── 15. Build Tauri EXE installer ────────────────────────────────────────
+      - name: Build Tauri EXE (NSIS installer)
+        shell: bash
+        run: |
+          cd packaging/tauri/src-tauri
+          cargo tauri build --bundles nsis \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      # ── 16. Locate and rename artifact ───────────────────────────────────────
+      - name: Locate EXE artifact
+        id: exe
+        shell: bash
+        run: |
+          EXE=$(find packaging/tauri/src-tauri/target/release/bundle/nsis -name "*-setup.exe" | head -1)
+          echo "path=$EXE" >> $GITHUB_OUTPUT
+          echo "name=$(basename $EXE)" >> $GITHUB_OUTPUT
+          echo "Found: $EXE"
+
+      # ── 17. Upload EXE artifact ───────────────────────────────────────────────
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIHunter-Windows-exe
+          path: ${{ steps.exe.outputs.path }}
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Release: attach artifacts to GitHub Release when triggered by a tag push
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: AIHunter-macOS-dmg
+          path: release-assets/
+
+      - name: Download Windows EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: AIHunter-Windows-exe
+          path: release-assets/
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

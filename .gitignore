@@ -1,0 +1,109 @@
+# ============================================================
+# AI Hunter — .gitignore
+# ============================================================
+
+# ── Secrets / Environment ────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.secret
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.venv_build/
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+MANIFEST
+
+# Cython compiled artifacts (generated from .py source)
+*.c
+*.so
+*.pyd
+
+# PyInstaller
+*.spec.bak
+backend/build/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.coveragerc
+
+# mypy / type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff / linters
+.ruff_cache/
+
+# ── Runtime data (user-generated, not source) ────────────────
+backend/data/hunts/
+backend/uploads/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── macOS ────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ── Frontend (Node.js / Bun) ─────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# ── Packaging / Desktop app artifacts ───────────────────────
+packaging/.venv_build/
+packaging/dist/
+packaging/*.dmg
+packaging/*.exe
+packaging/*.msi
+packaging/*.deb
+packaging/*.AppImage
+
+# Tauri: exclude heavy build artifacts only, keep source files for CI
+packaging/tauri/target/
+packaging/tauri/node_modules/
+
+# ── IDE / Editor ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Jupyter ──────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── License server runtime ───────────────────────────────────
+license-server/.env

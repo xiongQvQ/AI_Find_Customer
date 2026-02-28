@@ -1,0 +1,175 @@
+"""Settings API routes — read/write user .env configuration and license management."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
+
+from config.settings import get_settings
+from license.settings_store import get_env_path, is_configured, read_settings, update_settings
+from license.validator import LicenseResult, LicenseStatus, LicenseValidator
+
+router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+def _get_validator() -> LicenseValidator:
+    s = get_settings()
+    server_url = getattr(s, "license_server_url", "https://license.aihunter.app")
+    return LicenseValidator(server_url)
+
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
+
+class SettingsPayload(BaseModel):
+    # LLM
+    llm_model: str = ""
+    reasoning_model: str = ""
+    # LLM API Keys
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    openrouter_api_key: str = ""
+    groq_api_key: str = ""
+    zai_api_key: str = ""
+    moonshot_api_key: str = ""
+    minimax_api_key: str = ""
+    # Search
+    serper_api_key: str = ""
+    tavily_api_key: str = ""
+    jina_api_key: str = ""
+    amap_api_key: str = ""
+    baidu_api_key: str = ""
+    # Email
+    hunter_api_key: str = ""
+    # Concurrency
+    search_concurrency: str = ""
+    scrape_concurrency: str = ""
+
+
+class SettingsResponse(BaseModel):
+    settings: dict[str, str]
+    is_configured: bool
+    env_path: str
+
+
+class ActivateRequest(BaseModel):
+    license_key: str
+    machine_label: str = ""
+
+
+class LicenseStatusResponse(BaseModel):
+    status: str
+    message: str
+    plan: str
+    customer_name: str
+    expires_at: str | None
+
+
+# ── Settings routes ───────────────────────────────────────────────────────────
+
+@router.get("", response_model=SettingsResponse)
+async def get_settings_api():
+    """Return current settings (masks secret keys partially)."""
+    raw = read_settings()
+    masked = {k: _mask(v) for k, v in raw.items()}
+    return SettingsResponse(
+        settings=masked,
+        is_configured=is_configured(),
+        env_path=str(get_env_path()),
+    )
+
+
+@router.post("", status_code=status.HTTP_204_NO_CONTENT)
+async def save_settings(payload: SettingsPayload):
+    """Save settings to the user's .env file. Empty strings are skipped."""
+    updates: dict[str, str] = {}
+    field_map = {
+        "llm_model": "LLM_MODEL",
+        "reasoning_model": "REASONING_MODEL",
+        "openai_api_key": "OPENAI_API_KEY",
+        "anthropic_api_key": "ANTHROPIC_API_KEY",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+        "groq_api_key": "GROQ_API_KEY",
+        "zai_api_key": "ZAI_API_KEY",
+        "moonshot_api_key": "MOONSHOT_API_KEY",
+        "minimax_api_key": "MINIMAX_API_KEY",
+        "serper_api_key": "SERPER_API_KEY",
+        "tavily_api_key": "TAVILY_API_KEY",
+        "jina_api_key": "JINA_API_KEY",
+        "amap_api_key": "AMAP_API_KEY",
+        "baidu_api_key": "BAIDU_API_KEY",
+        "hunter_api_key": "HUNTER_API_KEY",
+        "search_concurrency": "SEARCH_CONCURRENCY",
+        "scrape_concurrency": "SCRAPE_CONCURRENCY",
+    }
+    for field, env_key in field_map.items():
+        value = getattr(payload, field, "")
+        if value and not _is_masked(value):
+            updates[env_key] = value
+
+    if updates:
+        update_settings(updates)
+        # Propagate new values into the current process environment so that
+        # get_settings() picks them up immediately after cache_clear().
+        # pydantic-settings reads env_file once at instantiation; environment
+        # variables take precedence over the file, so this guarantees fresh values.
+        import os as _os
+        for env_key, value in updates.items():
+            _os.environ[env_key] = value
+
+    # Reload settings cache so next call picks up the new values
+    get_settings.cache_clear()
+
+
+# ── License routes ────────────────────────────────────────────────────────────
+
+@router.get("/license/status", response_model=LicenseStatusResponse)
+async def license_status():
+    """Check current license status."""
+    validator = _get_validator()
+    result = await validator.check()
+    return _to_response(result)
+
+
+@router.post("/license/activate", response_model=LicenseStatusResponse)
+async def activate_license(req: ActivateRequest):
+    """Activate a license key on this machine."""
+    if not req.license_key.strip():
+        raise HTTPException(status_code=400, detail="License key is required")
+    validator = _get_validator()
+    result = await validator.activate(req.license_key, req.machine_label)
+    if not result.is_allowed:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _to_response(result)
+
+
+@router.post("/license/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_license():
+    """Deactivate this device (for device transfer)."""
+    validator = _get_validator()
+    await validator.deactivate()
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _mask(value: str) -> str:
+    """Partially mask a secret value for display."""
+    if not value or len(value) < 8:
+        return value
+    return value[:4] + "****" + value[-4:]
+
+
+def _is_masked(value: str) -> bool:
+    return "****" in value
+
+
+def _to_response(result: LicenseResult) -> LicenseStatusResponse:
+    return LicenseStatusResponse(
+        status=result.status.value,
+        message=result.message,
+        plan=result.plan,
+        customer_name=result.customer_name,
+        expires_at=result.expires_at.isoformat() if result.expires_at else None,
+    )
