@@ -219,14 +219,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
 
       # ── 9. Build frontend ─────────────────────────────────────────────────────
+      # Use npm install (not ci) and delete package-lock.json first so npm
+      # resolves Windows-native optional deps (@rollup/rollup-win32-x64-msvc)
+      # which are missing from the macOS-generated lockfile.
       - name: Build frontend
+        shell: bash
         run: |
           cd frontend
-          npm ci
+          rm -f package-lock.json
+          npm install
           npm run build
 
       # ── 10. Rust toolchain (for Tauri) ───────────────────────────────────────
