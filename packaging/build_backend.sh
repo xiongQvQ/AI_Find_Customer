@@ -56,6 +56,19 @@ else
     PATH_SEP=":"
 fi
 
+# On Windows/Git Bash, shell paths are Unix-style (/d/a/...) but Python needs
+# native Windows paths (D:\a\...). Convert all dir vars used in Python calls.
+# cygpath is provided by Git for Windows and GitHub Actions windows runners.
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    BACKEND_DIR_PY="$(cygpath -w "$BACKEND_DIR")"
+    STAGING_DIR_PY="$(cygpath -w "$STAGING_DIR")"
+    DIST_DIR_PY="$(cygpath -w "$DIST_DIR")"
+else
+    BACKEND_DIR_PY="$BACKEND_DIR"
+    STAGING_DIR_PY="$STAGING_DIR"
+    DIST_DIR_PY="$DIST_DIR"
+fi
+
 echo "==> Building AI Hunter backend for: $PLATFORM"
 echo "    Backend  : $BACKEND_DIR"
 echo "    Staging  : $STAGING_DIR"
@@ -94,9 +107,9 @@ echo "==> [1/4] Collecting Python source files..."
 
 # Collect all .py files that belong to OUR code (not third-party, not tests).
 # main.py is excluded — it's the PyInstaller entry point and must remain .py.
-COMPILE_FILES=()
+COMPILE_FILES_RAW=()
 while IFS= read -r -d '' f; do
-    COMPILE_FILES+=("$f")
+    COMPILE_FILES_RAW+=("$f")
 done < <(find "$BACKEND_DIR" -name "*.py" \
     -not -path "*/__pycache__/*" \
     -not -path "*/tests/*" \
@@ -111,6 +124,17 @@ done < <(find "$BACKEND_DIR" -name "*.py" \
 # is not compatible with Cython's static analysis. It contains no business
 # logic (only routing/endpoint declarations) so .pyc protection is sufficient.
 
+# On Windows/Git Bash, convert all collected paths to native Windows format
+# so that Python's open(), os.path.relpath(), etc. work correctly.
+COMPILE_FILES=()
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    for f in "${COMPILE_FILES_RAW[@]}"; do
+        COMPILE_FILES+=("$(cygpath -w "$f")")
+    done
+else
+    COMPILE_FILES=("${COMPILE_FILES_RAW[@]}")
+fi
+
 echo "    Files to compile: ${#COMPILE_FILES[@]}"
 
 # ── Step 2: Compile with Cython into a temp build dir ────────────────────────
@@ -121,10 +145,23 @@ BUILD_TMP="$DIST_DIR/_cython_build_tmp"
 rm -rf "$BUILD_TMP"
 mkdir -p "$BUILD_TMP"
 
+# Convert BUILD_TMP to Windows-native path for Python (cygpath already available from above check)
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    BUILD_TMP_PY="$(cygpath -w "$BUILD_TMP")"
+else
+    BUILD_TMP_PY="$BUILD_TMP"
+fi
+
 # Write a proper setup.py in the backend dir (with __main__ guard to avoid
 # multiprocessing spawn issues). Pass file list via a JSON sidecar file.
 FILES_JSON="$BUILD_TMP/files.json"
-$PYTHON_CMD -c "import json,sys; json.dump(sys.argv[1:], open('$FILES_JSON','w'))" "${COMPILE_FILES[@]}"
+# Build the Python-compatible path by joining BUILD_TMP_PY with the filename
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    FILES_JSON_PY="$(cygpath -w "$BUILD_TMP/files.json")"
+else
+    FILES_JSON_PY="$BUILD_TMP/files.json"
+fi
+$PYTHON_CMD -c "import json,sys; json.dump(sys.argv[1:-1], open(sys.argv[-1],'w'))" "${COMPILE_FILES[@]}" "$FILES_JSON_PY"
 
 SETUP_PY="$BUILD_TMP/cython_setup.py"
 cat > "$SETUP_PY" << 'PYEOF'
@@ -180,7 +217,7 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-$PYTHON_CMD "$SETUP_PY" "$FILES_JSON" "$BUILD_TMP" 2>&1 | grep -v "^$" | grep -v "^Compiling " | grep -v "^copying " || true
+$PYTHON_CMD "$SETUP_PY" "$FILES_JSON_PY" "$BUILD_TMP_PY" 2>&1 | grep -v "^$" | grep -v "^Compiling " | grep -v "^copying " || true
 
 echo "    Cython compilation done."
 
@@ -189,8 +226,7 @@ EXT_PATTERN="*.cpython-*.so"
 [ "$PLATFORM" = "win" ] && EXT_PATTERN="*.cpython-*.pyd"
 SO_COUNT=$($PYTHON_CMD -c "
 import glob, os
-pattern = '$EXT_PATTERN'.replace('*','**/*',1)
-files = [f for f in glob.glob(os.path.join('$BACKEND_DIR','**','$EXT_PATTERN'), recursive=True)
+files = [f for f in glob.glob(os.path.join('$BACKEND_DIR_PY','**','$EXT_PATTERN'), recursive=True)
          if '__pycache__' not in f]
 print(len(files))
 ")
@@ -210,8 +246,8 @@ cp "$BACKEND_DIR/main.py" "$STAGING_DIR/main.py"
 # Copy prompts (text assets) — use Python for Windows compatibility
 $PYTHON_CMD -c "
 import shutil, os
-src = os.path.join('$BACKEND_DIR', 'prompts')
-dst = os.path.join('$STAGING_DIR', 'prompts')
+src = os.path.join('$BACKEND_DIR_PY', 'prompts')
+dst = os.path.join('$STAGING_DIR_PY', 'prompts')
 if os.path.isdir(src):
     shutil.copytree(src, dst, dirs_exist_ok=True)
 "
@@ -221,8 +257,8 @@ $PYTHON_CMD << PYEOF
 import os, sys, shutil, glob
 from pathlib import Path
 
-backend_dir  = "$BACKEND_DIR"
-staging_dir  = "$STAGING_DIR"
+backend_dir  = "$BACKEND_DIR_PY"
+staging_dir  = "$STAGING_DIR_PY"
 platform     = "$PLATFORM"
 
 # Find the build/lib.* directory where setuptools put the .so/.pyd files
@@ -304,6 +340,13 @@ cd "$STAGING_DIR"
 ADD_BINARY_FLAGFILE="$BUILD_TMP/add_binary_flags.txt"
 # Write a small Python script to avoid any shell variable expansion conflicts
 ADD_BINARY_SCRIPT="$BUILD_TMP/gen_flags.py"
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    ADD_BINARY_FLAGFILE_PY="$(cygpath -w "$ADD_BINARY_FLAGFILE")"
+    ADD_BINARY_SCRIPT_PY="$(cygpath -w "$ADD_BINARY_SCRIPT")"
+else
+    ADD_BINARY_FLAGFILE_PY="$ADD_BINARY_FLAGFILE"
+    ADD_BINARY_SCRIPT_PY="$ADD_BINARY_SCRIPT"
+fi
 cat > "$ADD_BINARY_SCRIPT" << PYEOF2
 import os, glob, sys
 staging   = sys.argv[1]
@@ -321,7 +364,7 @@ PYEOF2
 
 EXT_BIN=".so"
 [ "$PLATFORM" = "win" ] && EXT_BIN=".pyd"
-$PYTHON_CMD "$ADD_BINARY_SCRIPT" "$STAGING_DIR" "$EXT_BIN" "$PATH_SEP" "$ADD_BINARY_FLAGFILE"
+$PYTHON_CMD "$ADD_BINARY_SCRIPT_PY" "$STAGING_DIR_PY" "$EXT_BIN" "$PATH_SEP" "$ADD_BINARY_FLAGFILE_PY"
 
 pyinstaller \
     --name "AIHunter" \
