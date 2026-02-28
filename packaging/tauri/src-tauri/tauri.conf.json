@@ -7,7 +7,7 @@
     "frontendDist": "../../../frontend/dist",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "",
-    "beforeBuildCommand": "npm run build --prefix /Users/xiongbojian/work/b2binsights/ai_hunter/frontend"
+    "beforeBuildCommand": ""
   },
   "app": {
     "windows": [
