@@ -276,23 +276,22 @@ mkdir -p "$STAGING_DIR"
 # Copy main.py (entry point, must stay .py — contains no business logic)
 cp "$BACKEND_DIR/main.py" "$STAGING_DIR/main.py"
 
-# Copy prompts (text assets) — use Python for Windows compatibility
-$PYTHON_CMD -c "
-import shutil, os
-src = os.path.join('$BACKEND_DIR_PY', 'prompts')
-dst = os.path.join('$STAGING_DIR_PY', 'prompts')
-if os.path.isdir(src):
-    shutil.copytree(src, dst, dirs_exist_ok=True)
-"
-
-# Use Python for reliable cross-platform staging (avoids macOS subshell copy issues)
-$PYTHON_CMD << PYEOF
+# Write staging script to a file so paths are passed via sys.argv (not embedded
+# as Python string literals), avoiding Windows backslash escape issues (\a, \b, \p…)
+STAGING_SCRIPT="$BUILD_TMP/do_staging.py"
+cat > "$STAGING_SCRIPT" << 'PYEOF'
 import os, sys, shutil, glob
 from pathlib import Path
 
-backend_dir  = "$BACKEND_DIR_PY"
-staging_dir  = "$STAGING_DIR_PY"
-platform     = "$PLATFORM"
+backend_dir = sys.argv[1]
+staging_dir = sys.argv[2]
+platform    = sys.argv[3]
+
+# Copy prompts directory
+src_prompts = os.path.join(backend_dir, "prompts")
+dst_prompts = os.path.join(staging_dir, "prompts")
+if os.path.isdir(src_prompts):
+    shutil.copytree(src_prompts, dst_prompts, dirs_exist_ok=True)
 
 # Find the build/lib.* directory where setuptools put the .so/.pyd files
 build_dirs = glob.glob(os.path.join(backend_dir, "build", "lib.*"))
@@ -317,7 +316,6 @@ for pkg in ["agents", "api", "config", "graph", "tools", "observability", "licen
             so_count += 1
 
     # Also pick up .so/.pyd already compiled in-place in the source dir
-    # (e.g. license/ has pre-compiled fingerprint/token_store/validator.so)
     src_pkg = os.path.join(backend_dir, pkg)
     if os.path.isdir(src_pkg):
         for f in Path(src_pkg).rglob(f"*{ext}"):
@@ -327,7 +325,6 @@ for pkg in ["agents", "api", "config", "graph", "tools", "observability", "licen
                 so_count += 1
 
     # Copy __init__.py stubs from source (package markers only)
-    src_pkg = os.path.join(backend_dir, pkg)
     if os.path.isdir(src_pkg):
         for f in Path(src_pkg).rglob("__init__.py"):
             rel = f.relative_to(src_pkg)
@@ -350,6 +347,13 @@ for f in Path(build_lib).glob(f"models*{ext}"):
 
 print("    Staging complete.")
 PYEOF
+
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    STAGING_SCRIPT_PY="$(cygpath -w "$STAGING_SCRIPT")"
+else
+    STAGING_SCRIPT_PY="$STAGING_SCRIPT"
+fi
+$PYTHON_CMD "$STAGING_SCRIPT_PY" "$BACKEND_DIR_PY" "$STAGING_DIR_PY" "$PLATFORM"
 
 echo "    Staging complete."
 
