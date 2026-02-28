@@ -467,6 +467,10 @@ pyinstaller \
     --collect-all "cryptography" \
     --hidden-import "httpx" \
     --collect-all "litellm" \
+    --exclude-module "litellm.proxy.guardrails" \
+    --exclude-module "litellm.proxy.tests" \
+    --exclude-module "litellm.tests" \
+    --exclude-module "litellm.proxy.example_config_yaml" \
     --collect-all "langchain_core" \
     --collect-all "langgraph" \
     --collect-all "langfuse" \
@@ -496,6 +500,17 @@ pyinstaller \
 
 # Cleanup temp build dir
 rm -rf "$BUILD_TMP"
+
+# Remove litellm proxy internals with deeply nested paths that break Windows
+# NSIS MAX_PATH (260 char) limit during installer creation.
+if [ -d "$DIST_DIR/AIHunter/_internal/litellm" ]; then
+    echo "==> Pruning litellm proxy internals (long-path risk)..."
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/guardrails" 2>/dev/null || true
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/tests" 2>/dev/null || true
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/tests" 2>/dev/null || true
+    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy/example_config_yaml" 2>/dev/null || true
+    echo "    Done."
+fi
 
 echo ""
 echo "==> Build complete!"
