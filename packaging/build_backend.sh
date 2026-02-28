@@ -222,13 +222,24 @@ $PYTHON_CMD "$SETUP_PY" "$FILES_JSON_PY" "$BUILD_TMP_PY" 2>&1 | grep -v "^$" | g
 echo "    Cython compilation done."
 
 # Count produced .so/.pyd files
+# setuptools build_ext --inplace puts binaries in build/lib.*/ relative to backend_root (BACKEND_DIR)
 EXT_PATTERN="*.cpython-*.so"
 [ "$PLATFORM" = "win" ] && EXT_PATTERN="*.cpython-*.pyd"
 SO_COUNT=$($PYTHON_CMD -c "
 import glob, os
-files = [f for f in glob.glob(os.path.join('$BACKEND_DIR_PY','**','$EXT_PATTERN'), recursive=True)
-         if '__pycache__' not in f]
-print(len(files))
+from pathlib import Path
+backend = '$BACKEND_DIR_PY'
+# Search both in-place (backend/**) AND build/lib.*/ (setuptools output)
+build_dirs = glob.glob(os.path.join(backend, 'build', 'lib.*'))
+search_roots = [backend] + build_dirs
+files = []
+for root in search_roots:
+    files += [f for f in glob.glob(os.path.join(root, '**', '$EXT_PATTERN'), recursive=True)
+              if '__pycache__' not in f]
+# Deduplicate by basename to avoid double-counting
+seen = set()
+unique = [f for f in files if Path(f).name not in seen and not seen.add(Path(f).name)]
+print(len(unique))
 ")
 echo "    Native binaries created: $SO_COUNT"
 [ "$SO_COUNT" -lt 10 ] && echo "ERROR: Too few binaries — compilation failed!" >&2 && exit 1
