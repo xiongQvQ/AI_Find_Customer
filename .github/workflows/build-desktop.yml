@@ -266,11 +266,12 @@ jobs:
 
       # ── 14. Build Tauri EXE installer ────────────────────────────────────────
       # Use npx tauri (from @tauri-apps/cli) — avoids ~10min cargo install tauri-cli
+      # Must run from src-tauri/ where Cargo.toml [package] section lives
       - name: Build Tauri EXE (NSIS installer)
         shell: bash
         run: |
-          cd packaging/tauri
-          npx tauri build --bundles nsis \
+          cd packaging/tauri/src-tauri
+          npx --prefix .. tauri build --bundles nsis \
             --config '{"build":{"beforeBuildCommand":""}}'
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
