@@ -113,26 +113,20 @@ jobs:
           key: rust-macos-${{ hashFiles('packaging/tauri/src-tauri/Cargo.lock') }}
           restore-keys: rust-macos-
 
-      # ── 11. Install Tauri CLI ─────────────────────────────────────────────────
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
-      # ── 12. Install Tauri JS deps ─────────────────────────────────────────────
+      # ── 11. Install Tauri JS deps (includes pre-built cargo-tauri binary) ─────
       - name: Install Tauri JS dependencies
         run: |
           cd packaging/tauri
-          npm ci
+          rm -f package-lock.json
+          npm install
 
-      # ── 13. Build Tauri DMG ───────────────────────────────────────────────────
-      #    --config overrides the hardcoded local beforeBuildCommand path in
-      #    tauri.conf.json (which points to /Users/xiongbojian/... absolute path)
+      # ── 12. Build Tauri DMG ───────────────────────────────────────────────────
       - name: Build Tauri DMG
         run: |
           cd packaging/tauri/src-tauri
-          cargo tauri build --bundles dmg \
+          ../node_modules/.bin/tauri build --bundles dmg \
             --config '{"build":{"beforeBuildCommand":""}}'
         env:
-          # Disable code signing for CI (no Apple Developer cert in CI)
           APPLE_SIGNING_IDENTITY: "-"
           TAURI_SIGNING_PRIVATE_KEY: ""
 
