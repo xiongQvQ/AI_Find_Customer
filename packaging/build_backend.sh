@@ -501,16 +501,25 @@ pyinstaller \
 # Cleanup temp build dir
 rm -rf "$BUILD_TMP"
 
-# Remove litellm proxy server and test dirs — they contain deeply nested paths
-# that breach Windows NSIS MAX_PATH (260 char) limit during installer creation.
-# The app uses litellm as an LLM client only; the proxy server is never needed.
-if [ -d "$DIST_DIR/AIHunter/_internal/litellm" ]; then
-    echo "==> Pruning litellm proxy/tests (long-path risk on Windows)..."
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/proxy" 2>/dev/null || true
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/tests" 2>/dev/null || true
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/fine_tuning" 2>/dev/null || true
-    rm -rf "$DIST_DIR/AIHunter/_internal/litellm/realtime_api" 2>/dev/null || true
-    echo "    Done."
+# Remove deeply nested test/example dirs from third-party packages that breach
+# Windows NSIS MAX_PATH (260 char) limit. None of these are needed at runtime.
+BUNDLE_INTERNAL="$DIST_DIR/AIHunter/_internal"
+if [ -d "$BUNDLE_INTERNAL" ]; then
+    echo "==> Pruning deep-path dirs from bundle (Windows MAX_PATH safety)..."
+    # litellm: proxy server, tests, optional API modules not used by this app
+    rm -rf "$BUNDLE_INTERNAL/litellm/proxy" 2>/dev/null || true
+    rm -rf "$BUNDLE_INTERNAL/litellm/tests" 2>/dev/null || true
+    rm -rf "$BUNDLE_INTERNAL/litellm/fine_tuning" 2>/dev/null || true
+    rm -rf "$BUNDLE_INTERNAL/litellm/realtime_api" 2>/dev/null || true
+    # langfuse: cookbooks and integration tests
+    rm -rf "$BUNDLE_INTERNAL/langfuse/cookbooks" 2>/dev/null || true
+    rm -rf "$BUNDLE_INTERNAL/langfuse/tests" 2>/dev/null || true
+    # langchain_core: test suites
+    rm -rf "$BUNDLE_INTERNAL/langchain_core/tests" 2>/dev/null || true
+    # langgraph: tests
+    rm -rf "$BUNDLE_INTERNAL/langgraph/tests" 2>/dev/null || true
+    echo "    Done. Bundle size after prune:"
+    du -sh "$BUNDLE_INTERNAL" 2>/dev/null || true
 fi
 
 echo ""
