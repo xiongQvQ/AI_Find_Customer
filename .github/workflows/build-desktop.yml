@@ -254,24 +254,23 @@ jobs:
         run: choco install nsis --no-progress -y
         shell: pwsh
 
-      # ── 13. Install Tauri CLI ────────────────────────────────────────────────
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
-      # ── 14. Install Tauri JS deps ────────────────────────────────────────────
+      # ── 13. Install Tauri JS deps (includes pre-built cargo-tauri binary) ─────
+      # Delete lockfile so npm resolves Windows-native @tauri-apps/cli binary
+      # (macOS-generated lockfile references the darwin binary, causing make errors)
       - name: Install Tauri JS dependencies
+        shell: bash
         run: |
           cd packaging/tauri
-          npm ci
+          rm -f package-lock.json
+          npm install
 
-      # ── 15. Build Tauri EXE installer ────────────────────────────────────────
-      #    --config overrides the hardcoded local beforeBuildCommand path in
-      #    tauri.conf.json (which points to /Users/xiongbojian/... absolute path)
+      # ── 14. Build Tauri EXE installer ────────────────────────────────────────
+      # Use npx tauri (from @tauri-apps/cli) — avoids ~10min cargo install tauri-cli
       - name: Build Tauri EXE (NSIS installer)
         shell: bash
         run: |
-          cd packaging/tauri/src-tauri
-          cargo tauri build --bundles nsis \
+          cd packaging/tauri
+          npx tauri build --bundles nsis \
             --config '{"build":{"beforeBuildCommand":""}}'
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
