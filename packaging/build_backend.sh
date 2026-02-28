@@ -407,8 +407,8 @@ pyinstaller \
     --name "AIHunter" \
     --onedir \
     --noconfirm \
-    --paths "$STAGING_DIR" \
-    --add-data "$STAGING_DIR/prompts${PATH_SEP}prompts" \
+    --paths "$STAGING_DIR_PY" \
+    --add-data "${STAGING_DIR_PY}/prompts${PATH_SEP}prompts" \
     $(cat "$ADD_BINARY_FLAGFILE" | tr '\n' ' ') \
     --hidden-import "api.app" \
     --hidden-import "api.routes" \
@@ -490,7 +490,7 @@ pyinstaller \
     --collect-all "docx" \
     --hidden-import "docx" \
     --collect-all "starlette" \
-    --distpath "$DIST_DIR" \
+    --distpath "$DIST_DIR_PY" \
     $ICON_OPT \
     main.py
 
