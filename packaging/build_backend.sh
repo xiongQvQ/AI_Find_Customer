@@ -394,8 +394,8 @@ lines = []
 for f in glob.glob(os.path.join(staging, '**', '*' + ext_), recursive=True):
     rel_dir = os.path.relpath(os.path.dirname(f), staging)
     lines.append('--add-binary=' + f + sep + rel_dir)
-with open(out_file, 'w') as fp:
-    fp.write('\n'.join(lines))
+with open(out_file, 'wb') as fp:
+    fp.write('\n'.join(lines).encode())
 print('    Generated ' + str(len(lines)) + ' --add-binary flags')
 PYEOF2
 
@@ -409,7 +409,7 @@ pyinstaller \
     --noconfirm \
     --paths "$STAGING_DIR_PY" \
     --add-data "${STAGING_DIR_PY}/prompts${PATH_SEP}prompts" \
-    $(cat "$ADD_BINARY_FLAGFILE" | tr '\n' ' ') \
+    $(tr -d '\r' < "$ADD_BINARY_FLAGFILE" | tr '\n' ' ') \
     --hidden-import "api.app" \
     --hidden-import "api.routes" \
     --hidden-import "api.settings_routes" \
