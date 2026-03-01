@@ -211,19 +211,23 @@ jobs:
       - name: Smoke-test backend EXE
         shell: pwsh
         run: |
-          $exe = "packaging\dist\AIHunter\AIHunter.exe"
-          $logFile = "backend_smoke.log"
-          Write-Host "==> Launching backend EXE..."
-          $proc = Start-Process -FilePath $exe `
-            -WorkingDirectory "packaging\dist\AIHunter" `
-            -RedirectStandardOutput $logFile `
-            -RedirectStandardError "backend_smoke_err.log" `
-            -PassThru -NoNewWindow
+          $exe = Resolve-Path "packaging\dist\AIHunter\AIHunter.exe"
+          $workdir = Split-Path $exe
+          $crashLog = "$env:APPDATA\AIHunter\logs\backend_startup.log"
+          # Remove stale crash log
+          if (Test-Path $crashLog) { Remove-Item $crashLog }
+          Write-Host "==> Launching backend EXE: $exe"
+          $proc = Start-Process -FilePath $exe -WorkingDirectory $workdir -PassThru
           Write-Host "    PID: $($proc.Id)"
           # Wait up to 30s for port 8000
           $ready = $false
           for ($i = 0; $i -lt 30; $i++) {
             Start-Sleep 1
+            # Check if process already exited (crash)
+            if ($proc.HasExited) {
+              Write-Host "    Process exited early with code $($proc.ExitCode)"
+              break
+            }
             try {
               $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 8000)
               $tcp.Close()
@@ -231,11 +235,14 @@ jobs:
               break
             } catch {}
           }
-          $proc.Kill()
-          Write-Host "==> backend stdout:"
-          if (Test-Path $logFile) { Get-Content $logFile | Select-Object -Last 60 }
-          Write-Host "==> backend stderr:"
-          if (Test-Path "backend_smoke_err.log") { Get-Content "backend_smoke_err.log" | Select-Object -Last 60 }
+          if (-not $proc.HasExited) { $proc.Kill() }
+          # Show crash log if written by main.py
+          Write-Host "==> Crash log ($crashLog):"
+          if (Test-Path $crashLog) {
+            Get-Content $crashLog
+          } else {
+            Write-Host "    (no crash log written)"
+          }
           if (-not $ready) {
             Write-Error "Backend EXE did not listen on port 8000 within 30 seconds"
             exit 1
