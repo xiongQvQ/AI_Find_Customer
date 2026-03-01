@@ -509,6 +509,8 @@ pyinstaller \
     --hidden-import "sniffio" \
     --hidden-import "h11" \
     --hidden-import "click" \
+    --hidden-import "aiosqlite" \
+    --collect-all "aiosqlite" \
     --distpath "$DIST_DIR_PY" \
     $ICON_OPT \
     main.py
