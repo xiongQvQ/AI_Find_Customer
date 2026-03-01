@@ -33,6 +33,17 @@ def main() -> None:
     # Required on Windows for PyInstaller + multiprocessing
     multiprocessing.freeze_support()
 
+    # Under PyInstaller --noconsole, sys.stdout/stderr are None.
+    # uvicorn's logging setup calls stream.isatty() and crashes if stream is None.
+    # Redirect to the log file so uvicorn output is captured.
+    if sys.stdout is None or sys.stderr is None:
+        log_path = os.path.join(_log_dir(), "backend.log")
+        _f = open(log_path, "a", buffering=1, encoding="utf-8")
+        if sys.stdout is None:
+            sys.stdout = _f
+        if sys.stderr is None:
+            sys.stderr = _f
+
     uvicorn.run(
         "api.app:app",
         host="127.0.0.1",
