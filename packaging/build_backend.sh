@@ -392,15 +392,29 @@ with open(pth, "w") as f:
     f.write(staging + "\n")
 print(f"    Wrote {pth}")
 print(f"    Contents: {staging}")
-# Verify Python can now import from staging
+# Verify Python can now import from staging — abort if it fails so we catch
+# missing .pyd files at build time rather than at smoke-test time.
 sys.path.insert(0, staging)
 try:
+    import importlib, importlib.util
+    # List all .pyd/.so files found under staging for diagnostics
+    import glob
+    ext = ".pyd" if sys.platform == "win32" else ".so"
+    found = sorted(glob.glob(os.path.join(staging, "**", "*" + ext), recursive=True))
+    print(f"    Staging {ext} inventory ({len(found)} files):")
+    for f in found:
+        print(f"      {f}")
     import license
     print(f"    import license: OK  ({license.__file__})")
     import license.settings_store
     print(f"    import license.settings_store: OK  ({license.settings_store.__file__})")
+    import license.validator
+    print(f"    import license.validator: OK")
 except ImportError as e:
-    print(f"    WARNING: import check failed: {e}", file=sys.stderr)
+    print(f"ERROR: import check failed: {e}", file=sys.stderr)
+    print(f"  staging dir: {staging}", file=sys.stderr)
+    print(f"  sys.path: {sys.path[:5]}", file=sys.stderr)
+    sys.exit(1)
 PYEOF5
 $PYTHON_CMD "$REGISTER_SCRIPT_PY" "$STAGING_DIR_PY"
 
