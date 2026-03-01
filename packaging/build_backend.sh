@@ -198,7 +198,7 @@ def main():
     os.chdir(backend_root)
 
     rel_files = [os.path.relpath(f, backend_root) for f in src_files]
-    print(f"    Compiling {len(rel_files)} files with Cython...")
+    print(f"    Compiling {len(rel_files)} .py files with Cython...")
 
     from Cython.Compiler import Options
     Options.annotate = False
@@ -212,10 +212,34 @@ def main():
         quiet=True,
     )
 
+    # Also compile any pre-generated .c files that have no .py counterpart
+    # (e.g. license/ modules whose .py source is not committed to git).
+    from setuptools import Extension
+    import glob as _glob
+    c_only_exts = []
+    for c_file in _glob.glob(os.path.join(backend_root, '**', '*.c'), recursive=True):
+        if '__pycache__' in c_file or 'build' + os.sep in c_file:
+            continue
+        rel_c = os.path.relpath(c_file, backend_root)
+        # Derive dotted module name: license/validator.c -> license.validator
+        parts = Path(rel_c).with_suffix('').parts
+        mod_name = '.'.join(parts)
+        # Skip if a .py version is already being compiled by Cython
+        py_counterpart = os.path.splitext(c_file)[0] + '.py'
+        if os.path.exists(py_counterpart):
+            continue
+        # Skip setup files
+        if Path(c_file).stem in ('setup_cython', 'setup'):
+            continue
+        print(f"    Compiling pre-generated .c: {rel_c} -> {mod_name}")
+        c_only_exts.append(Extension(mod_name, sources=[rel_c]))
+
+    all_extensions = extensions + c_only_exts
+
     from setuptools import setup
     # Patch sys.argv so setuptools runs build_ext --inplace
     sys.argv = ["setup.py", "build_ext", "--inplace", "--build-temp", build_tmp]
-    setup(name="aihunter_cython", packages=[], ext_modules=extensions)
+    setup(name="aihunter_cython", packages=[], ext_modules=all_extensions)
     print("    Compilation complete.")
 
 if __name__ == "__main__":
