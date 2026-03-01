@@ -240,7 +240,7 @@ jobs:
             ~\.cargo\registry
             ~\.cargo\git
             packaging\tauri\target
-          key: rust-windows-${{ hashFiles('packaging/tauri/src-tauri/Cargo.lock') }}
+          key: rust-windows-${{ hashFiles('packaging/tauri/Cargo.lock') }}
           restore-keys: rust-windows-
 
       # ── 13. Install Tauri JS deps (includes pre-built cargo-tauri binary) ─────
@@ -276,7 +276,7 @@ jobs:
         id: exe
         shell: pwsh
         run: |
-          $bundleDir = "packaging/tauri/src-tauri/target/release/bundle"
+          $bundleDir = "packaging/tauri/target/release/bundle"
           if (-not (Test-Path $bundleDir)) {
             Write-Error "Bundle dir missing: $bundleDir — Tauri build likely failed above"
             exit 1
