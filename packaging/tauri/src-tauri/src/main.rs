@@ -115,10 +115,32 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
     Ok(())
 }
 
+fn backend_log_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_log_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("backend.log")
+}
+
 fn start_backend(app: &AppHandle) -> Result<Child, String> {
     let path = writable_backend_path(app)?;
+    let log_path = backend_log_path(app);
+    // Ensure log directory exists
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open log file: {e}"))?;
+    let log_file2 = log_file.try_clone()
+        .map_err(|e| format!("Failed to clone log file handle: {e}"))?;
+    println!("[Tauri] Backend log: {}", log_path.display());
     Command::new(&path)
         .current_dir(path.parent().unwrap_or(&path))
+        .stdout(log_file)
+        .stderr(log_file2)
         .spawn()
         .map_err(|e| format!("Failed to spawn backend: {e}"))
 }
@@ -271,12 +293,15 @@ fn main() {
                                 }
                             } else {
                                 eprintln!("[Tauri] Backend failed to start within {STARTUP_TIMEOUT_SECS}s");
+                                let log_path = backend_log_path(&handle2);
                                 tauri::async_runtime::spawn(async move {
                                     tauri_plugin_dialog::DialogExt::dialog(&handle2)
-                                        .message(
+                                        .message(format!(
                                             "AI Hunter backend did not start within 60 seconds.\n\
-                                             Please check that port 8000 is not in use and try again.",
-                                        )
+                                             Please check that port 8000 is not in use.\n\n\
+                                             Log file:\n{}",
+                                            log_path.display()
+                                        ))
                                         .title("Startup Timeout")
                                         .blocking_show();
                                     handle2.exit(1);

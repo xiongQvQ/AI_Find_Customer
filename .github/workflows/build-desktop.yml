@@ -199,7 +199,7 @@ jobs:
           chmod +x packaging/build_backend.sh
           packaging/build_backend.sh win --no-venv
 
-      # ── 7. Verify backend bundle ─────────────────────────────────────────────
+      # ── 7. Verify + smoke-test backend bundle ────────────────────────────────
       - name: Verify backend bundle
         shell: pwsh
         run: |
@@ -207,6 +207,40 @@ jobs:
           if (Test-Path $exe) { Write-Host "OK: $exe exists" } else { Write-Error "MISSING: $exe"; exit 1 }
           Set-Content -Path verify_bundle.py -Value "import os, glob`ndist = 'packaging/dist/AIHunter/_internal'`nfor p in ['agents','api','config','graph','tools','observability','license']:`n    d = os.path.join(dist, p)`n    pyds = glob.glob(os.path.join(d, '*.pyd'))`n    pys = [f for f in glob.glob(os.path.join(d, '*.py')) if '__init__' not in f]`n    print(f'  {p}/: {len(pyds)} .pyd  {len(pys)} raw .py')"
           python verify_bundle.py
+
+      - name: Smoke-test backend EXE
+        shell: pwsh
+        run: |
+          $exe = "packaging\dist\AIHunter\AIHunter.exe"
+          $logFile = "backend_smoke.log"
+          Write-Host "==> Launching backend EXE..."
+          $proc = Start-Process -FilePath $exe `
+            -WorkingDirectory "packaging\dist\AIHunter" `
+            -RedirectStandardOutput $logFile `
+            -RedirectStandardError "backend_smoke_err.log" `
+            -PassThru -NoNewWindow
+          Write-Host "    PID: $($proc.Id)"
+          # Wait up to 30s for port 8000
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep 1
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 8000)
+              $tcp.Close()
+              $ready = $true
+              break
+            } catch {}
+          }
+          $proc.Kill()
+          Write-Host "==> backend stdout:"
+          if (Test-Path $logFile) { Get-Content $logFile | Select-Object -Last 60 }
+          Write-Host "==> backend stderr:"
+          if (Test-Path "backend_smoke_err.log") { Get-Content "backend_smoke_err.log" | Select-Object -Last 60 }
+          if (-not $ready) {
+            Write-Error "Backend EXE did not listen on port 8000 within 30 seconds"
+            exit 1
+          }
+          Write-Host "==> Backend smoke-test PASSED"
 
       # ── 8. Node.js (for frontend build) ──────────────────────────────────────
       - name: Set up Node.js
