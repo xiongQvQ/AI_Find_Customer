@@ -265,8 +265,7 @@ jobs:
           if ($msvcBin -and (Test-Path $msvcBin)) { $env:PATH = "$msvcBin;$env:PATH" }
           Write-Host "MSVC bin: $msvcBin"
           Set-Location packaging/tauri/src-tauri
-          ..\node_modules\.bin\tauri.cmd build --bundles nsis `
-            --config '{"build":{"beforeBuildCommand":""}}'
+          ..\node_modules\.bin\tauri.cmd build --bundles nsis
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
       - name: Locate EXE artifact
