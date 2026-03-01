@@ -218,7 +218,8 @@ def main():
     import glob as _glob
     c_only_exts = []
     for c_file in _glob.glob(os.path.join(backend_root, '**', '*.c'), recursive=True):
-        if '__pycache__' in c_file or 'build' + os.sep in c_file:
+        c_parts = Path(c_file).parts
+        if '__pycache__' in c_parts or 'build' in c_parts:
             continue
         rel_c = os.path.relpath(c_file, backend_root)
         # Derive dotted module name: license/validator.c -> license.validator
