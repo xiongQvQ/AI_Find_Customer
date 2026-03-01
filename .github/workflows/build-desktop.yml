@@ -264,8 +264,17 @@ jobs:
           $msvcBin = "$env:VCToolsInstallDir\bin\HostX64\x64"
           if ($msvcBin -and (Test-Path $msvcBin)) { $env:PATH = "$msvcBin;$env:PATH" }
           Write-Host "MSVC bin: $msvcBin"
+          Write-Host "CWD before: $(Get-Location)"
           Set-Location packaging/tauri/src-tauri
-          ..\node_modules\.bin\tauri.cmd build --bundles nsis
+          Write-Host "CWD after: $(Get-Location)"
+          Write-Host "tauri.cmd path: $(Resolve-Path ..\node_modules\.bin\tauri.cmd -ErrorAction SilentlyContinue)"
+          Write-Host "Contents of src-tauri:"
+          Get-ChildItem . | Select-Object Name
+          cmd /c "..\node_modules\.bin\tauri.cmd build --bundles nsis"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "tauri build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
       - name: Locate EXE artifact
