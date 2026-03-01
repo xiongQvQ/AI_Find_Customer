@@ -304,13 +304,11 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: [build-macos, build-windows]
+    needs: [build-windows]
     runs-on: ubuntu-latest
-    # Only create a release on tag push, and only if at least one build succeeded
-    # build-macos is disabled (if: false → result == 'skipped'), so only check windows
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
-      (needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
+      needs.build-windows.result == 'success'
     permissions:
       contents: write
 
