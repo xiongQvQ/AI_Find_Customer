@@ -254,27 +254,22 @@ jobs:
           npm install
 
       # ── 14. Build Tauri EXE installer ────────────────────────────────────────
-      # IMPORTANT: must use pwsh (not bash) to avoid Git Bash's /usr/bin/link.exe
-      # shadowing MSVC's link.exe, which causes "extra operand" linker errors.
+      # Use bash but override PATH so MSVC link.exe wins over Git's /usr/bin/link.
+      # VCToolsInstallDir is set by ilammy/msvc-dev-cmd; strip trailing backslash.
       - name: Build Tauri EXE (NSIS installer)
-        shell: pwsh
+        shell: bash
         run: |
-          # Prepend MSVC linker bin so it wins over Git's /usr/bin/link.exe
-          # Use VCToolsInstallDir set by ilammy/msvc-dev-cmd (version-independent)
-          $msvcBin = "$env:VCToolsInstallDir\bin\HostX64\x64"
-          if ($msvcBin -and (Test-Path $msvcBin)) { $env:PATH = "$msvcBin;$env:PATH" }
-          Write-Host "MSVC bin: $msvcBin"
-          Write-Host "CWD before: $(Get-Location)"
-          Set-Location packaging/tauri/src-tauri
-          Write-Host "CWD after: $(Get-Location)"
-          Write-Host "tauri.cmd path: $(Resolve-Path ..\node_modules\.bin\tauri.cmd -ErrorAction SilentlyContinue)"
-          Write-Host "Contents of src-tauri:"
-          Get-ChildItem . | Select-Object Name
-          cmd /c "..\node_modules\.bin\tauri.cmd build --bundles nsis"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "tauri build failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
+          set -euo pipefail
+          # Convert Windows path to Unix-style and prepend to PATH
+          MSVC_BIN=$(cygpath -u "${VCToolsInstallDir}bin/HostX64/x64" 2>/dev/null || true)
+          echo "MSVC bin (unix): $MSVC_BIN"
+          export PATH="$MSVC_BIN:$PATH"
+          echo "which link: $(which link 2>/dev/null || echo 'not found')"
+          echo "CWD: $(pwd)"
+          ls packaging/tauri/src-tauri/
+          echo "tauri.cmd exists: $(ls packaging/tauri/node_modules/.bin/tauri.cmd 2>/dev/null && echo yes || echo NO)"
+          cd packaging/tauri/src-tauri
+          ../node_modules/.bin/tauri.cmd build --bundles nsis
 
       # ── 16. Locate EXE artifact ───────────────────────────────────────────────
       - name: Locate EXE artifact
