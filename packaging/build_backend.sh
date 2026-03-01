@@ -489,15 +489,26 @@ pyinstaller \
     --hidden-import "pydantic_settings" \
     --collect-all "multipart" \
     --hidden-import "multipart" \
-    --hidden-import "python_multipart" \
+    --hidden-import "multipart.multiparser" \
+    --hidden-import "multipart.decoders" \
     --collect-all "sse_starlette" \
     --hidden-import "sse_starlette" \
     --collect-all "jose" \
     --hidden-import "jose" \
+    --hidden-import "jose.jwt" \
+    --hidden-import "jose.exceptions" \
     --collect-all "openpyxl" \
     --collect-all "docx" \
     --hidden-import "docx" \
+    --hidden-import "docx.oxml.ns" \
     --collect-all "starlette" \
+    --collect-all "tavily" \
+    --hidden-import "tavily" \
+    --hidden-import "anyio" \
+    --collect-all "anyio" \
+    --hidden-import "sniffio" \
+    --hidden-import "h11" \
+    --hidden-import "click" \
     --distpath "$DIST_DIR_PY" \
     $ICON_OPT \
     main.py
