@@ -12,12 +12,14 @@ import os
 import sys
 import traceback
 
+import uvicorn
+
 # TODO: Remove once license server is deployed at https://license.aihunter.app
 os.environ.setdefault("DEV_SKIP_LICENSE", "1")
 
 
 def _log_dir() -> str:
-    """Return a writable log directory — AppData\Roaming\AIHunter on Windows."""
+    """Return a writable log directory — AppData\\Roaming\\AIHunter on Windows."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
     else:
@@ -31,7 +33,6 @@ def main() -> None:
     # Required on Windows for PyInstaller + multiprocessing
     multiprocessing.freeze_support()
 
-    import uvicorn
     uvicorn.run(
         "api.app:app",
         host="127.0.0.1",
