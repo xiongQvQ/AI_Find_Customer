@@ -332,6 +332,12 @@ for pkg in ["agents", "api", "config", "graph", "tools", "observability", "licen
             dest_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(f), str(dest_dir / f.name))
 
+    # Ensure top-level __init__.py exists — Python requires it to recognise
+    # the directory as a package. Create an empty stub if the source has none.
+    init_dst = Path(dst) / "__init__.py"
+    if not init_dst.exists():
+        init_dst.touch()
+
     print(f"    {pkg}/: {so_count} binaries")
 
 # api/routes.py excluded from Cython — copy as .py (compiled to .pyc in PYZ)
@@ -430,6 +436,11 @@ pyinstaller \
     --hidden-import "graph.state" \
     --hidden-import "graph.checkpointer" \
     --hidden-import "graph.evaluate" \
+    --hidden-import "license" \
+    --hidden-import "license.validator" \
+    --hidden-import "license.fingerprint" \
+    --hidden-import "license.token_store" \
+    --hidden-import "license.settings_store" \
     --hidden-import "tools.registry" \
     --hidden-import "tools.llm_client" \
     --hidden-import "tools.llm_output" \
