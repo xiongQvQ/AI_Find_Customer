@@ -363,6 +363,47 @@ $PYTHON_CMD "$STAGING_SCRIPT_PY" "$BACKEND_DIR_PY" "$STAGING_DIR_PY" "$PLATFORM"
 
 echo "    Staging complete."
 
+# ── Step 3.5: Register staging dir in site-packages so PyInstaller finds .pyd ──
+# PyInstaller analysis actually imports modules; it can only find our Cython
+# .pyd files if the staging dir is on sys.path. A .pth file in site-packages
+# is the cleanest way to add it without touching the source tree.
+echo ""
+echo "==> [3.5/4] Registering staging dir with Python site-packages..."
+REGISTER_SCRIPT="$BUILD_TMP/register_staging.py"
+if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
+    REGISTER_SCRIPT_PY="$(cygpath -w "$REGISTER_SCRIPT")"
+else
+    REGISTER_SCRIPT_PY="$REGISTER_SCRIPT"
+fi
+cat > "$REGISTER_SCRIPT" << 'PYEOF5'
+import site, sys, os
+staging = sys.argv[1]
+# Find the first writable site-packages dir
+sp = None
+for d in site.getsitepackages():
+    if os.path.isdir(d) and os.access(d, os.W_OK):
+        sp = d
+        break
+if not sp:
+    print(f"ERROR: no writable site-packages found in {site.getsitepackages()}", file=sys.stderr)
+    sys.exit(1)
+pth = os.path.join(sp, "aihunter_staging.pth")
+with open(pth, "w") as f:
+    f.write(staging + "\n")
+print(f"    Wrote {pth}")
+print(f"    Contents: {staging}")
+# Verify Python can now import from staging
+sys.path.insert(0, staging)
+try:
+    import license
+    print(f"    import license: OK  ({license.__file__})")
+    import license.settings_store
+    print(f"    import license.settings_store: OK  ({license.settings_store.__file__})")
+except ImportError as e:
+    print(f"    WARNING: import check failed: {e}", file=sys.stderr)
+PYEOF5
+$PYTHON_CMD "$REGISTER_SCRIPT_PY" "$STAGING_DIR_PY"
+
 # ── Step 4: Package with PyInstaller (Python-driven, no shell quoting) ────────
 echo ""
 echo "==> [4/4] Packaging with PyInstaller..."
@@ -424,18 +465,9 @@ if platform == "win":
 if icon_file and os.path.exists(icon_file):
     args += ["--icon", icon_file]
 
-# Add --add-binary for every .pyd/.so — these are our Cython extension modules.
-# In --onedir mode PyInstaller copies them to _internal/<pkg>/ and the frozen
-# importer finds them by their cpython ABI suffix filename.
-for f in sorted(binaries):
-    rel_dir = os.path.relpath(os.path.dirname(f), staging)
-    args += ["--add-binary", f + sep + rel_dir]
-    # Also register as hidden-import so PyInstaller's analysis knows about them
-    rel_path = Path(f).relative_to(staging)
-    pkg_parts = list(rel_path.parts[:-1])
-    module_name = Path(f).stem.split('.')[0]
-    dotted = '.'.join(pkg_parts + [module_name]) if pkg_parts else module_name
-    args += ["--hidden-import", dotted]
+# Our custom .pyd/.so extension modules are now on sys.path via the .pth file
+# written to site-packages in step 3.5. PyInstaller will find and bundle them
+# automatically during analysis — no --add-binary needed.
 
 # Hidden imports for our packages (needed for module discovery)
 OUR_HIDDEN = [
