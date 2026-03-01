@@ -267,6 +267,16 @@ jobs:
           npm install
           npm run build
 
+      - name: Verify frontend dist (for Tauri embedding)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f frontend/dist/index.html || { echo "MISSING: frontend/dist/index.html"; exit 1; }
+          echo "==> Frontend dist size:"
+          du -sh frontend/dist
+          echo "==> Frontend dist sample files:"
+          find frontend/dist -maxdepth 2 -type f | head -20
+
       # ── 10. Rust toolchain (for Tauri) ───────────────────────────────────────
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -326,6 +336,8 @@ jobs:
           Get-ChildItem -Recurse $bundleDir | Select-Object FullName | Format-List
           $EXE = (Get-ChildItem -Recurse -Filter "*-setup.exe" $bundleDir | Select-Object -First 1).FullName
           if (-not $EXE) { Write-Error "No *-setup.exe found under $bundleDir"; exit 1 }
+          $sizeMB = [math]::Round((Get-Item $EXE).Length / 1MB, 2)
+          Write-Host "Installer size: ${sizeMB} MB"
           echo "path=$EXE" >> $env:GITHUB_OUTPUT
           echo "name=$(Split-Path $EXE -Leaf)" >> $env:GITHUB_OUTPUT
           Write-Host "Found: $EXE"

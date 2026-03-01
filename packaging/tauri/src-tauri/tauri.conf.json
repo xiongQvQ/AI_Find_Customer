@@ -49,7 +49,7 @@
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "webviewInstallMode": { "type": "offlineInstaller" },
       "nsis": {
         "displayLanguageSelector": false,
         "languages": ["SimpChinese", "English"],

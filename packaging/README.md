@@ -111,6 +111,33 @@ npm run tauri build
 - **macOS**: `packaging/tauri/src-tauri/target/release/bundle/dmg/AIHunter_1.0.0_aarch64.dmg`
 - **Windows**: `packaging/tauri/src-tauri/target/release/bundle/nsis/AIHunter_1.0.0_x64-setup.exe`
 
+### 4.1 Windows "one-click" behavior (zero command line for end users)
+
+The Windows installer is designed for a non-technical user flow:
+
+1. Double-click `AIHunter_...-setup.exe`
+2. Click through installer UI
+3. Launch AI Hunter from Start Menu/Desktop
+
+No Python, Node.js, Rust, or manual command execution is required on the end-user machine.
+
+Important packaging notes:
+
+- Frontend static assets are embedded in the Tauri app bundle.
+- Backend (`AIHunter.exe` + `_internal/`) is bundled as Tauri resources and launched automatically by the desktop shell.
+- WebView2 install mode is set to **offline installer** for Windows, so first install does not rely on downloading runtime over network.
+
+### 4.2 Why setup.exe can be smaller than expected
+
+`*-setup.exe` is an NSIS compressed installer, not the final installed size.
+It is normal for installer size (e.g. ~80–120MB) to be significantly smaller than the installed app directory.
+
+To validate packaging completeness, check:
+
+- CI "Verify backend bundle" and "Smoke-test backend EXE" steps pass.
+- `frontend/dist/index.html` exists before Tauri build.
+- Installed app can launch on a clean Windows machine by double-clicking only.
+
 ### 5. App Icons (required before building)
 
 Place icons in `packaging/assets/`:
