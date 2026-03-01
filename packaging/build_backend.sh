@@ -363,168 +363,141 @@ $PYTHON_CMD "$STAGING_SCRIPT_PY" "$BACKEND_DIR_PY" "$STAGING_DIR_PY" "$PLATFORM"
 
 echo "    Staging complete."
 
-# ── Step 4: Package with PyInstaller from staging dir ────────────────────────
+# ── Step 4: Package with PyInstaller (Python-driven, no shell quoting) ────────
 echo ""
 echo "==> [4/4] Packaging with PyInstaller..."
 
-ICON_OPT=""
+# Determine icon path
+ICON_FILE=""
 if [ "$PLATFORM" = "mac" ]; then
     ICON_FILE="$ASSETS_DIR/icon.icns"
-    [ -f "$ICON_FILE" ] && ICON_OPT="--icon=$ICON_FILE"
 else
     ICON_FILE="$ASSETS_DIR/icon.ico"
-    [ -f "$ICON_FILE" ] && ICON_OPT="--icon=$ICON_FILE"
 fi
 
-cd "$STAGING_DIR"
-
-# Build --add-binary flags file for every .so/.pyd in staging
-# Written to a file to avoid shell arg-length limits and path-with-spaces issues
-ADD_BINARY_FLAGFILE="$BUILD_TMP/add_binary_flags.txt"
-# Write a small Python script to avoid any shell variable expansion conflicts
-ADD_BINARY_SCRIPT="$BUILD_TMP/gen_flags.py"
+# Write a Python runner script — avoids ALL shell quoting / Windows path issues
+PYI_RUNNER="$BUILD_TMP/run_pyinstaller.py"
 if [ "$PLATFORM" = "win" ] && command -v cygpath &>/dev/null; then
-    ADD_BINARY_FLAGFILE_PY="$(cygpath -w "$ADD_BINARY_FLAGFILE")"
-    ADD_BINARY_SCRIPT_PY="$(cygpath -w "$ADD_BINARY_SCRIPT")"
+    PYI_RUNNER_PY="$(cygpath -w "$PYI_RUNNER")"
 else
-    ADD_BINARY_FLAGFILE_PY="$ADD_BINARY_FLAGFILE"
-    ADD_BINARY_SCRIPT_PY="$ADD_BINARY_SCRIPT"
+    PYI_RUNNER_PY="$PYI_RUNNER"
 fi
-cat > "$ADD_BINARY_SCRIPT" << PYEOF2
-import os, glob, sys
-staging   = sys.argv[1]
-ext_      = sys.argv[2]   # .so or .pyd
-sep       = sys.argv[3]   # : or ;
-out_file  = sys.argv[4]
-lines = []
-for f in glob.glob(os.path.join(staging, '**', '*' + ext_), recursive=True):
+
+cat > "$PYI_RUNNER" << 'PYEOF4'
+import glob, os, sys
+from pathlib import Path
+
+staging   = sys.argv[1]   # staging dir
+dist_dir  = sys.argv[2]   # output distpath
+platform  = sys.argv[3]   # 'win' | 'mac' | 'linux'
+icon_file = sys.argv[4]   # path to icon or ''
+
+os.chdir(staging)
+
+ext = ".pyd" if platform == "win" else ".so"
+
+# Verify .pyd/.so files exist
+binaries = glob.glob(os.path.join(staging, '**', '*' + ext), recursive=True)
+print(f"    Found {len(binaries)} {ext} files in staging:")
+for b in sorted(binaries):
+    print(f"      {b}")
+if not binaries:
+    print("ERROR: No compiled binaries found in staging — Cython build failed!", file=sys.stderr)
+    sys.exit(1)
+
+sep = ";" if platform == "win" else ":"
+
+# Build args list
+args = [
+    "main.py",
+    "--name", "AIHunter",
+    "--onedir",
+    "--noconfirm",
+    "--paths", staging,
+    "--add-data", os.path.join(staging, "prompts") + sep + "prompts",
+    "--distpath", dist_dir,
+]
+
+if platform == "win":
+    args.append("--noconsole")
+
+if icon_file and os.path.exists(icon_file):
+    args += ["--icon", icon_file]
+
+# Add --add-binary for every .pyd/.so — these are our Cython extension modules.
+# In --onedir mode PyInstaller copies them to _internal/<pkg>/ and the frozen
+# importer finds them by their cpython ABI suffix filename.
+for f in sorted(binaries):
     rel_dir = os.path.relpath(os.path.dirname(f), staging)
-    lines.append('--add-binary=' + f + sep + rel_dir)
-with open(out_file, 'wb') as fp:
-    fp.write('\n'.join(lines).encode())
-print('    Generated ' + str(len(lines)) + ' --add-binary flags')
-PYEOF2
+    args += ["--add-binary", f + sep + rel_dir]
+    # Also register as hidden-import so PyInstaller's analysis knows about them
+    rel_path = Path(f).relative_to(staging)
+    pkg_parts = list(rel_path.parts[:-1])
+    module_name = Path(f).stem.split('.')[0]
+    dotted = '.'.join(pkg_parts + [module_name]) if pkg_parts else module_name
+    args += ["--hidden-import", dotted]
 
-EXT_BIN=".so"
-[ "$PLATFORM" = "win" ] && EXT_BIN=".pyd"
-$PYTHON_CMD "$ADD_BINARY_SCRIPT_PY" "$STAGING_DIR_PY" "$EXT_BIN" "$PATH_SEP" "$ADD_BINARY_FLAGFILE_PY"
+# Hidden imports for our packages (needed for module discovery)
+OUR_HIDDEN = [
+    "api.app", "api.routes", "api.settings_routes", "api.hunt_store", "api.sse",
+    "config.settings",
+    "agents.insight_agent", "agents.keyword_gen_agent", "agents.search_agent",
+    "agents.lead_extract_agent", "agents.email_craft_agent", "agents.parse_description_agent",
+    "graph.builder", "graph.state", "graph.checkpointer", "graph.evaluate",
+    "license", "license.validator", "license.fingerprint",
+    "license.token_store", "license.settings_store",
+    "tools.registry", "tools.llm_client", "tools.llm_output",
+    "tools.email_finder", "tools.email_verifier", "tools.google_search",
+    "tools.tavily_search", "tools.web_search", "tools.jina_reader",
+    "tools.pdf_parser", "tools.docx_parser", "tools.excel_parser",
+    "tools.platform_registry", "tools.react_runner", "tools.contact_extractor",
+    "tools.company_website_finder", "tools.url_filter", "tools.ocr",
+    "tools.amap_search", "tools.baidu_search", "tools.brave_search",
+    "tools.google_maps_search",
+    "observability.setup", "observability.cost_tracker",
+    "models",
+    "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
+    "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
+    "uvicorn.lifespan", "uvicorn.lifespan.on",
+    "cryptography", "cryptography.fernet", "cryptography.hazmat",
+    "cryptography.hazmat.primitives", "cryptography.hazmat.backends",
+    "httpx", "pydantic_settings",
+    "multipart", "multipart.multiparser", "multipart.decoders",
+    "sse_starlette",
+    "jose", "jose.jwt", "jose.exceptions",
+    "docx", "docx.oxml.ns",
+    "tavily", "anyio", "sniffio", "h11", "click", "aiosqlite",
+]
+for imp in OUR_HIDDEN:
+    args += ["--hidden-import", imp]
 
-NOCONSOLE_OPT=""
-[ "$PLATFORM" = "win" ] && NOCONSOLE_OPT="--noconsole"
+# collect-all for third-party packages with dynamic imports
+COLLECT_ALL = [
+    "cryptography", "litellm", "langchain_core", "langgraph", "langfuse",
+    "pymupdf4llm", "pymupdf", "pandas", "tenacity", "httpx",
+    "pydantic", "pydantic_settings", "multipart", "sse_starlette",
+    "jose", "openpyxl", "docx", "starlette", "tavily", "anyio", "aiosqlite",
+]
+if platform != "win":
+    COLLECT_ALL.append("uvloop")
+for pkg in COLLECT_ALL:
+    args += ["--collect-all", pkg]
 
-pyinstaller \
-    --name "AIHunter" \
-    --onedir \
-    --noconfirm \
-    $NOCONSOLE_OPT \
-    --paths "$STAGING_DIR_PY" \
-    --add-data "${STAGING_DIR_PY}/prompts${PATH_SEP}prompts" \
-    $(tr -d '\r' < "$ADD_BINARY_FLAGFILE" | tr '\n' ' ') \
-    --hidden-import "api.app" \
-    --hidden-import "api.routes" \
-    --hidden-import "api.settings_routes" \
-    --hidden-import "api.hunt_store" \
-    --hidden-import "api.sse" \
-    --hidden-import "config.settings" \
-    --hidden-import "agents.insight_agent" \
-    --hidden-import "agents.keyword_gen_agent" \
-    --hidden-import "agents.search_agent" \
-    --hidden-import "agents.lead_extract_agent" \
-    --hidden-import "agents.email_craft_agent" \
-    --hidden-import "agents.parse_description_agent" \
-    --hidden-import "graph.builder" \
-    --hidden-import "graph.state" \
-    --hidden-import "graph.checkpointer" \
-    --hidden-import "graph.evaluate" \
-    --hidden-import "license" \
-    --hidden-import "license.validator" \
-    --hidden-import "license.fingerprint" \
-    --hidden-import "license.token_store" \
-    --hidden-import "license.settings_store" \
-    --hidden-import "tools.registry" \
-    --hidden-import "tools.llm_client" \
-    --hidden-import "tools.llm_output" \
-    --hidden-import "tools.email_finder" \
-    --hidden-import "tools.email_verifier" \
-    --hidden-import "tools.google_search" \
-    --hidden-import "tools.tavily_search" \
-    --hidden-import "tools.web_search" \
-    --hidden-import "tools.jina_reader" \
-    --hidden-import "tools.pdf_parser" \
-    --hidden-import "tools.docx_parser" \
-    --hidden-import "tools.excel_parser" \
-    --hidden-import "tools.platform_registry" \
-    --hidden-import "tools.react_runner" \
-    --hidden-import "tools.contact_extractor" \
-    --hidden-import "tools.company_website_finder" \
-    --hidden-import "tools.url_filter" \
-    --hidden-import "tools.ocr" \
-    --hidden-import "tools.amap_search" \
-    --hidden-import "tools.baidu_search" \
-    --hidden-import "tools.brave_search" \
-    --hidden-import "tools.google_maps_search" \
-    --hidden-import "observability.setup" \
-    --hidden-import "observability.cost_tracker" \
-    --hidden-import "models" \
-    --hidden-import "uvicorn.logging" \
-    --hidden-import "uvicorn.loops" \
-    --hidden-import "uvicorn.loops.auto" \
-    --hidden-import "uvicorn.protocols" \
-    --hidden-import "uvicorn.protocols.http" \
-    --hidden-import "uvicorn.protocols.http.auto" \
-    --hidden-import "uvicorn.lifespan" \
-    --hidden-import "uvicorn.lifespan.on" \
-    --hidden-import "cryptography" \
-    --hidden-import "cryptography.fernet" \
-    --hidden-import "cryptography.hazmat" \
-    --hidden-import "cryptography.hazmat.primitives" \
-    --hidden-import "cryptography.hazmat.backends" \
-    --collect-all "cryptography" \
-    --hidden-import "httpx" \
-    --collect-all "litellm" \
-    --exclude-module "litellm.proxy.guardrails" \
-    --exclude-module "litellm.proxy.tests" \
-    --exclude-module "litellm.tests" \
-    --exclude-module "litellm.proxy.example_config_yaml" \
-    --collect-all "langchain_core" \
-    --collect-all "langgraph" \
-    --collect-all "langfuse" \
-    --collect-all "pymupdf4llm" \
-    --collect-all "pymupdf" \
-    --collect-all "pandas" \
-    --collect-all "tenacity" \
-    --collect-all "httpx" \
-    $([ "$PLATFORM" != "win" ] && echo "--collect-all uvloop") \
-    --collect-all "pydantic" \
-    --collect-all "pydantic_settings" \
-    --hidden-import "pydantic_settings" \
-    --collect-all "multipart" \
-    --hidden-import "multipart" \
-    --hidden-import "multipart.multiparser" \
-    --hidden-import "multipart.decoders" \
-    --collect-all "sse_starlette" \
-    --hidden-import "sse_starlette" \
-    --collect-all "jose" \
-    --hidden-import "jose" \
-    --hidden-import "jose.jwt" \
-    --hidden-import "jose.exceptions" \
-    --collect-all "openpyxl" \
-    --collect-all "docx" \
-    --hidden-import "docx" \
-    --hidden-import "docx.oxml.ns" \
-    --collect-all "starlette" \
-    --collect-all "tavily" \
-    --hidden-import "tavily" \
-    --hidden-import "anyio" \
-    --collect-all "anyio" \
-    --hidden-import "sniffio" \
-    --hidden-import "h11" \
-    --hidden-import "click" \
-    --hidden-import "aiosqlite" \
-    --collect-all "aiosqlite" \
-    --distpath "$DIST_DIR_PY" \
-    $ICON_OPT \
-    main.py
+EXCLUDE = [
+    "litellm.proxy.guardrails", "litellm.proxy.tests",
+    "litellm.tests", "litellm.proxy.example_config_yaml",
+]
+for ex in EXCLUDE:
+    args += ["--exclude-module", ex]
+
+print(f"    Running PyInstaller with {len(args)} args")
+print(f"    First 10: {args[:10]}")
+
+import PyInstaller.__main__
+PyInstaller.__main__.run(args)
+PYEOF4
+
+$PYTHON_CMD "$PYI_RUNNER_PY" "$STAGING_DIR_PY" "$DIST_DIR_PY" "$PLATFORM" "$ICON_FILE"
 
 # Cleanup temp build dir
 rm -rf "$BUILD_TMP"
