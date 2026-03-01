@@ -403,10 +403,14 @@ EXT_BIN=".so"
 [ "$PLATFORM" = "win" ] && EXT_BIN=".pyd"
 $PYTHON_CMD "$ADD_BINARY_SCRIPT_PY" "$STAGING_DIR_PY" "$EXT_BIN" "$PATH_SEP" "$ADD_BINARY_FLAGFILE_PY"
 
+NOCONSOLE_OPT=""
+[ "$PLATFORM" = "win" ] && NOCONSOLE_OPT="--noconsole"
+
 pyinstaller \
     --name "AIHunter" \
     --onedir \
     --noconfirm \
+    $NOCONSOLE_OPT \
     --paths "$STAGING_DIR_PY" \
     --add-data "${STAGING_DIR_PY}/prompts${PATH_SEP}prompts" \
     $(tr -d '\r' < "$ADD_BINARY_FLAGFILE" | tr '\n' ' ') \
