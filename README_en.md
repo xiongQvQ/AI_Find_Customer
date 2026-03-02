@@ -15,7 +15,13 @@ A powerful set of Python tools for automating the customer development process i
 This project provides **two usage methods**:
 
 #### 1. Command-Line Tools (For Technical Users)
-Contains three main Python scripts, each addressing different stages of the sales process:
+Contains four main Python scripts, each addressing different stages of the sales process:
+
+- **AI Keyword Generator** (`keyword_generator.py`) — *New*
+  - Generate 10-30 targeted B2B search keywords using AI
+  - Covers 7 keyword dimensions: buyer role, industry, value proposition, buyer type, region+trade terms, B2B platforms, certifications
+  - Auto-detects local language for non-English target regions (German, French, Spanish, etc.)
+  - Output feeds directly into Company Search for immediate use
 
 - **Company Search** (`serper_company_search.py`)
   - Search for target companies based on industry, region, and keywords
@@ -38,9 +44,10 @@ Contains three main Python scripts, each addressing different stages of the sale
 #### 2. Web Interface (For Non-Technical Users)
 Modern Streamlit-based web interface providing:
 
+- **🎯 Keyword Generator** - AI-powered keyword generation, feeds directly into Company Search
 - **Visual Operation Interface** - Use without command-line knowledge
 - **Real-time Result Display** - View search and extraction results instantly
-- **Batch Processing Management** - Easily manage multiple batch tasks
+- **Batch Keyword Search** - Search all AI-generated keywords at once, results auto-deduplicated by domain
 - **Data Export Function** - One-click download of CSV/JSON format results
 - **Docker Deployment Support** - Quick deployment to any server
 
@@ -282,6 +289,29 @@ python extract_contact_info.py --csv output/company/texas_renewable.csv --url-co
 3. Find key decision-makers:
 ```bash
 python serper_employee_search.py --input-file texas_renewable.csv --position "purchasing manager" --country "United States"
+```
+
+### Full Pipeline (AI Keywords → Companies → Contacts → Decision Makers):
+
+1. Generate keywords with AI:
+```bash
+python keyword_generator.py --product "solar inverter" --region "Germany,Poland" --count 20
+```
+
+2. Batch search all keywords (results auto-deduplicated by domain):
+```bash
+# Each keyword as a separate search:
+python serper_company_search.py --general-search --custom-query "solar inverter distributor Germany" --gl de
+```
+
+3. Extract contact info from all company results:
+```bash
+python process_all_companies_en.py
+```
+
+4. Find decision makers:
+```bash
+python serper_employee_search.py --input-file batch_keywords_de_1234567890.csv --position "purchasing manager"
 ```
 
 ### Batch Processing Scripts:

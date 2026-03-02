@@ -15,7 +15,13 @@
 本项目提供**两种使用方式**：
 
 #### 1. 命令行工具（适合技术用户）
-包含三个主要Python脚本，各自解决销售流程中的不同环节：
+包含四个主要Python脚本，各自解决销售流程中的不同环节：
+
+- **AI关键词生成** (`keyword_generator.py`) — *新增*
+  - 基于产品描述和目标地区，用AI生成10-30个精准B2B搜索关键词
+  - 覆盖7个关键词维度：买家角色、行业应用、价值主张、买家类型、地区+贸易词、B2B平台、认证/标准
+  - 自动识别目标地区语言，生成本地化关键词（德语、法语、西班牙语等）
+  - 输出结果可直接用于企业搜索
 
 - **企业搜索** (`serper_company_search.py`)
   - 基于行业、地区和关键词搜索目标企业
@@ -38,9 +44,10 @@
 #### 2. Web界面（适合非技术用户）
 基于Streamlit的现代化Web界面，提供：
 
+- **🎯 关键词生成器** - AI驱动的关键词生成，结果直接接入企业搜索
 - **可视化操作界面** - 无需命令行知识即可使用
 - **实时结果展示** - 即时查看搜索和提取结果
-- **批量处理管理** - 轻松管理多个批量任务
+- **批量关键词搜索** - 一次搜索所有AI生成的关键词，结果按域名自动去重
 - **数据导出功能** - 一键下载CSV/JSON格式结果
 - **Docker部署支持** - 快速部署到任何服务器
 
@@ -282,6 +289,28 @@ python extract_contact_info.py --csv output/company/texas_renewable.csv --headle
 3. 查找关键决策者：
 ```bash
 python serper_employee_search.py --input-file texas_renewable.csv --position "purchasing manager" --country "United States"
+```
+
+### 完整销售流程（AI关键词 → 企业 → 联系方式 → 决策者）：
+
+1. 用AI生成关键词：
+```bash
+python keyword_generator.py --product "太阳能逆变器" --region "Germany,Poland" --count 20
+```
+
+2. 批量搜索所有关键词（结果自动按域名去重）：
+```bash
+python serper_company_search.py --general-search --custom-query "solar inverter distributor Germany" --gl de
+```
+
+3. 批量提取所有企业的联系信息：
+```bash
+python process_all_companies.py
+```
+
+4. 查找关键决策者：
+```bash
+python serper_employee_search.py --input-file batch_keywords_de_1234567890.csv --position "purchasing manager"
 ```
 
 ### 批量处理脚本：

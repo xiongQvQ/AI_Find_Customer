@@ -307,6 +307,102 @@ class CompanySearcher:
         
         return csv_file
     
+    def batch_search(
+        self,
+        keywords: List[str],
+        gl: str = "us",
+        num_results: int = 10,
+        delay: float = 1.5,
+    ) -> Dict:
+        """
+        Run company search for multiple keywords sequentially and merge results.
+        Deduplicates by domain so the same company doesn't appear twice.
+
+        Args:
+            keywords: List of search keyword strings (e.g. from keyword_generator.py)
+            gl: Geographic locale code (default "us")
+            num_results: Results per keyword (default 10, lower = faster + fewer API credits)
+            delay: Seconds to wait between requests (default 1.5)
+
+        Returns:
+            {"success": bool, "data": list, "error": str, "output_file": str,
+             "stats": {"keywords_searched": int, "total_raw": int, "after_dedup": int}}
+        """
+        if not keywords:
+            return {"success": False, "data": [], "error": "No keywords provided", "output_file": None, "stats": {}}
+
+        all_companies: List[Dict] = []
+        errors: List[str] = []
+
+        for i, kw in enumerate(keywords):
+            try:
+                companies = self._search_general_companies(
+                    industry=None,
+                    region=None,
+                    keywords=None,
+                    custom_query=kw,
+                    gl=gl,
+                    num_results=num_results,
+                )
+                all_companies.extend(companies)
+            except Exception as e:
+                errors.append(f"[{kw}] {e}")
+
+            if i < len(keywords) - 1:
+                time.sleep(delay)
+
+        total_raw = len(all_companies)
+
+        # Deduplicate: prefer entries with a domain; keep first occurrence per domain
+        seen_domains: set = set()
+        seen_urls: set = set()
+        deduped: List[Dict] = []
+        no_domain: List[Dict] = []
+
+        for c in all_companies:
+            domain = (c.get("domain") or "").strip().lower()
+            url = (c.get("url") or "").strip().lower()
+            if domain:
+                if domain not in seen_domains:
+                    seen_domains.add(domain)
+                    deduped.append(c)
+            else:
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    no_domain.append(c)
+
+        merged = deduped + no_domain
+
+        # Save merged results
+        timestamp = int(time.time())
+        filename = f"batch_keywords_{gl}_{timestamp}"
+        csv_file = os.path.join(COMPANY_OUTPUT_DIR, f"{filename}.csv")
+        json_file = os.path.join(COMPANY_OUTPUT_DIR, f"{filename}.json")
+
+        if merged:
+            with open(csv_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=merged[0].keys())
+                writer.writeheader()
+                writer.writerows(merged)
+
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2, ensure_ascii=False)
+
+        stats = {
+            "keywords_searched": len(keywords),
+            "total_raw": total_raw,
+            "after_dedup": len(merged),
+            "errors": errors,
+        }
+
+        return {
+            "success": True,
+            "data": merged,
+            "error": "; ".join(errors) if errors else None,
+            "output_file": csv_file,
+            "stats": stats,
+        }
+
     def __del__(self):
         """Close session when object is destroyed"""
         if hasattr(self, 'session'):
