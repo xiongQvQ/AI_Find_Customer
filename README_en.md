@@ -15,13 +15,11 @@ A powerful set of Python tools for automating the customer development process i
 This project provides **two usage methods**:
 
 #### 1. Command-Line Tools (For Technical Users)
-Contains four main Python scripts, each addressing different stages of the sales process:
 
-- **AI Keyword Generator** (`keyword_generator.py`) — *New*
+- **AI Keyword Generator** (`keyword_generator.py`)
   - Generate 10-30 targeted B2B search keywords using AI
   - Covers 7 keyword dimensions: buyer role, industry, value proposition, buyer type, region+trade terms, B2B platforms, certifications
   - Auto-detects local language for non-English target regions (German, French, Spanish, etc.)
-  - Output feeds directly into Company Search for immediate use
 
 - **Company Search** (`serper_company_search.py`)
   - Search for target companies based on industry, region, and keywords
@@ -33,21 +31,20 @@ Contains four main Python scripts, each addressing different stages of the sales
   - Automatically extract contact information from company websites
   - Identify email addresses, phone numbers, and physical addresses
   - Collect social media accounts (LinkedIn, Twitter, Facebook, Instagram)
-  - Support for batch processing of multiple URLs while optimizing browser resources
-  - Option to merge results with input CSV files for data integration
+  - Support for batch processing of multiple URLs
 
 - **Employee and Decision-Maker Search** (`serper_employee_search.py`)
   - Search for employees of target companies based on company name and position
   - Identify key decision-makers and potential contacts
-  - Extract information from employee LinkedIn profiles
 
 #### 2. Web Interface (For Non-Technical Users)
+
 Modern Streamlit-based web interface providing:
 
+- **🚀 B2B Discovery Flow** - Fully automated: Keyword Generation → Search → B2B Platform site: queries → LLM scoring & filtering
 - **🎯 Keyword Generator** - AI-powered keyword generation, feeds directly into Company Search
 - **Visual Operation Interface** - Use without command-line knowledge
 - **Real-time Result Display** - View search and extraction results instantly
-- **Batch Keyword Search** - Search all AI-generated keywords at once, results auto-deduplicated by domain
 - **Data Export Function** - One-click download of CSV/JSON format results
 - **Docker Deployment Support** - Quick deployment to any server
 
@@ -60,9 +57,10 @@ Modern Streamlit-based web interface providing:
 
 ## Technical Implementation
 
-- **Search Technology**: Uses Serper.dev API for efficient search engine queries
+- **Search Technology**: Supports [Serper.dev](https://serper.dev) and [Tavily](https://app.tavily.com) — switch providers with one env var
+- **LLM Integration**: Uses [litellm](https://github.com/BerriAI/litellm) to call any major LLM provider with a single unified interface
+- **B2B Flow Engine**: `core/b2b_flow.py` — fully automated pipeline with B2B platform site: queries and LLM relevance scoring
 - **Web Content Extraction**: Uses Playwright for automated browser rendering and website content extraction
-- **AI Content Analysis**: Analyzes web content through various LLM models (OpenAI, Volcano Engine, Anthropic, Google) to extract structured information
 - **Parallel Processing**: Optimizes browser instance management for efficient batch processing
 - **Fault Tolerance**: Includes timeout handling, content cleaning, and error recovery features
 
@@ -71,91 +69,137 @@ Modern Streamlit-based web interface providing:
 ### Prerequisites
 
 - Python 3.8+
-- Serper.dev API key ([Apply for free key](https://serper.dev/))
-- (Optional) LLM API key (Volcano Engine API recommended for users in China)
+- Search API key (Serper.dev or Tavily — choose one)
+- (Optional) LLM API key — required for keyword generation, contact AI extraction, and B2B scoring
 - (Optional) Docker and Docker Compose (for containerized deployment)
 
 ### Method 1: Local Installation
 
-1. Clone or download the project files
+1. Clone the repository:
+
+```bash
+git clone https://github.com/xiongQvQ/AI_Find_Customer.git
+cd AI_Find_Customer
+```
 
 2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Install Playwright browser (for website content extraction):
+
 ```bash
 playwright install chromium
 ```
 
-4. Create `.env` configuration file (in the project root directory):
+4. Copy the config template and fill in your keys:
+
+```bash
+cp .env.example .env
 ```
-# Required: Serper API key
+
+Then edit `.env` — see the **Configuration** section below.
+
+---
+
+## Configuration
+
+### Search Provider (choose one)
+
+**Option A — Serper.dev (default, recommended)**
+
+```
+SEARCH_PROVIDER=serper
 SERPER_API_KEY=your_serper_api_key_here
+```
 
-# LLM Configuration (choose one)
-LLM_PROVIDER=huoshan  # Options: openai, anthropic, google, huoshan, none
+Get a free key at [serper.dev](https://serper.dev) (2,500 free searches/month)
 
-# Volcano Engine Configuration (recommended for users in China)
-ARK_API_KEY=your_ark_api_key_here
-ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL=doubao-1-5-pro-256k-250115
+**Option B — Tavily**
 
-# Or use other LLM services
-# OPENAI_API_KEY=your_openai_api_key_here
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# GOOGLE_API_KEY=your_google_api_key_here
+```
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=tvly-your_tavily_api_key_here
+```
 
-# Website extraction configuration
+Get a free key at [app.tavily.com](https://app.tavily.com/home) (1,000 free searches/month)
+
+---
+
+### LLM Configuration (via litellm)
+
+The project uses [litellm](https://github.com/BerriAI/litellm) to call any LLM provider through a unified interface. Set `LLM_MODEL` in your `.env` file.
+
+**Format:** `LLM_MODEL=<provider>/<model-name>`
+
+#### International Providers
+
+| Provider | Example | API Key Var | Sign Up |
+|----------|---------|-------------|--------|
+| OpenAI | `LLM_MODEL=openai/gpt-4o-mini` | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com) |
+| Anthropic | `LLM_MODEL=anthropic/claude-3-haiku-20240307` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
+| Google | `LLM_MODEL=gemini/gemini-1.5-flash` | `GOOGLE_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
+| OpenRouter | `LLM_MODEL=openrouter/google/gemma-3-27b-it:free` | `OPENROUTER_API_KEY` | [openrouter.ai](https://openrouter.ai) |
+| Grok / xAI | `LLM_MODEL=xai/grok-3-mini-beta` | `XAI_API_KEY` | [console.x.ai](https://console.x.ai) |
+
+#### China-based Providers
+
+| Provider | Example | API Key Var | Sign Up |
+|----------|---------|-------------|--------|
+| DeepSeek | `LLM_MODEL=deepseek/deepseek-chat` | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com) |
+| Zhipu GLM | `LLM_MODEL=zhipuai/glm-4-flash` | `ZHIPUAI_API_KEY` | [open.bigmodel.cn](https://open.bigmodel.cn) |
+| MiniMax | `LLM_MODEL=minimax/abab6.5s-chat` | `MINIMAX_API_KEY` | [platform.minimaxi.com](https://platform.minimaxi.com) |
+| Volcano/Doubao | `LLM_MODEL=volcengine/doubao-1-5-pro-256k-250115` | `VOLCENGINE_API_KEY` | [console.volcengine.com](https://console.volcengine.com/ark) |
+
+#### Example `.env`
+
+```bash
+# Search
+SEARCH_PROVIDER=serper
+SERPER_API_KEY=your_serper_key
+
+# LLM — pick one
+LLM_MODEL=openai/gpt-4o-mini
+OPENAI_API_KEY=your_openai_key
+
+# Website extraction
 HEADLESS=true
 TIMEOUT=15000
 VISIT_CONTACT_PAGE=false
 ```
 
+> **Note:** LLM is optional. Without it, keyword generation, AI contact extraction, and B2B scoring are unavailable, but company search works normally.
+
 ### Method 2: Docker Quick Deployment (Recommended)
 
-Using Docker avoids environment configuration issues and is especially suitable for production deployment:
-
 ```bash
-# 1. Configure environment variables
 cp .env.example .env
-# Edit .env file to add your API keys
-
-# 2. Use deployment script (recommended)
+# Edit .env with your API keys
 chmod +x docker_deploy.sh
 ./docker_deploy.sh
-
-# Or manually use docker-compose
-docker-compose up -d
 ```
 
-After deployment, visit `http://localhost:8501` to use the web interface.
-
-For detailed Docker deployment instructions, please refer to [Docker Deployment Guide](DOCKER_DEPLOY.md).
+After deployment, visit `http://localhost:8501`. See [Docker Deployment Guide](DOCKER_DEPLOY.md) for details.
 
 ## Usage Guide
 
-### Web Interface Usage (Recommended for Beginners)
+### Web Interface (Recommended for Beginners)
 
-1. **Start Web Service**:
 ```bash
-# Local startup
 streamlit run streamlit_app.py
-
-# Or use Docker
-docker-compose up -d
 ```
 
-2. **Access Interface**: Open `http://localhost:8501` in your browser
+Open `http://localhost:8501` in your browser.
 
-3. **Use Features**:
-   - Select function from left menu (Company Search, Contact Extraction, Employee Search)
-   - Fill in search criteria
-   - Click execute and view results
-   - Download data in CSV or JSON format
-
-For detailed web interface instructions, please refer to [Web Interface Guide](README_WEB.md).
+| Page | Function |
+|------|----------|
+| 🚀 B2B Flow | **Full automated pipeline**: Keywords → Search → B2B Platforms → LLM Scoring |
+| 🎯 Keyword Generator | AI-generated targeted B2B search keywords |
+| 🔍 Company Search | Search by industry / region / keywords |
+| 📧 Contact Extraction | Extract emails, phones, social media from websites |
+| 👥 Employee Search | Find key decision-makers at target companies |
 
 ### Command-Line Usage
 
@@ -272,87 +316,71 @@ python serper_employee_search.py --input-file general_solar_energy_california_us
 #### Results:
 Results will be saved in the `output/employee/` directory, containing employee names, positions, LinkedIn links, and other available information.
 
-## Advanced Usage Tips
+## Advanced Usage
 
-### Complete Sales Process Automation:
+### 🚀 B2B Discovery Flow (New)
 
-1. Search for target companies using a custom query:
-```bash
-python serper_company_search.py --general-search --custom-query "renewable energy companies Texas usa" --gl "us" --output texas_renewable.csv
+`core/b2b_flow.py` is the project's core new feature — fully automated pipeline:
+
+1. **AI Keyword Generation** — LLM generates multi-dimensional keywords for your product + regions
+2. **Web Search** — Each keyword searched via Serper or Tavily
+3. **B2B Platform site: queries** — Automatic dedicated searches on:
+   - Alibaba · Made-in-China · GlobalSources · TradeIndia · EC21
+   - Europages · Kompass · ThomasNet
+4. **Deduplication** — Merge by domain, one entry per company
+5. **LLM Scoring** — Each result scored 0-10 for company fit and relevance
+6. **Filtered output** — Only leads above your minimum score threshold
+
+**Python API:**
+
+```python
+from core.b2b_flow import B2BFlow
+
+flow = B2BFlow(product="solar inverter", regions=["Germany", "Poland"])
+result = flow.run(
+    keyword_count=10,
+    num_search_results=10,
+    gl="de",
+    run_b2b_platforms=True,
+    llm_filter=True,
+    min_llm_score=6.0,
+)
+print(f"Found {len(result['filtered_results'])} qualified leads")
 ```
 
-2. Extract and merge contact information from search results:
-```bash
-python extract_contact_info.py --csv output/company/texas_renewable.csv --url-column Domain --headless --merge-results
-```
+**Web UI:** Start the app and open the **🚀 B2B Flow** page in the sidebar.
 
-3. Find key decision-makers:
-```bash
-python serper_employee_search.py --input-file texas_renewable.csv --position "purchasing manager" --country "United States"
-```
+---
 
-### Full Pipeline (AI Keywords → Companies → Contacts → Decision Makers):
+### Full CLI Pipeline (Keywords → Companies → Contacts → Decision Makers)
 
 1. Generate keywords with AI:
+
 ```bash
 python keyword_generator.py --product "solar inverter" --region "Germany,Poland" --count 20
 ```
 
-2. Batch search all keywords (results auto-deduplicated by domain):
+2. Batch search all keywords:
+
 ```bash
-# Each keyword as a separate search:
 python serper_company_search.py --general-search --custom-query "solar inverter distributor Germany" --gl de
 ```
 
 3. Extract contact info from all company results:
+
 ```bash
 python process_all_companies_en.py
 ```
 
 4. Find decision makers:
+
 ```bash
 python serper_employee_search.py --input-file batch_keywords_de_1234567890.csv --position "purchasing manager"
 ```
 
-### Batch Processing Scripts:
-
-The project provides batch processing scripts for automating multiple file processing:
-
-- **`process_all_companies.py`** - Batch process all company CSV files (Chinese version)
-- **`process_all_companies_en.py`** - Batch process all company CSV files (English version)
-
-```bash
-# Batch process all CSV files in output/company/ directory
-python process_all_companies_en.py
-
-# Will automatically:
-# 1. Read all CSV files from output/company/ directory
-# 2. Extract contact information for each file
-# 3. Generate corresponding contact info files to output/contact/
-```
-
-### Optimize Contact Extraction:
-
-- For slow-loading websites, increase timeout:
-```bash
-python extract_contact_info.py --url slowwebsite.com --timeout 30000
-```
-
-- For special website structures, enable contact page visiting:
-```bash
-python extract_contact_info.py --url example.com --visit-contact
-```
-
-- Performance optimization for batch processing multiple URLs:
-```bash
-# Script automatically reuses browser instances for improved efficiency
-python extract_contact_info.py --url-list many_urls.txt --headless --timeout 10000
-```
-
-
 ## Notes and Limitations
 
-- Serper.dev API has free usage limits; please control query frequency reasonably
+- Search APIs have free usage limits; please control query frequency reasonably
 - Some websites may block automated access; you may need to adjust request headers or use proxies
 - Contact information extraction accuracy depends on website structure and content quality
 - Please comply with relevant laws, regulations, and platform terms of use
@@ -360,17 +388,25 @@ python extract_contact_info.py --url-list many_urls.txt --headless --timeout 100
 
 ## Frequently Asked Questions
 
-**Q: Unable to extract contact information from certain websites**  
-A: Try using the `--visit-contact` parameter to enable contact page visiting, or adjust the `--timeout` parameter to increase loading time.
+**Q: Which search provider should I choose?**
 
-**Q: Browser windows frequently open and close**  
-A: Add the `--headless` parameter to use headless mode for improved efficiency. When batch processing multiple URLs, the system automatically optimizes browser instance usage.
+A: Serper.dev offers 2,500 free searches/month with fast, high-quality results — recommended as the default. Tavily offers 1,000 free searches/month with relevance scores included in results. Switch by setting `SEARCH_PROVIDER=serper` or `SEARCH_PROVIDER=tavily` in `.env`.
 
-**Q: How to process contact information in CSV data**  
-A: Use the `--merge-results` parameter to merge extracted contact information with the original CSV, generating a new file containing all data.
+**Q: Which LLM is recommended?**
 
-**Q: API key configuration issues**  
-A: Ensure the API keys in the `.env` file are correctly formatted and do not contain quotes or extra spaces.
+A: For international users, `openai/gpt-4o-mini` or `openrouter/google/gemma-3-27b-it:free` (free). For China-based users, `deepseek/deepseek-chat` offers excellent quality at very low cost.
+
+**Q: Unable to extract contact information from certain websites**
+
+A: Try the `--visit-contact` parameter to enable contact page visiting, or increase `--timeout`.
+
+**Q: B2B Flow scores are all low — what to do?**
+
+A: Lower the `min_llm_score` threshold (e.g. from 6 to 4), or make the product description more specific. A precise product description significantly improves scoring quality.
+
+**Q: API key configuration issues**
+
+A: Ensure API keys in `.env` are correctly formatted with no quotes or extra spaces. Verify LLM config with: `python -c "from core.llm_client import is_llm_available; print(is_llm_available())"`
 
 ## Contact Information
 

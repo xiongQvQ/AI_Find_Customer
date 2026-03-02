@@ -15,13 +15,11 @@
 本项目提供**两种使用方式**：
 
 #### 1. 命令行工具（适合技术用户）
-包含四个主要Python脚本，各自解决销售流程中的不同环节：
 
-- **AI关键词生成** (`keyword_generator.py`) — *新增*
+- **AI关键词生成** (`keyword_generator.py`)
   - 基于产品描述和目标地区，用AI生成10-30个精准B2B搜索关键词
   - 覆盖7个关键词维度：买家角色、行业应用、价值主张、买家类型、地区+贸易词、B2B平台、认证/标准
   - 自动识别目标地区语言，生成本地化关键词（德语、法语、西班牙语等）
-  - 输出结果可直接用于企业搜索
 
 - **企业搜索** (`serper_company_search.py`)
   - 基于行业、地区和关键词搜索目标企业
@@ -33,21 +31,20 @@
   - 从企业网站自动提取联系信息
   - 识别电子邮箱、电话号码、实际地址
   - 收集社交媒体账号（LinkedIn、Twitter、Facebook、Instagram）
-  - 支持多URL批量处理，并优化浏览器资源使用
-  - 可将结果与输入CSV文件合并，便于数据整合
+  - 支持多URL批量处理
 
 - **员工与决策者搜索** (`serper_employee_search.py`)
   - 基于公司名称和职位搜索目标企业的员工
   - 识别关键决策者和潜在联系人
-  - 提取员工LinkedIn个人资料信息
 
 #### 2. Web界面（适合非技术用户）
+
 基于Streamlit的现代化Web界面，提供：
 
+- **🚀 B2B 智能流水线** - 全自动：关键词生成 → 搜索 → B2B平台 site: 查询 → LLM评分筛选
 - **🎯 关键词生成器** - AI驱动的关键词生成，结果直接接入企业搜索
 - **可视化操作界面** - 无需命令行知识即可使用
 - **实时结果展示** - 即时查看搜索和提取结果
-- **批量关键词搜索** - 一次搜索所有AI生成的关键词，结果按域名自动去重
 - **数据导出功能** - 一键下载CSV/JSON格式结果
 - **Docker部署支持** - 快速部署到任何服务器
 
@@ -60,9 +57,10 @@
 
 ## 技术实现
 
-- **搜索技术**：使用Serper.dev API进行高效的搜索引擎查询
+- **搜索技术**：支持 [Serper.dev](https://serper.dev) 和 [Tavily](https://app.tavily.com) 双搜索服务商，可在 `.env` 中一键切换
+- **LLM集成**：通过 [litellm](https://github.com/BerriAI/litellm) 统一调用所有主流LLM，国内外均支持（见下方配置说明）
+- **B2B Flow引擎**：`core/b2b_flow.py` — 全自动流水线，含B2B平台 site: 查询、LLM相关性评分
 - **网页内容提取**：使用Playwright自动化浏览器渲染和提取网站内容
-- **AI内容分析**：通过多种LLM模型（OpenAI、火山引擎、Anthropic、Google）分析网页内容提取结构化信息
 - **并行处理**：优化浏览器实例管理，支持高效批量处理
 - **容错机制**：包含超时处理、内容清理和错误恢复功能
 
@@ -71,41 +69,100 @@
 ### 前提条件
 
 - Python 3.8+
-- Serper.dev API密钥 ([申请免费密钥](https://serper.dev/))
-- (可选) LLM API密钥（推荐使用国内火山引擎API）
+- 搜索API密钥（Serper.dev 或 Tavily，二选一）
+- (可选) LLM API密钥（用于关键词生成、联系人提取和B2B评分）
 - (可选) Docker和Docker Compose（用于容器化部署）
 
 ### 方法一：本地安装
 
-1. 克隆或下载项目文件
+1. 克隆项目
+
+```bash
+git clone https://github.com/xiongQvQ/AI_Find_Customer.git
+cd AI_Find_Customer
+```
 
 2. 安装依赖包：
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. 安装Playwright浏览器（用于网站内容提取）：
+
 ```bash
 playwright install chromium
 ```
 
-4. 创建`.env`配置文件（在项目根目录）：
+4. 创建 `.env` 配置文件（复制模板）：
+
+```bash
+cp .env.example .env
 ```
-# 必须配置：Serper API密钥
+
+然后编辑 `.env`，按下方说明填写配置。
+
+---
+
+## 参数配置说明
+
+### 搜索服务商配置（二选一）
+
+**选项 A：Serper.dev（默认推荐）**
+
+```
+SEARCH_PROVIDER=serper
 SERPER_API_KEY=your_serper_api_key_here
+```
 
-# LLM配置（以下选择一种）
-LLM_PROVIDER=huoshan  # 选项: openai, anthropic, google, huoshan, none
+免费申请：[serper.dev](https://serper.dev)（每月2500次免费）
 
-# 火山引擎配置（推荐国内用户使用）
-ARK_API_KEY=your_ark_api_key_here
-ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL=doubao-1-5-pro-256k-250115
+**选项 B：Tavily**
 
-# 或者使用其他LLM服务
-# OPENAI_API_KEY=your_openai_api_key_here
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# GOOGLE_API_KEY=your_google_api_key_here
+```
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=tvly-your_tavily_api_key_here
+```
+
+免费申请：[app.tavily.com](https://app.tavily.com/home)（每月1000次免费）
+
+---
+
+### LLM 配置（通过 litellm 统一接入）
+
+项目使用 [litellm](https://github.com/BerriAI/litellm) 统一调用各家LLM，只需在 `.env` 中设置 `LLM_MODEL` 即可。
+
+**格式：** `LLM_MODEL=<提供商>/<模型名>`
+
+#### 国内推荐
+
+| 提供商 | 配置示例 | API密钥变量 | 申请地址 |
+|--------|----------|-------------|----------|
+| DeepSeek | `LLM_MODEL=deepseek/deepseek-chat` | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com) |
+| 智谱 GLM | `LLM_MODEL=zhipuai/glm-4-flash` | `ZHIPUAI_API_KEY` | [open.bigmodel.cn](https://open.bigmodel.cn) |
+| MiniMax | `LLM_MODEL=minimax/abab6.5s-chat` | `MINIMAX_API_KEY` | [platform.minimaxi.com](https://platform.minimaxi.com) |
+| 火山豆包 | `LLM_MODEL=volcengine/doubao-1-5-pro-256k-250115` | `VOLCENGINE_API_KEY` | [console.volcengine.com](https://console.volcengine.com/ark) |
+
+#### 国际推荐
+
+| 提供商 | 配置示例 | API密钥变量 | 申请地址 |
+|--------|----------|-------------|----------|
+| OpenAI | `LLM_MODEL=openai/gpt-4o-mini` | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com) |
+| Anthropic | `LLM_MODEL=anthropic/claude-3-haiku-20240307` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
+| Google | `LLM_MODEL=gemini/gemini-1.5-flash` | `GOOGLE_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
+| OpenRouter（多模型聚合） | `LLM_MODEL=openrouter/google/gemma-3-27b-it:free` | `OPENROUTER_API_KEY` | [openrouter.ai](https://openrouter.ai) |
+| Grok / xAI | `LLM_MODEL=xai/grok-3-mini-beta` | `XAI_API_KEY` | [console.x.ai](https://console.x.ai) |
+
+#### 配置示例（`.env` 文件）
+
+```bash
+# 搜索服务商
+SEARCH_PROVIDER=serper
+SERPER_API_KEY=your_serper_key
+
+# LLM（选一种填写）
+LLM_MODEL=deepseek/deepseek-chat
+DEEPSEEK_API_KEY=your_deepseek_key
 
 # 网站提取配置
 HEADLESS=true
@@ -113,7 +170,9 @@ TIMEOUT=15000
 VISIT_CONTACT_PAGE=false
 ```
 
-### 方法二：Docker快速部署（推荐）
+> **注意：** LLM是可选的。不配置LLM时，关键词生成、联系人AI提取和B2B评分功能不可用，但企业搜索仍可正常使用。
+
+### 方法二：Docker 快速部署（推荐）
 
 使用Docker可以避免环境配置问题，特别适合生产环境部署：
 
@@ -139,23 +198,22 @@ docker-compose up -d
 ### Web界面使用（推荐新手）
 
 1. **启动Web服务**：
-```bash
-# 本地启动
-streamlit run streamlit_app.py
 
-# 或使用Docker
-docker-compose up -d
+```bash
+streamlit run streamlit_app.py
 ```
 
 2. **访问界面**：在浏览器中打开 `http://localhost:8501`
 
-3. **使用功能**：
-   - 从左侧菜单选择功能（企业搜索、联系提取、员工搜索）
-   - 填写搜索条件
-   - 点击执行并查看结果
-   - 下载CSV或JSON格式数据
+3. **页面说明**：
 
-详细的Web界面使用说明请参考[Web界面指南](README_WEB.md)。
+| 页面 | 功能 |
+|------|------|
+| 🚀 B2B Flow | **全自动流水线**：关键词→搜索→B2B平台→LLM评分 |
+| 🎯 关键词生成器 | AI生成精准B2B搜索关键词 |
+| 🔍 企业搜索 | 按行业/地区/关键词搜索企业 |
+| 📧 联系方式提取 | 从企业网站提取邮箱、电话、社媒 |
+| 👥 员工搜索 | 找到企业关键决策者 |
 
 ### 命令行使用
 
@@ -272,85 +330,9 @@ python serper_employee_search.py --input-file general_solar_energy_california_us
 #### 结果：
 结果将保存在`output/employee/`目录下，包含员工姓名、职位、LinkedIn链接和其他可用信息。
 
-## 高级使用技巧
-
-### 完整销售流程自动化：
-
-1. 使用自定义查询搜索目标企业：
-```bash
-python serper_company_search.py --general-search --custom-query "renewable energy companies Texas usa" --gl "us" --output texas_renewable.csv
-```
-
-2. 从搜索结果提取联系信息并合并：
-```bash
-python extract_contact_info.py --csv output/company/texas_renewable.csv --headless --merge-results
-```
-
-3. 查找关键决策者：
-```bash
-python serper_employee_search.py --input-file texas_renewable.csv --position "purchasing manager" --country "United States"
-```
-
-### 完整销售流程（AI关键词 → 企业 → 联系方式 → 决策者）：
-
-1. 用AI生成关键词：
-```bash
-python keyword_generator.py --product "太阳能逆变器" --region "Germany,Poland" --count 20
-```
-
-2. 批量搜索所有关键词（结果自动按域名去重）：
-```bash
-python serper_company_search.py --general-search --custom-query "solar inverter distributor Germany" --gl de
-```
-
-3. 批量提取所有企业的联系信息：
-```bash
-python process_all_companies.py
-```
-
-4. 查找关键决策者：
-```bash
-python serper_employee_search.py --input-file batch_keywords_de_1234567890.csv --position "purchasing manager"
-```
-
-### 批量处理脚本：
-
-项目提供了批量处理脚本，用于自动化处理多个文件：
-
-- **`process_all_companies.py`** - 批量处理所有企业CSV文件（中文版）
-- **`process_all_companies_en.py`** - 批量处理所有企业CSV文件（英文版）
-
-```bash
-# 批量处理output/company/目录下的所有CSV文件
-python process_all_companies.py
-
-# 会自动：
-# 1. 读取output/company/目录下的所有CSV文件
-# 2. 对每个文件提取联系信息
-# 3. 生成对应的联系信息文件到output/contact/
-```
-
-### 优化联系人提取：
-
-- 对于加载较慢的网站，可增加超时时间：
-```bash
-python extract_contact_info.py --url slowwebsite.com --timeout 30000
-```
-
-- 对于特殊网站结构，可开启访问联系页面功能：
-```bash
-python extract_contact_info.py --url example.com --visit-contact
-```
-
-- 批量处理多个URL时性能优化：
-```bash
-# 脚本会自动重用浏览器实例，提高处理效率
-python extract_contact_info.py --url-list many_urls.txt --headless --timeout 10000
-```
-
 ## 注意事项与限制
 
-- Serper.dev API有免费额度限制，请合理控制查询频率
+- 搜索API有免费额度限制，请合理控制查询频率
 - 部分网站可能禁止自动化访问，可能需要调整请求头或使用代理
 - 联系信息提取准确度取决于网站结构和内容质量
 - 使用时请遵守相关法律法规和各平台使用条款
@@ -358,17 +340,30 @@ python extract_contact_info.py --url-list many_urls.txt --headless --timeout 100
 
 ## 常见问题
 
-**Q: 无法提取某些网站的联系信息**  
-A: 尝试使用`--visit-contact`参数启用联系页面访问，或调整`--timeout`参数增加加载时间。
+**Q: 如何选择搜索服务商？**
 
-**Q: 浏览器窗口频繁打开关闭**  
-A: 添加`--headless`参数使用无头模式，提高运行效率。批量处理多URL时，系统会自动优化浏览器实例使用。
+A: Serper.dev 每月2500次免费，速度快、结果质量高，推荐作为默认选择。Tavily 每月1000次免费，结果含相关性评分，适合需要结构化数据的场景。在 `.env` 中设置 `SEARCH_PROVIDER=serper` 或 `SEARCH_PROVIDER=tavily` 即可切换。
 
-**Q: 如何处理CSV数据中的联系信息**  
-A: 使用`--merge-results`参数将提取的联系信息与原始CSV合并，生成包含所有数据的新文件。
+**Q: 国内用户推荐哪个LLM？**
 
-**Q: API密钥配置问题**  
-A: 确保`.env`文件中的API密钥格式正确，且不包含引号或额外空格。
+A: 推荐 DeepSeek（价格极低、效果好）或火山豆包。配置示例：
+
+```bash
+LLM_MODEL=deepseek/deepseek-chat
+DEEPSEEK_API_KEY=your_key
+```
+
+**Q: 无法提取某些网站的联系信息**
+
+A: 尝试使用 `--visit-contact` 参数启用联系页面访问，或调整 `--timeout` 参数增加加载时间。
+
+**Q: B2B Flow 评分都很低怎么办？**
+
+A: 尝试调低 `min_llm_score` 阈值（如从6降到4），或检查产品描述是否足够具体，更精确的产品描述能显著提升评分质量。
+
+**Q: API密钥配置问题**
+
+A: 确保 `.env` 文件中的API密钥格式正确，且不包含引号或额外空格。可运行 `python -c "from core.llm_client import is_llm_available; print(is_llm_available())"` 验证LLM配置。
 
 ## 联系方式
 
