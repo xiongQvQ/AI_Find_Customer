@@ -4,6 +4,8 @@
 
 A powerful set of Python tools for automating the customer development process in international trade and B2B sales. This tool uses search engine APIs and AI technology to help you quickly find target companies, extract contact information, and identify key decision-makers. Supports both command-line and web interface usage.
 
+> **Looking for a fully managed solution?** Check out **[B2BInsights.io](https://b2binsights.io)** — the AI-powered B2B intelligence platform built on top of these open-source capabilities, with no setup required.
+
 > **Recommended Reading**: If you're not familiar with advanced search engine techniques, we recommend reading this [Advanced Search Engine Usage Tutorial](https://zhuanlan.zhihu.com/p/1908208213234554242) first. It will help you build more effective search queries.
 
 ## Project Features
@@ -356,3 +358,7 @@ A: Ensure the API keys in the `.env` file are correctly formatted and do not con
     <a href="https://t.me/+jjmdspjqpbcwOGFl">Join Telegram Group</a>
   </div>
 </div>
+
+---
+
+**Want a ready-to-use hosted version?** Visit [B2BInsights.io](https://b2binsights.io) for the AI agent platform that automates B2B customer discovery at scale.

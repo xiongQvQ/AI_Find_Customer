@@ -10,7 +10,7 @@
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/your-repo/AI_Find_Customer.git
+git clone https://github.com/xiongQvQ/AI_Find_Customer.git
 cd AI_Find_Customer
 ```
 
@@ -227,8 +227,8 @@ Contributions are welcome! Please:
 
 ## 📧 Support
 
-- GitHub Issues: [Report bugs](https://github.com/your-repo/AI_Find_Customer/issues)
-- Documentation: [Wiki](https://github.com/your-repo/AI_Find_Customer/wiki)
+- GitHub Issues: [Report bugs](https://github.com/xiongQvQ/AI_Find_Customer/issues)
+- Documentation: [Wiki](https://github.com/xiongQvQ/AI_Find_Customer/wiki)
 
 ## 🚀 Roadmap
 

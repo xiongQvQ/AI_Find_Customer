@@ -62,9 +62,9 @@ def display_quick_links():
         st.sidebar.markdown(f"📁 [Output Directory]({output_dir})")
     
     st.sidebar.markdown("""
-    - 📚 [GitHub Repository](https://github.com/your-repo/AI_Find_Customer)
-    - 📖 [Documentation](https://github.com/your-repo/AI_Find_Customer/wiki)
-    - 🐛 [Report Issues](https://github.com/your-repo/AI_Find_Customer/issues)
+    - 📚 [GitHub Repository](https://github.com/xiongQvQ/AI_Find_Customer)
+    - � [B2BInsights.io - AI B2B Intelligence](https://b2binsights.io)
+    - 🐛 [Report Issues](https://github.com/xiongQvQ/AI_Find_Customer/issues)
     """)
 
 def show_usage_tips(page_type: str):

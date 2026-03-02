@@ -16,8 +16,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        'Get Help': 'https://github.com/your-repo/AI_Find_Customer',
-        'Report a bug': "https://github.com/your-repo/AI_Find_Customer/issues",
+        'Get Help': 'https://github.com/xiongQvQ/AI_Find_Customer',
+        'Report a bug': "https://github.com/xiongQvQ/AI_Find_Customer/issues",
         'About': "# AI Customer Finder\nOpen-source B2B customer development tool"
     }
 )
@@ -153,8 +153,8 @@ st.markdown("""
 <div style="text-align: center; color: gray;">
     <small>
     AI Customer Finder v1.0 | 
-    <a href="https://github.com/your-repo/AI_Find_Customer">GitHub</a> | 
-    <a href="https://github.com/your-repo/AI_Find_Customer/wiki">Documentation</a>
+    <a href="https://github.com/xiongQvQ/AI_Find_Customer">GitHub</a> | 
+    <a href="https://b2binsights.io">B2BInsights.io - AI-Powered B2B Intelligence</a>
     </small>
 </div>
 """, unsafe_allow_html=True)
