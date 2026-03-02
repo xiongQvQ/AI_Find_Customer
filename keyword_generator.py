@@ -10,18 +10,21 @@ region+trade terms, B2B platforms, and certifications.
 Usage:
     python keyword_generator.py --product "solar inverter" --region "Germany,Poland"
     python keyword_generator.py --product "hydraulic pump" --region "USA" --count 20
-    python keyword_generator.py --product "LED lighting" --region "France" --lang fr --output my_keywords.json
+    python keyword_generator.py --product "LED lighting" --region "France" --output my_keywords.json
 """
 
 import os
 import sys
 import json
 import argparse
-import requests
 import time
 from dotenv import load_dotenv
 
 load_dotenv()
+
+import sys, os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from core.llm_client import call_llm, is_llm_available, get_llm_model, parse_json_response
 
 OUTPUT_DIR = "output"
 KEYWORD_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "keywords")
@@ -113,107 +116,13 @@ def _get_language_instruction(regions: list[str]) -> str:
     )
 
 
-# ── LLM call ─────────────────────────────────────────────────────────────
-
-def _call_llm(system: str, user: str) -> str:
-    """Call the configured LLM provider and return raw text response."""
-    provider = os.getenv("LLM_PROVIDER", "none").lower()
-
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not set")
-        url = "https://api.openai.com/v1/chat/completions"
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0.6,
-            "response_format": {"type": "json_object"},
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
-
-    elif provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not set")
-        url = "https://api.anthropic.com/v1/messages"
-        model = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "max_tokens": 2048,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        return resp.json()["content"][0]["text"]
-
-    elif provider == "google":
-        api_key = os.getenv("GOOGLE_API_KEY", "")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY not set")
-        model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": f"{system}\n\n{user}"}]}],
-            "generationConfig": {"temperature": 0.6},
-        }
-        resp = requests.post(url, json=payload, timeout=60)
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-
-    elif provider == "huoshan":
-        api_key = os.getenv("ARK_API_KEY", "")
-        base_url = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-        model = os.getenv("ARK_MODEL", "doubao-1-5-pro-256k-250115")
-        if not api_key:
-            raise ValueError("ARK_API_KEY not set")
-        url = f"{base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0.6,
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
-
-    else:
-        raise ValueError(
-            f"LLM_PROVIDER is '{provider}'. "
-            "Set LLM_PROVIDER to one of: openai, anthropic, google, huoshan"
-        )
-
+# ── LLM helpers ──────────────────────────────────────────────────────────
 
 def _parse_keywords(raw: str) -> list[str]:
-    """Parse keywords from LLM JSON output, handling both array and object formats."""
-    raw = raw.strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
-
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        # Try to extract JSON substring
-        import re
-        match = re.search(r'\{.*\}|\[.*\]', raw, re.DOTALL)
-        if match:
-            parsed = json.loads(match.group())
-        else:
-            return []
-
+    """Parse keywords from LLM JSON output via core/llm_client.parse_json_response."""
+    parsed = parse_json_response(raw)
+    if parsed is None:
+        return []
     if isinstance(parsed, list):
         return [k for k in parsed if isinstance(k, str)]
     if isinstance(parsed, dict):
@@ -244,7 +153,7 @@ def generate_keywords(
         List of keyword strings
 
     Raises:
-        ValueError: If LLM_PROVIDER is not configured
+        ValueError: If LLM_MODEL is not configured
     """
     lang_instruction = _get_language_instruction(regions)
     system = SYSTEM_PROMPT.format(count=count, local_language_instruction=lang_instruction)
@@ -258,7 +167,7 @@ def generate_keywords(
     )
 
     print(f"Generating {count} keywords for: {product} → {', '.join(regions)}")
-    raw = _call_llm(system, user)
+    raw = call_llm(system, user, temperature=0.6, max_tokens=2048)
     keywords = _parse_keywords(raw)
 
     if not keywords:
@@ -350,10 +259,16 @@ Examples:
         print("Error: at least one region is required")
         sys.exit(1)
 
-    provider = os.getenv("LLM_PROVIDER", "none").lower()
-    if provider == "none":
-        print("Error: LLM_PROVIDER is not configured.")
-        print("Please set LLM_PROVIDER in your .env file (openai / anthropic / google / huoshan)")
+    if not is_llm_available():
+        model = get_llm_model()
+        if not model:
+            print("Error: LLM_MODEL is not configured.")
+            print("Please set LLM_MODEL in your .env file, e.g.:")
+            print("  LLM_MODEL=openai/gpt-4o-mini")
+            print("  LLM_MODEL=deepseek/deepseek-chat")
+            print("  LLM_MODEL=volcengine/doubao-1-5-pro-256k-250115")
+        else:
+            print(f"Error: LLM_MODEL is set to '{model}' but the required API key is missing.")
         sys.exit(1)
 
     try:

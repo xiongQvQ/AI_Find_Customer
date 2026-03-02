@@ -3,6 +3,7 @@ Contact Extractor Core Module
 Refactored from extract_contact_info.py for web interface
 """
 import os
+import sys
 import re
 import json
 import csv
@@ -14,6 +15,9 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.llm_client import is_llm_available, get_llm_model
 
 # Ensure output directories exist
 OUTPUT_DIR = "output"
@@ -48,22 +52,8 @@ class ContactExtractor:
         self.session = requests.Session()
         
     def _check_llm_available(self) -> bool:
-        """Check if LLM is configured and available"""
-        llm_provider = os.getenv("LLM_PROVIDER", "none").lower()
-        if llm_provider == "none":
-            return False
-            
-        # Check for specific LLM API keys
-        if llm_provider == "openai":
-            return bool(os.getenv("OPENAI_API_KEY"))
-        elif llm_provider == "anthropic":
-            return bool(os.getenv("ANTHROPIC_API_KEY"))
-        elif llm_provider == "google":
-            return bool(os.getenv("GOOGLE_API_KEY"))
-        elif llm_provider == "huoshan":
-            return bool(os.getenv("ARK_API_KEY"))
-        
-        return False
+        """Check if LLM is configured and available via core/llm_client."""
+        return is_llm_available()
     
     def initialize_browser(self):
         """Initialize browser instance if not already created"""

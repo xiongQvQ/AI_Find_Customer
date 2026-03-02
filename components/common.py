@@ -4,28 +4,19 @@ Common UI components for Streamlit app
 import streamlit as st
 import os
 from typing import Dict, List, Optional
+from core.llm_client import is_llm_available, get_llm_model
 
 def check_api_keys() -> Dict[str, bool]:
     """
     Check if required API keys are configured
     Returns a dict with key status
     """
+    llm_model = get_llm_model()
     api_status = {
         "SERPER_API_KEY": bool(os.getenv("SERPER_API_KEY")),
-        "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "none") != "none"
+        "LLM_CONFIGURED": bool(llm_model),
+        "LLM_READY": is_llm_available(),
     }
-    
-    # Check specific LLM provider keys
-    llm_provider = os.getenv("LLM_PROVIDER", "none").lower()
-    if llm_provider == "openai":
-        api_status["OPENAI_API_KEY"] = bool(os.getenv("OPENAI_API_KEY"))
-    elif llm_provider == "anthropic":
-        api_status["ANTHROPIC_API_KEY"] = bool(os.getenv("ANTHROPIC_API_KEY"))
-    elif llm_provider == "google":
-        api_status["GOOGLE_API_KEY"] = bool(os.getenv("GOOGLE_API_KEY"))
-    elif llm_provider == "huoshan":
-        api_status["ARK_API_KEY"] = bool(os.getenv("ARK_API_KEY"))
-    
     return api_status
 
 def display_api_status():
@@ -38,10 +29,16 @@ def display_api_status():
     serper_icon = "✅" if api_status["SERPER_API_KEY"] else "❌"
     st.sidebar.write(f"Serper API: {serper_icon}")
     
-    # LLM Provider status
-    llm_icon = "✅" if api_status["LLM_PROVIDER"] else "⚠️"
-    llm_provider = os.getenv("LLM_PROVIDER", "none")
-    st.sidebar.write(f"LLM Provider: {llm_icon} {llm_provider}")
+    # LLM status
+    llm_model = get_llm_model()
+    if is_llm_available():
+        llm_icon = "✅"
+    elif llm_model:
+        llm_icon = "⚠️"  # model set but API key missing
+    else:
+        llm_icon = "➖"  # not configured
+    display_model = llm_model if llm_model else "not configured"
+    st.sidebar.write(f"LLM Model: {llm_icon} {display_model}")
     
     # Check for missing required keys
     if not api_status["SERPER_API_KEY"]:

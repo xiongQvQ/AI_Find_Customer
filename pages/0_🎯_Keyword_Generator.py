@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from keyword_generator import generate_keywords, save_keywords
 from components.common import display_api_status, display_quick_links
+from core.llm_client import is_llm_available, get_llm_model
 
 st.set_page_config(page_title="Keyword Generator", page_icon="🎯", layout="wide")
 
@@ -20,27 +21,36 @@ st.title("🎯 B2B Keyword Generator")
 st.markdown("Generate targeted search keywords using AI — then use them directly in Company Search")
 
 # Check LLM config
-llm_provider = os.getenv("LLM_PROVIDER", "none").lower()
-if llm_provider == "none":
-    st.error("⚠️ LLM_PROVIDER is not configured. Keyword generation requires an LLM API key.")
-    with st.expander("📝 How to configure LLM"):
+_llm_ready = is_llm_available()
+_llm_model = get_llm_model()
+if not _llm_ready:
+    if _llm_model:
+        st.error(f"⚠️ LLM_MODEL is set to `{_llm_model}` but the required API key is missing.")
+    else:
+        st.error("⚠️ LLM_MODEL is not configured. Keyword generation requires an LLM.")
+    with st.expander("📝 How to configure LLM (via litellm)"):
         st.markdown("""
-        Add one of the following to your `.env` file:
+        Set `LLM_MODEL` in your `.env` file to any litellm-supported model:
 
-        **OpenAI:**
+        **International:**
         ```
-        LLM_PROVIDER=openai
+        LLM_MODEL=openai/gpt-4o-mini
         OPENAI_API_KEY=your_key_here
         ```
 
-        **Volcano Engine (推荐国内用户):**
+        **DeepSeek (国内推荐):**
         ```
-        LLM_PROVIDER=huoshan
-        ARK_API_KEY=your_key_here
-        ARK_MODEL=doubao-1-5-pro-256k-250115
+        LLM_MODEL=deepseek/deepseek-chat
+        DEEPSEEK_API_KEY=your_key_here
         ```
 
-        **Anthropic / Google:** similar pattern, see `.env.example`
+        **Volcano Engine / 豆包 (国内):**
+        ```
+        LLM_MODEL=volcengine/doubao-1-5-pro-256k-250115
+        VOLCENGINE_API_KEY=your_key_here
+        ```
+
+        **Zhipu GLM / MiniMax / OpenRouter / Grok:** see `.env.example` for all options.
         """)
     st.stop()
 
@@ -104,7 +114,7 @@ with col_results:
         else:
             regions = [r.strip() for r in region_input.split(",") if r.strip()]
 
-            with st.spinner(f"Generating {count} keywords using {llm_provider}..."):
+            with st.spinner(f"Generating {count} keywords using {_llm_model}..."):
                 try:
                     keywords = generate_keywords(
                         product=product.strip(),

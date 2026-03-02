@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import sys
 import json
 import csv
 import argparse
@@ -9,6 +10,9 @@ import time
 import requests
 from dotenv import load_dotenv
 from urllib.parse import urlparse, urljoin
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from core.llm_client import call_llm, is_llm_available, get_llm_model, parse_json_response
 
 # Load environment variables from .env file
 load_dotenv()
@@ -301,115 +305,82 @@ class WebsiteContentExtractor:
             return html_content
 
 class UnifiedLLMProcessor:
-    """A unified processor for different LLM services using direct API calls"""
-    
+    """Unified LLM processor for contact extraction — backed by litellm via core/llm_client."""
+
+    _SYSTEM_PROMPT = (
+        "You are an expert at extracting contact information from website HTML content. "
+        "Your task is to analyze the HTML and find the company's contact details."
+    )
+
+    _USER_TEMPLATE = (
+        "Extract the following information from the HTML content:\n"
+        "1. Company name\n"
+        "2. Email addresses (focus on contact/info/support emails, not personal emails)\n"
+        "3. Phone numbers (with country codes if available)\n"
+        "4. Physical address\n"
+        "5. Social media URLs (LinkedIn, Twitter/X, Facebook, Instagram)\n\n"
+        "Return ONLY a JSON object with these fields: "
+        "company_name, email, phone, address, linkedin, twitter, facebook, instagram.\n"
+        "If you can't find certain information, leave that field as an empty string.\n"
+        "Do not include explanations, just the JSON object.\n\n"
+        "HTML Content:\n{content}"
+    )
+
     def __init__(self):
-        # Get LLM configuration from environment
-        self.provider = os.getenv("LLM_PROVIDER", "openai").lower()
-        
-        # Custom prompts from environment (optional)
-        self.system_prompt = os.getenv("SYSTEM_PROMPT", 
-            "You are an expert at extracting contact information from website HTML content. " +
-            "Your task is to analyze the HTML and find the company's contact details.")
-        
-        self.user_prompt_template = os.getenv("USER_PROMPT_TEMPLATE",
-            "Extract the following information from the HTML content:\n" +
-            "1. Company name\n" +
-            "2. Email addresses (focus on contact/info/support emails, not personal emails)\n" +
-            "3. Phone numbers (with country codes if available)\n" +
-            "4. Physical address\n" +
-            "5. Social media URLs (LinkedIn, Twitter/X, Facebook, Instagram)\n\n" +
-            "Return ONLY a JSON object with these fields: company_name, email, phone, address, linkedin, twitter, facebook, instagram.\n" +
-            "If you can't find certain information, leave that field as an empty string.\n" +
-            "Do not include explanations, just the JSON object.")
-        
-        # Check if API keys exist
-        if self.provider == "openai":
-            self.api_key = os.getenv("OPENAI_API_KEY")
-            if not self.api_key:
-                print("Warning: No API key found for OpenAI. LLM extraction will be disabled.")
-        elif self.provider == "anthropic":
-            self.api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not self.api_key:
-                print("Warning: No API key found for Anthropic. LLM extraction will be disabled.")
-        elif self.provider == "google":
-            self.api_key = os.getenv("GOOGLE_API_KEY")
-            if not self.api_key:
-                print("Warning: No API key found for Google. LLM extraction will be disabled.")
-        elif self.provider == "huoshan" or self.provider == "volcano":
-            self.api_key = os.getenv("ARK_API_KEY")
-            self.ark_base_url = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-            self.ark_model = os.getenv("ARK_MODEL", "doubao-1-5-pro-256k-250115")
-            if not self.api_key:
-                print("Warning: No API key found for Huoshan/Volcano. LLM extraction will be disabled.")
-        elif self.provider == "none":
-            print("LLM processing is disabled. Contact extraction will have limited capabilities.")
-            self.api_key = None
-        else:
-            print(f"Unsupported LLM provider: {self.provider}. Using regex-based extraction only.")
-            self.api_key = None
-    
+        self.available = is_llm_available()
+        if not self.available:
+            model = get_llm_model()
+            if model:
+                print(f"Warning: LLM_MODEL='{model}' but the required API key is missing. LLM extraction disabled.")
+            else:
+                print("LLM processing is disabled (LLM_MODEL not set). Contact extraction will use regex only.")
+
     def extract_contact_info(self, website_content, url):
-        """Extract contact information from website content using LLM"""
-        # Return empty result if no content or API key
-        if not website_content or not self.api_key or self.provider == "none":
-            print("无法提取联系信息: 缺少网站内容或API密钥")
+        """Extract contact information from website content using LLM."""
+        if not website_content or not self.available:
+            print("无法提取联系信息: LLM未配置或缺少网站内容")
             return self._get_empty_result(url)
-        
-        # Combine relevant content sections with priority
+
+        # Combine content sections with priority
         content = ""
-        if website_content.get("contact_content"):
-            content += website_content["contact_content"]
-            print("使用联系页面内容进行解析")
-        if website_content.get("footer_content"):
-            content += "\n" + website_content["footer_content"]
-            print("使用页脚内容进行解析")
-        if website_content.get("contact_elements_content"):
-            content += "\n" + website_content["contact_elements_content"]
-            print("使用其他联系元素内容进行解析")
+        for key, label in [
+            ("contact_content", "联系页面内容"),
+            ("footer_content", "页脚内容"),
+            ("contact_elements_content", "联系元素内容"),
+        ]:
+            if website_content.get(key):
+                content += "\n" + website_content[key]
+                print(f"使用{label}进行解析")
         if website_content.get("main_content") and len(content) < 10000:
-            # Only add main content if we don't have enough from other sources
             content += "\n" + website_content["main_content"]
             print("使用主页内容进行解析")
-            
-        # 显示将要发送给LLM的内容长度
+
         print(f"发送给LLM的内容总长度: {len(content)} 字符")
-        
-        # Truncate content to fit LLM context
         content = self._truncate_content(content)
         print(f"截断后的内容长度: {len(content)} 字符")
-        
-        # Process with the configured LLM provider
+
         try:
-            print(f"正在使用 {self.provider} LLM处理内容...")
-            
-            if self.provider == "openai":
-                result = self._process_with_openai(content)
-            elif self.provider == "anthropic":
-                result = self._process_with_anthropic(content)
-            elif self.provider == "google":
-                result = self._process_with_google(content)
-            elif self.provider == "huoshan" or self.provider == "volcano":
-                result = self._process_with_huoshan(content)
-            else:
-                print(f"不支持的LLM提供商: {self.provider}")
-                return self._get_empty_result(url)
-                
-            # Add website to result
-            if result:
+            model = get_llm_model()
+            print(f"正在使用 {model} 处理内容...")
+            raw = call_llm(
+                system=self._SYSTEM_PROMPT,
+                user=self._USER_TEMPLATE.format(content=content),
+                temperature=0.3,
+                max_tokens=800,
+            )
+            result = parse_json_response(raw)
+            if result and isinstance(result, dict):
                 print("LLM成功提取了联系信息")
                 result["website"] = url
                 return result
-            else:
-                print("LLM未能提取联系信息")
-                return self._get_empty_result(url)
-                
+            print("LLM未能提取联系信息")
+            return self._get_empty_result(url)
         except Exception as e:
             print(f"LLM处理过程中出错: {e}")
             return self._get_empty_result(url)
-    
+
     def _get_empty_result(self, url):
-        """Return an empty result structure"""
+        """Return an empty result structure."""
         return {
             "company_name": "",
             "email": "",
@@ -419,250 +390,16 @@ class UnifiedLLMProcessor:
             "twitter": "",
             "facebook": "",
             "instagram": "",
-            "website": url
+            "website": url,
         }
-    
+
     def _truncate_content(self, content, max_length=32000):
-        """Truncate content to fit within LLM context limits"""
+        """Truncate content to fit within LLM context limits."""
         if len(content) <= max_length:
             return content
-            
-        # Keep the most valuable parts: beginning and end
         start_size = max_length // 2
         end_size = max_length - start_size
-        
         return content[:start_size] + "\n...[content truncated]...\n" + content[-end_size:]
-    
-    def _process_with_openai(self, content):
-        """Process content with OpenAI API directly"""
-        try:
-            api_url = "https://api.openai.com/v1/chat/completions"
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            data = {
-                "model": "gpt-3.5-turbo-16k",
-                "temperature": 0.3,
-                "max_tokens": 800,
-                "messages": [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"{self.user_prompt_template}\n\nHTML Content:\n{content}"}
-                ]
-            }
-            
-            response = requests.post(api_url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            response_data = response.json()
-            response_text = response_data["choices"][0]["message"]["content"].strip()
-            
-            # Find JSON object in the response
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    print("Failed to parse JSON from OpenAI response")
-                    return None
-            
-            return None
-            
-        except Exception as e:
-            print(f"Error in OpenAI API request: {e}")
-            return None
-    
-    def _process_with_anthropic(self, content):
-        """Process content with Anthropic API directly"""
-        try:
-            api_url = "https://api.anthropic.com/v1/messages"
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01"
-            }
-            
-            data = {
-                "model": "claude-2",
-                "max_tokens": 1000,
-                "temperature": 0.3,
-                "system": self.system_prompt,
-                "messages": [
-                    {"role": "user", "content": f"{self.user_prompt_template}\n\nHTML Content:\n{content}"}
-                ]
-            }
-            
-            response = requests.post(api_url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            response_data = response.json()
-            response_text = response_data["content"][0]["text"]
-            
-            # Find JSON object in the response
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    print("Failed to parse JSON from Anthropic response")
-                    return None
-            
-            return None
-            
-        except Exception as e:
-            print(f"Error in Anthropic API request: {e}")
-            return None
-    
-    def _process_with_google(self, content):
-        """Process content with Google Gemini API directly"""
-        try:
-            api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": f"{self.system_prompt}\n\n{self.user_prompt_template}\n\nHTML Content:\n{content}"}]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "maxOutputTokens": 1000
-                }
-            }
-            
-            response = requests.post(f"{api_url}?key={self.api_key}", headers=headers, json=data)
-            response.raise_for_status()
-            
-            response_data = response.json()
-            response_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
-            
-            # Find JSON object in the response
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    print("Failed to parse JSON from Google Gemini response")
-                    return None
-            
-            return None
-            
-        except Exception as e:
-            print(f"Error in Google Gemini API request: {e}")
-            return None
-    
-    def _process_with_huoshan(self, content):
-        """Process content with Huoshan/Volcano API using OpenAI client"""
-        try:
-            # 检查openai库的版本
-            import openai
-            import importlib.metadata
-            
-            try:
-                openai_version = importlib.metadata.version("openai")
-                print(f"使用OpenAI库版本: {openai_version}")
-                is_old_version = int(openai_version.split('.')[0]) < 1
-            except:
-                print("无法确定OpenAI库版本，假设为旧版本")
-                is_old_version = True
-            
-            # 强化提示，使其更明确地要求提取联系信息
-            enhanced_system_prompt = self.system_prompt + "\n请确保仔细分析HTML内容，寻找任何可能的联系信息，即使不是很明显也要尝试提取。"
-            
-            enhanced_user_prompt = (
-                "你的任务是从以下HTML内容中提取公司联系信息。\n"
-                "需要提取的信息：\n"
-                "1. 公司名称\n"
-                "2. 电子邮件地址 (优先提取联系/信息/支持邮箱，而非个人邮箱)\n"
-                "3. 电话号码 (如有国家代码请包含)\n"
-                "4. 实际地址\n"
-                "5. 社交媒体链接 (LinkedIn、Twitter/X、Facebook、Instagram)\n\n"
-                "请仔细分析代码，寻找包含这些信息的部分。\n"
-                "即使信息被隐藏在复杂的HTML结构中，也请尽力提取。\n"
-                "只返回一个包含以下字段的JSON对象: company_name, email, phone, address, linkedin, twitter, facebook, instagram\n"
-                "如果找不到某项信息，将该字段留为空字符串。\n"
-                "不要包含解释，只返回JSON对象。\n\n"
-                f"HTML内容:\n{content}"
-            )
-            
-            print("开始调用火山引擎API...")
-            
-            if is_old_version:
-                print("使用旧版OpenAI库调用方式")
-                # 旧版本OpenAI库调用方式 (<1.0.0)
-                # 配置API基础URL和密钥
-                openai.api_base = self.ark_base_url
-                openai.api_key = self.api_key
-                
-                # 发送请求
-                response = openai.ChatCompletion.create(
-                    model=self.ark_model,
-                    messages=[
-                        {"role": "system", "content": enhanced_system_prompt},
-                        {"role": "user", "content": enhanced_user_prompt}
-                    ],
-                    temperature=0.3,
-                )
-                
-                # 获取响应文本
-                response_text = response.choices[0].message.content.strip()
-            else:
-                print("使用新版OpenAI库调用方式")
-                # 新版本OpenAI库调用方式 (>=1.0.0)
-                client = openai.OpenAI(
-                    base_url=self.ark_base_url,
-                    api_key=self.api_key
-                )
-                
-                # 发送请求
-                completion = client.chat.completions.create(
-                    model=self.ark_model,
-                    messages=[
-                        {"role": "system", "content": enhanced_system_prompt},
-                        {"role": "user", "content": enhanced_user_prompt}
-                    ],
-                    temperature=0.3,
-                )
-                
-                # 获取响应文本
-                response_text = completion.choices[0].message.content.strip()
-            
-            print(f"收到火山引擎API响应，长度: {len(response_text)} 字符")
-            print(f"响应内容预览: {response_text[:200]}...")
-            
-            # 提取JSON对象
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    print("Failed to parse JSON from Huoshan response")
-                    return None
-            
-            return None
-            
-        except ImportError:
-            print("OpenAI package not installed. Please install with: pip install openai")
-            return None
-        except Exception as e:
-            print(f"Error in Huoshan/Volcano API request: {e}")
-            return None
 
 class ContactExtractor:
     def __init__(self, output_file=None, visit_contact_page=False, merge_with_input=False):
