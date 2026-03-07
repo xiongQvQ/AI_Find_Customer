@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { api } from "@/api/client";
@@ -134,6 +134,91 @@ function getLeadEmails(lead: Lead): string[] { return (lead.emails as string[]) 
 function getLeadPhones(lead: Lead): string[] { return (lead.phone_numbers as string[]) || []; }
 function getLeadSocial(lead: Lead): Record<string, string> { return (lead.social_media as Record<string, string>) || {}; }
 function getLeadStr(lead: Lead, key: string): string { return typeof lead[key] === "string" ? (lead[key] as string) : ""; }
+function normalizeDecisionMakerEmail(email: string): string {
+  return email.replace(/\s*\(inferred\)\s*$/i, "").trim();
+}
+function toChineseRole(role: string): string {
+  const map: Record<string, string> = {
+    distributor: "分销商",
+    importer: "进口商",
+    wholesaler: "批发商",
+    oem: "OEM / 设备制造商",
+    integrator: "系统集成商",
+    end_user: "终端工厂",
+    service: "服务商",
+    retailer: "零售商",
+    manufacturer: "制造商",
+    unknown: "待判断",
+  };
+  return map[role] || role;
+}
+function toChineseRisk(level: string): string {
+  const map: Record<string, string> = { low: "低", medium: "中", high: "高" };
+  return map[level] || level;
+}
+function toChineseEvidence(level: string): string {
+  const map: Record<string, string> = { low: "低", medium: "中", high: "高" };
+  return map[level] || level;
+}
+function toChinesePriority(level: string): string {
+  const map: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级", reject: "排除" };
+  return map[level] || level;
+}
+function getDecisionMakerEmailStatus(email: string): "verified" | "inferred-from-pattern" | "no-email-evidence" {
+  const normalized = String(email || "").trim();
+  if (!normalized) return "no-email-evidence";
+  if (/\(inferred\)\s*$/i.test(normalized) || normalized.toLowerCase() === "inferred") {
+    return "inferred-from-pattern";
+  }
+  return "verified";
+}
+function getLeadNum(lead: Lead, key: string, fallback = 0): number {
+  const value = lead[key];
+  return typeof value === "number" ? value : (typeof value === "string" ? Number(value || fallback) : fallback);
+}
+function hasConcreteCustomsData(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (!text) return false;
+  const negativeMarkers = [
+    "no data found",
+    "no concrete customs data found",
+    "no detailed customs data available",
+    "no data available",
+    "no public customs data",
+    "not an importer/exporter",
+    "not an importer",
+    "not an exporter",
+    "service-based",
+    "engineering services provider",
+    "not applicable",
+  ];
+  return !negativeMarkers.some((marker) => text.includes(marker));
+}
+function getLeadKey(lead: Lead): string {
+  const website = getLeadStr(lead, "website").trim().toLowerCase();
+  if (website) return `w:${website}`;
+  const company = getLeadStr(lead, "company_name").trim().toLowerCase();
+  if (company) return `c:${company}`;
+  const emails = getLeadEmails(lead);
+  if (emails.length > 0) return `e:${emails[0].trim().toLowerCase()}`;
+  return `raw:${JSON.stringify(lead)}`;
+}
+
+function compareLeads(a: Lead, b: Lead): number {
+  const fitDiff = getLeadNum(b, "fit_score", getLeadNum(b, "match_score")) - getLeadNum(a, "fit_score", getLeadNum(a, "match_score"));
+  if (fitDiff !== 0) return fitDiff;
+
+  const customsDiff = getLeadNum(b, "customs_score") - getLeadNum(a, "customs_score");
+  if (customsDiff !== 0) return customsDiff;
+
+  const contactDiff = getLeadNum(b, "contactability_score") - getLeadNum(a, "contactability_score");
+  if (contactDiff !== 0) return contactDiff;
+
+  const decisionMakerDiff = (((b.decision_makers as Array<unknown>) || []).length) - (((a.decision_makers as Array<unknown>) || []).length);
+  if (decisionMakerDiff !== 0) return decisionMakerDiff;
+
+  return getLeadNum(b, "match_score") - getLeadNum(a, "match_score");
+}
 
 // ── Social media platform icons (text-based, no extra deps) ───────────
 const SOCIAL_LABELS: Record<string, string> = {
@@ -175,7 +260,39 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
   const industry = getLeadStr(lead, "industry");
   const countryCode = getLeadStr(lead, "country_code");
   const contactPerson = getLeadStr(lead, "contact_person");
-  const matchScore = Number(lead.match_score || 0);
+  const fitScore = Number(lead.fit_score ?? lead.match_score ?? 0);
+  const contactabilityScore = Number(lead.contactability_score || 0);
+  const customsScore = Number(lead.customs_score || 0);
+  const priorityTier = getLeadStr(lead, "priority_tier") || "low";
+  const customerRole = getLeadStr(lead, "customer_role") || "unknown";
+  const competitorRisk = getLeadStr(lead, "competitor_risk") || "low";
+  const evidenceStrength = getLeadStr(lead, "evidence_strength") || "low";
+  const riskFlags = Array.isArray(lead.risk_flags) ? (lead.risk_flags as string[]) : [];
+  const businessTypes = (lead.business_types as string[]) || [];
+  const decisionMakers = (lead.decision_makers as Array<{name?: string; title?: string; email?: string; linkedin?: string}>) || [];
+  const customsRecords = (lead.customs_records as Array<{
+    provider?: string;
+    source_url?: string;
+    source_title?: string;
+    period?: string;
+    trade_direction?: string;
+    partner_countries?: string[];
+    hs_codes?: string[];
+    product_clues?: string[];
+    fetch_method?: string;
+    confidence?: number;
+  }>) || [];
+  const customsData = getLeadStr(lead, "customs_data");
+  const evidence = (lead.evidence as Array<{claim?: string; source_url?: string}>) || [];
+  const mapsData = (lead.maps_data as Record<string, unknown>) || {};
+  const mapsType = typeof mapsData.type === "string" ? mapsData.type : "";
+  const mapsTypes = Array.isArray(mapsData.types) ? (mapsData.types as string[]) : [];
+  const mapsDescription = typeof mapsData.description === "string" ? mapsData.description : "";
+  const mapsEmail = typeof mapsData.email === "string" ? mapsData.email : "";
+  const mapsPhone = typeof mapsData.phoneNumber === "string"
+    ? mapsData.phoneNumber
+    : (typeof mapsData.phone_number === "string" ? mapsData.phone_number : "");
+  const mapsAddress = typeof mapsData.address === "string" ? mapsData.address : "";
 
   return (
     <Sheet open={open} onClose={onClose}>
@@ -185,13 +302,19 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
             <Building2 className="h-6 w-6 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-bold truncate">{String(lead.company_name || "Unknown")}</h2>
+            <h2 className="text-xl font-bold truncate">{String(lead.company_name || "未知企业")}</h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {industry && <Badge variant="outline">{industry}</Badge>}
               {countryCode && <Badge variant="outline">{countryCode}</Badge>}
-              <Badge variant={matchScore >= 0.7 ? "success" : matchScore >= 0.4 ? "warning" : "secondary"}>
-                {(matchScore * 100).toFixed(0)}% match
+              <Badge variant={fitScore >= 0.7 ? "success" : fitScore >= 0.4 ? "warning" : "secondary"}>
+                匹配度 {(fitScore * 100).toFixed(0)}%
               </Badge>
+              {customsScore > 0 && (
+                <Badge variant="outline">
+                  海关 {(customsScore * 100).toFixed(0)}%
+                </Badge>
+              )}
+              <Badge variant="outline">{toChinesePriority(priorityTier)}</Badge>
             </div>
           </div>
         </div>
@@ -201,15 +324,39 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {/* Description */}
         {description && (
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">About</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">企业介绍</h3>
             <p className="text-sm leading-relaxed">{description}</p>
           </div>
         )}
 
+        {(contactabilityScore > 0 || customsScore > 0) && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">评分</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline">可联系性 {(contactabilityScore * 100).toFixed(0)}%</Badge>
+              <Badge variant="outline">海关 {(customsScore * 100).toFixed(0)}%</Badge>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">资格判断</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline">{toChineseRole(customerRole)}</Badge>
+            <Badge variant={competitorRisk === "high" ? "destructive" : competitorRisk === "medium" ? "warning" : "outline"}>
+              竞争风险 {toChineseRisk(competitorRisk)}
+            </Badge>
+            <Badge variant="outline">证据强度 {toChineseEvidence(evidenceStrength)}</Badge>
+            {riskFlags.map((flag, i) => (
+              <Badge key={`${flag}-${i}`} variant="secondary">{flag}</Badge>
+            ))}
+          </div>
+        </div>
+
         {/* Website */}
         {website && (
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">Website</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">官网</h3>
             <a href={website} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
               <Globe className="h-3.5 w-3.5" />
@@ -222,7 +369,7 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {/* Contact Person */}
         {contactPerson && (
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">Contact Person</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">联系人</h3>
             <div className="flex items-center gap-2 text-sm">
               <User className="h-4 w-4 text-muted-foreground" />
               <span>{contactPerson}</span>
@@ -234,7 +381,7 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {emails.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">
-              Email{emails.length > 1 ? "s" : ""} ({emails.length})
+              邮箱 ({emails.length})
             </h3>
             <div className="space-y-1.5">
               {emails.map((email, i) => (
@@ -252,7 +399,7 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {phones.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">
-              Phone{phones.length > 1 ? "s" : ""} ({phones.length})
+              电话 ({phones.length})
             </h3>
             <div className="space-y-1.5">
               {phones.map((phone, i) => (
@@ -269,7 +416,7 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {/* Address */}
         {address && (
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">Address</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">地址</h3>
             <div className="flex items-start gap-2 text-sm">
               <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
               <span>{address}</span>
@@ -281,7 +428,7 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
         {/* Social Media */}
         {Object.keys(social).length > 0 && (
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">Social Media</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">社交媒体</h3>
             <div className="grid gap-2">
               {Object.entries(social).map(([platform, url]) => (
                 <a key={platform} href={url} target="_blank" rel="noopener noreferrer"
@@ -295,11 +442,151 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
           </div>
         )}
 
+        {/* Business Types */}
+        {businessTypes.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">业务类型</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {businessTypes.map((type, i) => (
+                <Badge key={i} variant="secondary">{type}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Decision Makers */}
+        {decisionMakers.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">
+              决策人 ({decisionMakers.length})
+            </h3>
+            <div className="space-y-2">
+              {decisionMakers.map((dm, i) => (
+                <div key={i} className="rounded-md border p-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium text-sm">{dm.name || "未知联系人"}</span>
+                    {dm.title && <span className="text-xs text-muted-foreground">· {dm.title}</span>}
+                  </div>
+                  {dm.email && (
+                    <div className="flex items-center gap-2 text-sm pl-5">
+                      <Mail className="h-3 w-3 text-muted-foreground" />
+                      <a href={`mailto:${normalizeDecisionMakerEmail(dm.email)}`} className="text-primary hover:underline">{normalizeDecisionMakerEmail(dm.email)}</a>
+                      <Badge variant={getDecisionMakerEmailStatus(dm.email) === "verified" ? "outline" : "secondary"}>
+                        {getDecisionMakerEmailStatus(dm.email) === "verified" ? "已验证" : "按邮箱规则推断"}
+                      </Badge>
+                      <CopyButton text={normalizeDecisionMakerEmail(dm.email)} />
+                    </div>
+                  )}
+                  {!dm.email && (
+                    <div className="flex items-center gap-2 text-sm pl-5">
+                      <Mail className="h-3 w-3 text-muted-foreground" />
+                      <Badge variant="secondary">暂无邮箱证据</Badge>
+                    </div>
+                  )}
+                  {dm.linkedin && (
+                    <div className="flex items-center gap-2 text-sm pl-5">
+                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                      <a href={dm.linkedin} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[250px]">
+                        LinkedIn 主页
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Customs Data */}
+        {hasConcreteCustomsData(customsData) && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">海关 / 贸易数据</h3>
+            <p className="text-sm leading-relaxed">{customsData}</p>
+            {customsRecords.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {customsRecords.slice(0, 5).map((record, i) => (
+                  <div key={i} className="rounded-md border p-3 text-sm space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {record.provider && <Badge variant="outline">{record.provider}</Badge>}
+                      {record.trade_direction && <Badge variant="outline">{record.trade_direction.replace("_", "/")}</Badge>}
+                      {record.period && <Badge variant="outline">{record.period}</Badge>}
+                      {typeof record.confidence === "number" && <Badge variant="secondary">置信度 {(record.confidence * 100).toFixed(0)}%</Badge>}
+                    </div>
+                    {record.partner_countries && record.partner_countries.length > 0 && (
+                      <p><span className="font-medium">国家：</span> {record.partner_countries.join(", ")}</p>
+                    )}
+                    {record.hs_codes && record.hs_codes.length > 0 && (
+                      <p><span className="font-medium">HS 编码：</span> {record.hs_codes.join(", ")}</p>
+                    )}
+                    {record.product_clues && record.product_clues.length > 0 && (
+                      <p><span className="font-medium">产品线索：</span> {record.product_clues.join(", ")}</p>
+                    )}
+                    {record.source_title && (
+                      <p><span className="font-medium">来源：</span> {record.source_title}</p>
+                    )}
+                    {record.source_url && (
+                      <a href={record.source_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs break-all">
+                        {record.source_url}
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(fitScore > 0 || contactabilityScore > 0) && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">评分明细</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-md border p-2"><span className="font-medium">匹配度：</span> {(fitScore * 100).toFixed(0)}%</div>
+              <div className="rounded-md border p-2"><span className="font-medium">可联系性：</span> {(contactabilityScore * 100).toFixed(0)}%</div>
+            </div>
+          </div>
+        )}
+
+        {evidence.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">证据</h3>
+            <div className="space-y-2">
+              {evidence.slice(0, 5).map((ev, i) => (
+                <div key={i} className="rounded-md border p-2 text-sm">
+                  <p>{ev.claim || "证据说明"}</p>
+                  {ev.source_url && (
+                    <a href={ev.source_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">
+                      {ev.source_url}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Google Maps Raw Data */}
+        {(mapsType || mapsTypes.length > 0 || mapsAddress || mapsPhone || mapsDescription || mapsEmail) && (
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-1.5">Google Maps 快照</h3>
+            <div className="space-y-2 rounded-md border p-3 text-sm">
+              {mapsType && <p><span className="font-medium">类型：</span> {mapsType}</p>}
+              {mapsTypes.length > 0 && (
+                <p><span className="font-medium">分类：</span> {mapsTypes.join(", ")}</p>
+              )}
+              {mapsAddress && <p><span className="font-medium">地址：</span> {mapsAddress}</p>}
+              {mapsPhone && <p><span className="font-medium">电话：</span> {mapsPhone}</p>}
+              {mapsEmail && <p><span className="font-medium">邮箱：</span> {mapsEmail}</p>}
+              {mapsDescription && <p><span className="font-medium">简介：</span> {mapsDescription}</p>}
+            </div>
+          </div>
+        )}
+
         {/* Source info */}
         <div className="pt-2 border-t">
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
-            {getLeadStr(lead, "source") && <span>Source: {getLeadStr(lead, "source")}</span>}
-            {getLeadStr(lead, "source_keyword") && <span>Keyword: {getLeadStr(lead, "source_keyword")}</span>}
+            {getLeadStr(lead, "source") && <span>来源：{getLeadStr(lead, "source")}</span>}
+            {getLeadStr(lead, "source_keyword") && <span>关键词：{getLeadStr(lead, "source_keyword")}</span>}
           </div>
         </div>
       </SheetBody>
@@ -342,12 +629,12 @@ const STAGE_ICONS: Record<string, React.ReactNode> = {
 };
 
 const STAGE_LABELS: Record<string, string> = {
-  insight: "Analyzing Company",
-  keyword_gen: "Generating Keywords",
-  search: "Searching Web",
-  lead_extract: "Extracting Leads",
-  evaluate: "Evaluating Progress",
-  email_craft: "Crafting Emails",
+  insight: "分析企业画像",
+  keyword_gen: "生成关键词",
+  search: "搜索 Google Maps",
+  lead_extract: "提取线索",
+  evaluate: "评估结果",
+  email_craft: "生成邮件",
 };
 
 const STAGES = ["insight", "keyword_gen", "search", "lead_extract", "evaluate", "email_craft"];
@@ -357,22 +644,22 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
   if (stage === "insight") {
     const ins = data.insight;
     if (!ins || Object.keys(ins).length === 0) {
-      return <p className="text-sm text-muted-foreground">Insight data not available for this hunt.</p>;
+      return <p className="text-sm text-muted-foreground">当前任务暂无企业画像数据。</p>;
     }
     return (
       <div className="space-y-3">
         <h4 className="font-semibold flex items-center gap-2">
-          <Brain className="h-4 w-4" /> Company Insight
+          <Brain className="h-4 w-4" /> 企业画像
         </h4>
         {typeof ins.company_name === "string" && ins.company_name && (
-          <p className="text-sm"><span className="font-medium">Company:</span> {ins.company_name}</p>
+          <p className="text-sm"><span className="font-medium">企业：</span> {ins.company_name}</p>
         )}
         {typeof ins.summary === "string" && ins.summary && (
           <p className="text-sm text-muted-foreground">{ins.summary}</p>
         )}
         {Array.isArray(ins.products) && ins.products.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Products</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">产品</p>
             <div className="flex flex-wrap gap-1.5">
               {(ins.products as string[]).map((p, i) => (
                 <Badge key={i} variant="outline">{p}</Badge>
@@ -382,7 +669,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
         )}
         {Array.isArray(ins.industries) && ins.industries.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Industries</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">行业</p>
             <div className="flex flex-wrap gap-1.5">
               {(ins.industries as string[]).map((ind, i) => (
                 <Badge key={i} variant="secondary">{ind}</Badge>
@@ -392,7 +679,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
         )}
         {Array.isArray(ins.recommended_keywords_seed) && ins.recommended_keywords_seed.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Recommended Keywords</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">推荐关键词</p>
             <div className="flex flex-wrap gap-1.5">
               {(ins.recommended_keywords_seed as string[]).map((kw, i) => (
                 <Badge key={i} variant="outline" className="text-xs">{kw}</Badge>
@@ -402,7 +689,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
         )}
         {typeof ins.target_customer_profile === "string" && ins.target_customer_profile && (
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Target Customer</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">目标客户</p>
             <p className="text-sm">{ins.target_customer_profile}</p>
           </div>
         )}
@@ -412,16 +699,16 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
 
   if (stage === "keyword_gen") {
     if (!data.keyword_gen || data.keyword_gen.every(r => r.keywords.length === 0)) {
-      return <p className="text-sm text-muted-foreground">No keywords generated yet.</p>;
+      return <p className="text-sm text-muted-foreground">当前还没有生成关键词。</p>;
     }
     return (
       <div className="space-y-3">
         <h4 className="font-semibold flex items-center gap-2">
-          <Tag className="h-4 w-4" /> Generated Keywords
+          <Tag className="h-4 w-4" /> 已生成关键词
         </h4>
         {data.keyword_gen.map((round, i) => (
           <div key={i}>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Round {round.hunt_round}</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">第 {round.hunt_round} 轮</p>
             <div className="flex flex-wrap gap-1.5">
               {round.keywords.map((kw, j) => (
                 <Badge key={j} variant="outline">{kw}</Badge>
@@ -434,27 +721,27 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
   }
 
   if (stage === "search") {
-    if (!data.search) return <p className="text-sm text-muted-foreground">No search data available.</p>;
+    if (!data.search) return <p className="text-sm text-muted-foreground">当前暂无搜索数据。</p>;
     return (
       <div className="space-y-3">
         <h4 className="font-semibold flex items-center gap-2">
-          <Search className="h-4 w-4" /> Search Results
+          <Search className="h-4 w-4" /> 搜索结果
         </h4>
         {data.search.map((round, i) => (
           <div key={i} className="space-y-2">
             <p className="text-sm">
-              <span className="font-medium">Round {round.hunt_round}:</span>{" "}
-              {round.result_count} URLs found
+              <span className="font-medium">第 {round.hunt_round} 轮：</span>
+              找到 {round.result_count} 个结果
             </p>
             {Object.keys(round.keyword_search_stats).length > 0 && (
               <div className="rounded-md border overflow-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="h-8 px-3 text-left font-medium">Keyword</th>
-                      <th className="h-8 px-3 text-left font-medium">Results</th>
-                      <th className="h-8 px-3 text-left font-medium">Leads</th>
-                      <th className="h-8 px-3 text-left font-medium">Effectiveness</th>
+                      <th className="h-8 px-3 text-left font-medium">关键词</th>
+                      <th className="h-8 px-3 text-left font-medium">结果数</th>
+                      <th className="h-8 px-3 text-left font-medium">线索数</th>
+                      <th className="h-8 px-3 text-left font-medium">效果</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -469,7 +756,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
                           <td className="p-3">{leads}</td>
                           <td className="p-3">
                             <Badge variant={eff === "high" ? "success" : eff === "medium" ? "warning" : "secondary"}>
-                              {eff}
+                              {eff === "high" ? "高" : eff === "medium" ? "中" : "低"}
                             </Badge>
                           </td>
                         </tr>
@@ -486,16 +773,16 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
   }
 
   if (stage === "lead_extract") {
-    if (!data.lead_extract) return <p className="text-sm text-muted-foreground">No lead extraction data available.</p>;
+    if (!data.lead_extract) return <p className="text-sm text-muted-foreground">当前暂无线索提取数据。</p>;
     return (
       <div className="space-y-2">
         <h4 className="font-semibold flex items-center gap-2">
-          <Users className="h-4 w-4" /> Lead Extraction
+          <Users className="h-4 w-4" /> 线索提取
         </h4>
         {data.lead_extract.map((round, i) => (
           <p key={i} className="text-sm">
-            <span className="font-medium">Round {round.hunt_round}:</span>{" "}
-            {round.leads_count} total leads extracted
+            <span className="font-medium">第 {round.hunt_round} 轮：</span>
+            累计提取 {round.leads_count} 条线索
           </p>
         ))}
       </div>
@@ -503,11 +790,11 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
   }
 
   if (stage === "evaluate") {
-    if (!data.evaluate) return <p className="text-sm text-muted-foreground">No evaluation data available.</p>;
+    if (!data.evaluate) return <p className="text-sm text-muted-foreground">当前暂无评估数据。</p>;
     return (
       <div className="space-y-3">
         <h4 className="font-semibold flex items-center gap-2">
-          <BarChart3 className="h-4 w-4" /> Evaluation
+          <BarChart3 className="h-4 w-4" /> 轮次评估
         </h4>
         {data.evaluate.map((round, i) => {
           const fb = round.round_feedback as Record<string, unknown> | null;
@@ -520,13 +807,13 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
           return (
             <div key={i} className="space-y-2 rounded-md border p-3">
               <div className="flex items-center gap-4 text-sm">
-                <span className="font-medium">Round {Number(fb.round ?? round.hunt_round)}</span>
-                <span>{newLeads} new leads</span>
-                <span className="text-muted-foreground">{totalLeads}/{target} total</span>
+                <span className="font-medium">第 {Number(fb.round ?? round.hunt_round)} 轮</span>
+                <span>新增 {newLeads} 条线索</span>
+                <span className="text-muted-foreground">累计 {totalLeads}/{target}</span>
               </div>
               {bestKw.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-green-700 mb-1">Best Keywords</p>
+                  <p className="text-xs font-medium text-green-700 mb-1">表现最佳关键词</p>
                   <div className="flex flex-wrap gap-1">
                     {bestKw.map((kw, j) => (
                       <Badge key={j} variant="success" className="text-xs">{kw}</Badge>
@@ -536,7 +823,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
               )}
               {worstKw.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-red-600 mb-1">Underperforming Keywords</p>
+                  <p className="text-xs font-medium text-red-600 mb-1">表现较弱关键词</p>
                   <div className="flex flex-wrap gap-1">
                     {worstKw.map((kw, j) => (
                       <Badge key={j} variant="destructive" className="text-xs">{kw}</Badge>
@@ -552,11 +839,11 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
   }
 
   if (stage === "email_craft") {
-    if (!data.email_craft) return <p className="text-sm text-muted-foreground">No email craft data available.</p>;
+    if (!data.email_craft) return <p className="text-sm text-muted-foreground">当前暂无邮件生成数据。</p>;
     return (
       <div className="space-y-2">
         <h4 className="font-semibold flex items-center gap-2">
-          <Mail className="h-4 w-4" /> Email Crafting
+          <Mail className="h-4 w-4" /> 邮件生成
         </h4>
         <p className="text-sm">
           <span className="font-medium">{data.email_craft.email_count}</span> personalized email sequences generated
@@ -616,12 +903,27 @@ export function HuntDetailPage() {
   const { data: result } = useQuery({
     queryKey: ["hunt-result", huntId],
     queryFn: () => api.getHuntResult(huntId),
-    enabled: showResult || sse.status === "failed",
+    enabled: initialLoaded,
+    refetchInterval: sse.status === "running" ? 3000 : false,
     retry: false,
   });
 
-  // Merge realtime leads with final result leads (prefer final result when available)
-  const displayLeads = result?.leads?.length ? result.leads : realtimeLeads;
+  // Merge persisted partial leads + SSE pushes so leads tab updates immediately.
+  const displayLeads = useMemo(() => {
+    const merged = new Map<string, Lead>();
+    for (const lead of (result?.leads || []) as Lead[]) {
+      merged.set(getLeadKey(lead), lead);
+    }
+    for (const lead of realtimeLeads) {
+      merged.set(getLeadKey(lead), lead);
+    }
+    return Array.from(merged.values());
+  }, [result?.leads, realtimeLeads]);
+
+  const leadsTabCount = displayLeads.length || sse.leadsCount;
+  const emailCount = result?.email_sequences?.length ?? 0;
+  const keywordCount = result?.used_keywords?.length ?? 0;
+  const roundCount = result?.hunt_round ?? sse.huntRound;
 
   const { data: costData } = useQuery({
     queryKey: ["hunt-cost", huntId],
@@ -847,16 +1149,73 @@ export function HuntDetailPage() {
     if (!displayLeads.length) return;
     const headers = [
       "company_name", "website", "industry", "country_code",
-      "address", "emails", "phone_numbers",
-      "linkedin", "facebook", "twitter", "instagram",
-      "match_score", "description",
+      "address", "description", "contact_person",
+      "emails", "phone_numbers",
+      "linkedin", "facebook", "twitter", "instagram", "youtube", "whatsapp", "wechat",
+      "business_types",
+      "decision_makers_count", "decision_maker_names", "decision_maker_titles",
+      "decision_maker_emails", "decision_maker_email_statuses", "decision_maker_linkedins", "decision_maker_sources",
+      "customs_data", "customs_records",
+      "fit_score", "contactability_score", "customs_score", "priority_tier",
+      "customer_role", "competitor_risk", "evidence_strength", "risk_flags", "evidence",
+      "maps_title", "maps_website", "maps_type", "maps_types", "maps_address", "maps_phone", "maps_description", "maps_email",
+      "source", "source_keyword", "match_score",
     ];
-    const escapeCSV = (v: string) => v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
+    const escapeCSV = (v: string) => v.includes(",") || v.includes('"') || v.includes("\n") ? `"${v.replace(/"/g, '""')}"` : v;
     const rows = displayLeads.map((l: Record<string, unknown>) =>
       headers.map((h) => {
-        if (h === "linkedin" || h === "facebook" || h === "twitter" || h === "instagram") {
+        if (h === "linkedin" || h === "facebook" || h === "twitter" || h === "instagram" || h === "youtube" || h === "whatsapp" || h === "wechat") {
           const social = l.social_media as Record<string, string> | undefined;
           return escapeCSV(String(social?.[h] ?? ""));
+        }
+        if (h === "business_types") {
+          const types = l.business_types as string[] | undefined;
+          return escapeCSV(types ? types.join("; ") : "");
+        }
+        if (h.startsWith("decision_maker") || h === "decision_makers_count") {
+          const dms = (l.decision_makers as Array<{name?: string; title?: string; email?: string; linkedin?: string; source_url?: string}> | undefined) || [];
+          if (h === "decision_makers_count") return escapeCSV(String(dms.length));
+          if (h === "decision_maker_names") return escapeCSV(dms.map((dm) => dm.name || "").filter(Boolean).join("; "));
+          if (h === "decision_maker_titles") return escapeCSV(dms.map((dm) => dm.title || "").filter(Boolean).join("; "));
+          if (h === "decision_maker_emails") return escapeCSV(dms.map((dm) => normalizeDecisionMakerEmail(dm.email || "")).filter(Boolean).join("; "));
+          if (h === "decision_maker_email_statuses") return escapeCSV(dms.map((dm) => getDecisionMakerEmailStatus(dm.email || "")).join("; "));
+          if (h === "decision_maker_linkedins") return escapeCSV(dms.map((dm) => dm.linkedin || "").filter(Boolean).join("; "));
+          if (h === "decision_maker_sources") return escapeCSV(dms.map((dm) => dm.source_url || "").filter(Boolean).join("; "));
+        }
+        if (h === "customs_data") {
+          return escapeCSV(String(l.customs_data ?? ""));
+        }
+        if (h === "customs_records") {
+          const records = (l.customs_records as Array<Record<string, unknown>> | undefined) || [];
+          return escapeCSV(records.map((record) => {
+            const provider = String(record.provider ?? "");
+            const period = String(record.period ?? "");
+            const direction = String(record.trade_direction ?? "");
+            const countries = Array.isArray(record.partner_countries) ? (record.partner_countries as string[]).join("/") : "";
+            const hsCodes = Array.isArray(record.hs_codes) ? (record.hs_codes as string[]).join("/") : "";
+            const products = Array.isArray(record.product_clues) ? (record.product_clues as string[]).join("/") : "";
+            const url = String(record.source_url ?? "");
+            return [provider, period, direction, countries, hsCodes, products, url].filter(Boolean).join(" | ");
+          }).join("; "));
+        }
+        if (h === "risk_flags") {
+          const flags = (l.risk_flags as string[] | undefined) || [];
+          return escapeCSV(flags.join("; "));
+        }
+        if (h === "evidence") {
+          const ev = (l.evidence as Array<{claim?: string; source_url?: string}> | undefined) || [];
+          return escapeCSV(ev.map((x) => `${x.claim || ""}${x.source_url ? ` @ ${x.source_url}` : ""}`).join("; "));
+        }
+        if (h.startsWith("maps_")) {
+          const md = (l.maps_data as Record<string, unknown>) || {};
+          if (h === "maps_title") return escapeCSV(String(md.title ?? ""));
+          if (h === "maps_website") return escapeCSV(String(md.website ?? ""));
+          if (h === "maps_type") return escapeCSV(String(md.type ?? ""));
+          if (h === "maps_types") return escapeCSV(Array.isArray(md.types) ? (md.types as string[]).join("; ") : "");
+          if (h === "maps_address") return escapeCSV(String(md.address ?? ""));
+          if (h === "maps_phone") return escapeCSV(String(md.phoneNumber ?? md.phone_number ?? ""));
+          if (h === "maps_description") return escapeCSV(String(md.description ?? ""));
+          if (h === "maps_email") return escapeCSV(String(md.email ?? ""));
         }
         const v = l[h];
         return escapeCSV(Array.isArray(v) ? v.join("; ") : String(v ?? ""));
@@ -954,7 +1313,7 @@ export function HuntDetailPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab === "overview" ? "Overview" : `Leads${result ? ` (${result.leads.length})` : sse.leadsCount > 0 ? ` (${sse.leadsCount})` : ""}`}
+            {tab === "overview" ? "总览" : `线索${leadsTabCount > 0 ? ` (${leadsTabCount})` : ""}`}
           </button>
         ))}
       </div>
@@ -964,8 +1323,8 @@ export function HuntDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-lg">Pipeline Progress</CardTitle>
-            <CardDescription>Round {sse.huntRound} &middot; {sse.leadsCount} leads found</CardDescription>
+            <CardTitle className="text-lg">流程进度</CardTitle>
+            <CardDescription>第 {sse.huntRound} 轮 · 已找到 {sse.leadsCount} 条线索</CardDescription>
           </div>
           {(stageData.insight || stageData.keyword_gen) && (
             <Button variant="outline" size="sm" onClick={exportReport} className="gap-2 shrink-0">
@@ -1028,9 +1387,9 @@ export function HuntDetailPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-lg">Activity Log</CardTitle>
+              <CardTitle className="text-lg">活动日志</CardTitle>
             </div>
-            <CardDescription>Real-time extraction progress</CardDescription>
+            <CardDescription>实时显示提取进度</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-48 overflow-y-auto rounded-md border bg-muted/30 p-3 font-mono text-xs space-y-1">
@@ -1072,23 +1431,23 @@ export function HuntDetailPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-lg">Cost & Token Usage</CardTitle>
+                  <CardTitle className="text-lg">成本与 Token 用量</CardTitle>
                   {sse.status === "running" && (
-                    <Badge variant="outline" className="text-xs">Live</Badge>
+                    <Badge variant="outline" className="text-xs">实时</Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-4 text-right">
                   <div>
                     <p className="text-xl font-bold text-primary">${cs.total_cost_usd.toFixed(4)}</p>
-                    <p className="text-xs text-muted-foreground">Total Cost</p>
+                    <p className="text-xs text-muted-foreground">总成本</p>
                   </div>
                   <div>
                     <p className="text-xl font-bold">{cs.total_tokens.toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground">Total Tokens</p>
+                    <p className="text-xs text-muted-foreground">总 Token</p>
                   </div>
                   <div>
                     <p className="text-xl font-bold">{cs.total_llm_calls}</p>
-                    <p className="text-xs text-muted-foreground">LLM Calls</p>
+                    <p className="text-xs text-muted-foreground">LLM 调用次数</p>
                   </div>
                 </div>
               </div>
@@ -1098,17 +1457,17 @@ export function HuntDetailPage() {
               {agents.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                    <Zap className="h-3 w-3" /> By Agent
+                    <Zap className="h-3 w-3" /> 按智能体统计
                   </p>
                   <div className="rounded-md border overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="text-left px-3 py-2 font-medium">Agent</th>
-                          <th className="text-right px-3 py-2 font-medium">Calls</th>
-                          <th className="text-right px-3 py-2 font-medium">Prompt Tokens</th>
-                          <th className="text-right px-3 py-2 font-medium">Completion Tokens</th>
-                          <th className="text-right px-3 py-2 font-medium">Cost (USD)</th>
+                          <th className="text-left px-3 py-2 font-medium">智能体</th>
+                          <th className="text-right px-3 py-2 font-medium">调用数</th>
+                          <th className="text-right px-3 py-2 font-medium">输入 Token</th>
+                          <th className="text-right px-3 py-2 font-medium">输出 Token</th>
+                          <th className="text-right px-3 py-2 font-medium">成本 (USD)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1132,21 +1491,21 @@ export function HuntDetailPage() {
                 {rounds.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <TrendingUp className="h-3 w-3" /> Cost by Round
+                      <TrendingUp className="h-3 w-3" /> 按轮次成本
                     </p>
                     <div className="rounded-md border overflow-hidden">
                       <table className="w-full text-xs">
                         <thead className="bg-muted/50">
                           <tr>
-                            <th className="text-left px-3 py-2 font-medium">Round</th>
-                            <th className="text-right px-3 py-2 font-medium">Tokens</th>
+                            <th className="text-left px-3 py-2 font-medium">轮次</th>
+                            <th className="text-right px-3 py-2 font-medium">Token</th>
                             <th className="text-right px-3 py-2 font-medium">Cost (USD)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {rounds.map(([rnd, v]) => (
                             <tr key={rnd} className="border-t">
-                              <td className="px-3 py-2 font-medium">Round {rnd}</td>
+                              <td className="px-3 py-2 font-medium">第 {rnd} 轮</td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{v.total_tokens.toLocaleString()}</td>
                               <td className="px-3 py-2 text-right font-medium">${v.cost_usd.toFixed(4)}</td>
                             </tr>
@@ -1159,15 +1518,15 @@ export function HuntDetailPage() {
                 {searchApis.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <Search className="h-3 w-3" /> Search API Calls
+                      <Search className="h-3 w-3" /> 搜索 API 调用
                     </p>
                     <div className="rounded-md border overflow-hidden">
                       <table className="w-full text-xs">
                         <thead className="bg-muted/50">
                           <tr>
-                            <th className="text-left px-3 py-2 font-medium">Provider</th>
-                            <th className="text-right px-3 py-2 font-medium">Calls</th>
-                            <th className="text-right px-3 py-2 font-medium">Results</th>
+                            <th className="text-left px-3 py-2 font-medium">提供方</th>
+                            <th className="text-right px-3 py-2 font-medium">调用数</th>
+                            <th className="text-right px-3 py-2 font-medium">结果数</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1190,7 +1549,7 @@ export function HuntDetailPage() {
       })()}
       </>)}
 
-      {activeTab === "leads" && result && (result.leads.length > 0 || sse.status === "completed" || sse.status === "failed") && (
+      {activeTab === "leads" && (
         <>
           {/* Stats */}
           <div className="grid gap-4 md:grid-cols-4">
@@ -1199,8 +1558,8 @@ export function HuntDetailPage() {
                 <div className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">{result.leads.length}</p>
-                    <p className="text-xs text-muted-foreground">Leads Found</p>
+                    <p className="text-2xl font-bold">{displayLeads.length || sse.leadsCount}</p>
+                    <p className="text-xs text-muted-foreground">已找到线索</p>
                   </div>
                 </div>
               </CardContent>
@@ -1210,8 +1569,8 @@ export function HuntDetailPage() {
                 <div className="flex items-center gap-2">
                   <Mail className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">{result.email_sequences.length}</p>
-                    <p className="text-xs text-muted-foreground">Email Sequences</p>
+                    <p className="text-2xl font-bold">{emailCount}</p>
+                    <p className="text-xs text-muted-foreground">邮件序列</p>
                   </div>
                 </div>
               </CardContent>
@@ -1221,8 +1580,8 @@ export function HuntDetailPage() {
                 <div className="flex items-center gap-2">
                   <Search className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">{result.used_keywords.length}</p>
-                    <p className="text-xs text-muted-foreground">Keywords Used</p>
+                    <p className="text-2xl font-bold">{keywordCount}</p>
+                    <p className="text-xs text-muted-foreground">已用关键词</p>
                   </div>
                 </div>
               </CardContent>
@@ -1232,8 +1591,8 @@ export function HuntDetailPage() {
                 <div className="flex items-center gap-2">
                   <FileText className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">{result.hunt_round}</p>
-                    <p className="text-xs text-muted-foreground">Rounds</p>
+                    <p className="text-2xl font-bold">{roundCount}</p>
+                    <p className="text-xs text-muted-foreground">轮次</p>
                   </div>
                 </div>
               </CardContent>
@@ -1244,41 +1603,50 @@ export function HuntDetailPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Leads</CardTitle>
+                <CardTitle className="text-lg">线索列表</CardTitle>
                 <CardDescription>
-                  {displayLeads.length} companies found{sse.status === "running" && realtimeLeads.length > 0 ? " (live updates)" : ""} — click a row to view details
+                  共 {displayLeads.length} 家企业{sse.status === "running" && realtimeLeads.length > 0 ? "（实时更新）" : ""}，点击行可查看详情
                 </CardDescription>
               </div>
               {displayLeads.length > 0 && (
                 <Button variant="outline" size="sm" onClick={exportCSV}>
                   <Download className="h-4 w-4 mr-2" />
-                  Export CSV
+                  导出 CSV
                 </Button>
               )}
             </CardHeader>
             <CardContent>
               {displayLeads.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  {sse.status === "running" ? "Extracting leads..." : "No leads found yet."}
+                  {sse.status === "running" ? "正在提取线索..." : "暂未找到线索。"}
                 </p>
               ) : (
                 <div className="rounded-md border overflow-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="h-10 px-4 text-left font-medium">Company</th>
-                        <th className="h-10 px-4 text-left font-medium hidden md:table-cell">Industry</th>
-                        <th className="h-10 px-4 text-left font-medium hidden sm:table-cell">Country</th>
-                        <th className="h-10 px-4 text-left font-medium">Contact</th>
-                        <th className="h-10 px-4 text-left font-medium">Score</th>
+                        <th className="h-10 px-4 text-left font-medium">企业</th>
+                        <th className="h-10 px-4 text-left font-medium hidden md:table-cell">行业</th>
+                        <th className="h-10 px-4 text-left font-medium hidden sm:table-cell">国家</th>
+                        <th className="h-10 px-4 text-left font-medium">联系信息</th>
+                        <th className="h-10 px-4 text-left font-medium">评分</th>
                         <th className="h-10 px-2 text-left font-medium w-8"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {[...displayLeads].sort((a: Lead, b: Lead) => Number(b.match_score || 0) - Number(a.match_score || 0)).map((lead: Lead, i: number) => {
+                      {[...displayLeads].sort(compareLeads).map((lead: Lead, i: number) => {
                       const emails = getLeadEmails(lead);
                       const phones = getLeadPhones(lead);
                       const socialCount = Object.keys(getLeadSocial(lead)).length;
+                      const businessTypes = (lead.business_types as string[]) || [];
+                      const decisionMakers = (lead.decision_makers as Array<unknown>) || [];
+                      const customsDataText = typeof lead.customs_data === "string" ? lead.customs_data : "";
+                      const customsScore = Number(lead.customs_score || 0);
+                      const customerRole = getLeadStr(lead, "customer_role") || "unknown";
+                      const competitorRisk = getLeadStr(lead, "competitor_risk") || "low";
+                      const riskFlags = Array.isArray(lead.risk_flags) ? (lead.risk_flags as string[]) : [];
+                      const visibleRiskFlags = riskFlags.slice(0, 2);
+                      const hasCustomsData = hasConcreteCustomsData(customsDataText);
                       return (
                         <tr
                           key={i}
@@ -1289,12 +1657,32 @@ export function HuntDetailPage() {
                             <div className="flex items-center gap-2">
                               <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                               <div className="min-w-0">
-                                <div className="font-medium truncate max-w-[200px]">{String(lead.company_name || "—")}</div>
+                              <div className="font-medium truncate max-w-[200px]">{String(lead.company_name || "—")}</div>
                                 {typeof lead.website === "string" && lead.website && (
                                   <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                                     {lead.website.replace(/^https?:\/\/(www\.)?/, "")}
                                   </div>
                                 )}
+                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                  {customerRole !== "unknown" && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">
+                                      {toChineseRole(customerRole)}
+                                    </Badge>
+                                  )}
+                                  {competitorRisk !== "low" && (
+                                    <Badge
+                                      variant={competitorRisk === "high" ? "destructive" : "warning"}
+                                      className="text-[10px] px-1.5 py-0 h-5"
+                                    >
+                                      {competitorRisk === "high" ? "竞争风险高" : "疑似竞争关系"}
+                                    </Badge>
+                                  )}
+                                  {visibleRiskFlags.map((flag, idx) => (
+                                    <Badge key={`${flag}-${idx}`} variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                                      {flag}
+                                    </Badge>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -1307,31 +1695,48 @@ export function HuntDetailPage() {
                           <td className="p-4">
                             <div className="flex items-center gap-1.5">
                               {emails.length > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${emails.length} email(s)`}>
+                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${emails.length} 个邮箱`}>
                                   <Mail className="h-3 w-3" />
                                   <span>{emails.length}</span>
                                 </span>
                               )}
                               {phones.length > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${phones.length} phone(s)`}>
+                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${phones.length} 个电话`}>
                                   <Phone className="h-3 w-3" />
                                   <span>{phones.length}</span>
                                 </span>
                               )}
                               {socialCount > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${socialCount} social link(s)`}>
+                                <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title={`${socialCount} 个社媒链接`}>
                                   <Globe className="h-3 w-3" />
                                   <span>{socialCount}</span>
                                 </span>
                               )}
-                              {emails.length === 0 && phones.length === 0 && socialCount === 0 && (
+                              {decisionMakers.length > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-xs text-blue-600" title={`${decisionMakers.length} 位决策人`}>
+                                  <Users className="h-3 w-3" />
+                                  <span>{decisionMakers.length}</span>
+                                </span>
+                              )}
+                              {businessTypes.length > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-xs text-purple-600" title={`${businessTypes.length} 个业务类型`}>
+                                  <Tag className="h-3 w-3" />
+                                </span>
+                              )}
+                              {hasCustomsData && (
+                                <span className="inline-flex items-center gap-0.5 text-xs text-green-600" title={customsScore > 0 ? `海关评分 ${(customsScore * 100).toFixed(0)}%` : "有海关/贸易数据"}>
+                                  <BarChart3 className="h-3 w-3" />
+                                  {customsScore > 0 && <span>{(customsScore * 100).toFixed(0)}</span>}
+                                </span>
+                              )}
+                              {emails.length === 0 && phones.length === 0 && socialCount === 0 && decisionMakers.length === 0 && businessTypes.length === 0 && !hasCustomsData && (
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}
                             </div>
                           </td>
                           <td className="p-4">
-                            <Badge variant={Number(lead.match_score) >= 0.7 ? "success" : Number(lead.match_score) >= 0.4 ? "warning" : "secondary"}>
-                              {(Number(lead.match_score || 0) * 100).toFixed(0)}%
+                            <Badge variant={Number(lead.fit_score ?? lead.match_score) >= 0.7 ? "success" : Number(lead.fit_score ?? lead.match_score) >= 0.4 ? "warning" : "secondary"}>
+                              {(Number(lead.fit_score ?? lead.match_score ?? 0) * 100).toFixed(0)}%
                             </Badge>
                           </td>
                           <td className="p-2">
@@ -1355,11 +1760,11 @@ export function HuntDetailPage() {
           />
 
           {/* Email Sequences */}
-          {result.email_sequences.length > 0 && (
+          {emailCount > 0 && result && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Email Sequences</CardTitle>
-                <CardDescription>{result.email_sequences.length} personalized sequences generated</CardDescription>
+                <CardTitle className="text-lg">邮件序列</CardTitle>
+                <CardDescription>已生成 {result.email_sequences.length} 组个性化邮件序列</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {result.email_sequences.map((seq: Record<string, unknown>, i: number) => {
@@ -1369,7 +1774,7 @@ export function HuntDetailPage() {
                     <details key={i} className="rounded-md border p-4">
                       <summary className="cursor-pointer font-medium flex items-center gap-2">
                         <Mail className="h-4 w-4 text-muted-foreground" />
-                        {String(lead?.company_name || `Sequence ${i + 1}`)}
+                        {String(lead?.company_name || `序列 ${i + 1}`)}
                         <Badge variant="outline" className="ml-auto">{String(seq.locale || "en")}</Badge>
                       </summary>
                       <div className="mt-4 space-y-3">
@@ -1390,13 +1795,6 @@ export function HuntDetailPage() {
             </Card>
           )}
         </>
-      )}
-
-      {activeTab === "leads" && !result && (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-          <Users className="h-10 w-10 opacity-30" />
-          <p className="text-sm">Leads will appear here once the hunt completes.</p>
-        </div>
       )}
     </div>
   );

@@ -47,8 +47,8 @@ class GoogleMapsSearchTool:
 
         Returns:
             List of place dicts with keys: title, address, website,
-            phone_number, rating, rating_count, type, latitude, longitude,
-            cid, place_id.
+            phone_number, rating, rating_count, type, types, description,
+            email, latitude, longitude, cid, place_id.
         """
         client = await self._get_client()
 
@@ -81,6 +81,9 @@ class GoogleMapsSearchTool:
                 "rating": item.get("rating", 0),
                 "rating_count": item.get("ratingCount", 0),
                 "type": item.get("type", ""),
+                "types": item.get("types", []),
+                "description": item.get("description", ""),
+                "email": item.get("email", ""),
                 "latitude": item.get("latitude", 0),
                 "longitude": item.get("longitude", 0),
                 "cid": item.get("cid", ""),

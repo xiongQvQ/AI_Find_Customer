@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os as _os
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
@@ -10,14 +11,15 @@ from pydantic import BaseModel
 
 from config.settings import get_settings
 from license.settings_store import get_env_path, is_configured, read_settings, update_settings
-from license.validator import LicenseResult, LicenseStatus, LicenseValidator
+from license.token_store import save_token
+from license.validator import LicenseResult, LicenseValidator
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 def _get_validator() -> LicenseValidator:
     s = get_settings()
-    server_url = getattr(s, "license_server_url", "https://license.aihunter.app")
+    server_url = getattr(s, "license_server_url", "https://license.b2binsights.io/api/v1")
     return LicenseValidator(server_url)
 
 
@@ -57,6 +59,11 @@ class SettingsResponse(BaseModel):
 class ActivateRequest(BaseModel):
     license_key: str
     machine_label: str = ""
+
+
+class SaveTokenRequest(BaseModel):
+    token: str
+    expires_at: str | None = None
 
 
 class LicenseStatusResponse(BaseModel):
@@ -115,7 +122,6 @@ async def save_settings(payload: SettingsPayload):
         # get_settings() picks them up immediately after cache_clear().
         # pydantic-settings reads env_file once at instantiation; environment
         # variables take precedence over the file, so this guarantees fresh values.
-        import os as _os
         for env_key, value in updates.items():
             _os.environ[env_key] = value
 
@@ -125,9 +131,25 @@ async def save_settings(payload: SettingsPayload):
 
 # ── License routes ────────────────────────────────────────────────────────────
 
+def _dev_skip_license() -> bool:
+    return _os.environ.get("DEV_SKIP_LICENSE", "0") == "1"
+
+
+def _dev_bypass_response() -> LicenseStatusResponse:
+    return LicenseStatusResponse(
+        status="valid",
+        message="Dev bypass — license server not yet deployed",
+        plan="lifetime",
+        customer_name="Dev User",
+        expires_at=None,
+    )
+
+
 @router.get("/license/status", response_model=LicenseStatusResponse)
 async def license_status():
     """Check current license status."""
+    if _dev_skip_license():
+        return _dev_bypass_response()
     validator = _get_validator()
     result = await validator.check()
     return _to_response(result)
@@ -136,6 +158,8 @@ async def license_status():
 @router.post("/license/activate", response_model=LicenseStatusResponse)
 async def activate_license(req: ActivateRequest):
     """Activate a license key on this machine."""
+    if _dev_skip_license():
+        return _dev_bypass_response()
     if not req.license_key.strip():
         raise HTTPException(status_code=400, detail="License key is required")
     validator = _get_validator()
@@ -150,6 +174,37 @@ async def deactivate_license():
     """Deactivate this device (for device transfer)."""
     validator = _get_validator()
     await validator.deactivate()
+
+
+@router.post("/license/save-token", status_code=status.HTTP_204_NO_CONTENT)
+async def save_license_token(req: SaveTokenRequest):
+    """Save JWT token from license server (for offline use)."""
+    if _dev_skip_license():
+        return
+    # If expires_at not provided, decode from JWT token (fallback)
+    if req.expires_at:
+        from datetime import datetime, timezone
+        expires_at = datetime.fromisoformat(req.expires_at.replace("Z", "+00:00"))
+    else:
+        # Try to parse from JWT token
+        import base64
+        import json
+        try:
+            parts = req.token.split(".")
+            if len(parts) >= 2:
+                payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=="[: (4 - len(parts[1]) % 4)]))
+                exp = payload.get("exp")
+                if exp:
+                    from datetime import datetime, timezone
+                    expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+                else:
+                    expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
+            else:
+                expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
+        except Exception:
+            from datetime import datetime, timezone
+            expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
+    save_token(req.token, expires_at)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -153,6 +153,33 @@ class TestHuntResult:
         assert len(data["leads"]) == 1
         assert data["hunt_round"] == 2
 
+    @pytest.mark.asyncio
+    async def test_result_dedupes_duplicate_leads(self, client):
+        _hunts["dup-123"] = {
+            "status": "completed",
+            "result": {
+                "insight": {"company_name": "Test"},
+                "leads": [
+                    {"company_name": "Lead1", "website": "https://lead1.com"},
+                    {"company_name": "Lead1 copy", "website": "https://lead1.com"},
+                ],
+                "email_sequences": [],
+                "used_keywords": [],
+                "hunt_round": 1,
+                "round_feedback": None,
+            },
+            "current_stage": "lead_extract",
+            "hunt_round": 1,
+            "leads_count": 2,
+            "email_sequences_count": 0,
+            "error": None,
+        }
+
+        resp = await client.get("/api/v1/hunts/dup-123/result")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["leads"]) == 1
+
 
 class TestListHunts:
     @pytest.mark.asyncio
@@ -176,6 +203,33 @@ class TestListHunts:
             assert "status" in item
             assert "created_at" in item
             assert "product_keywords" in item
+
+    @pytest.mark.asyncio
+    async def test_list_uses_unique_lead_count(self, client):
+        _hunts["dup-list"] = {
+            "status": "completed",
+            "result": {
+                "leads": [
+                    {"company_name": "Lead1", "website": "https://lead1.com"},
+                    {"company_name": "Lead1 copy", "website": "https://lead1.com"},
+                    {"company_name": "Lead2", "website": "https://lead2.com"},
+                ],
+            },
+            "leads_count": 3,
+            "created_at": "2026-03-07T00:00:00+00:00",
+            "website_url": "https://example.com",
+            "product_keywords": [],
+            "target_customer_profile": "",
+            "target_regions": [],
+            "hunt_round": 1,
+            "email_sequences_count": 0,
+        }
+
+        resp = await client.get("/api/v1/hunts")
+        assert resp.status_code == 200
+        data = resp.json()
+        item = next(x for x in data if x["hunt_id"] == "dup-list")
+        assert item["leads_count"] == 2
 
 
 # ── _slim_state unit tests ───────────────────────────────────────────────

@@ -141,7 +141,7 @@ class Settings(BaseSettings):
     checkpoint_db_path: str = _resolve_file("hunt_sessions.db")
 
     # --- License ---
-    license_server_url: str = "https://license.aihunter.app"
+    license_server_url: str = "https://aihunter-license-worker.xiongbojian007.workers.dev"
 
     # --- Hunt persistence ---
     hunts_dir: str = _resolve_dir("data/hunts")  # directory for JSON hunt files

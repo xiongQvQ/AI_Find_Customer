@@ -39,6 +39,13 @@ function huntTitle(hunt: { website_url: string; product_keywords: string[]; hunt
   return hunt.hunt_id.slice(0, 8);
 }
 
+function getStatusLabel(status: string) {
+  if (status === "completed") return "已完成";
+  if (status === "running") return "进行中";
+  if (status === "failed") return "失败";
+  return "待处理";
+}
+
 export function DashboardPage() {
   const { data: hunts, isLoading } = useQuery({
     queryKey: ["hunts"],
@@ -50,13 +57,13 @@ export function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Manage your B2B lead hunting campaigns</p>
+          <h1 className="text-3xl font-bold tracking-tight">任务看板</h1>
+          <p className="text-muted-foreground mt-1">管理你的 B2B 智能获客任务</p>
         </div>
         <Link to="/hunts/new">
           <Button>
             <Plus className="h-4 w-4 mr-2" />
-            New Hunt
+            新建任务
           </Button>
         </Link>
       </div>
@@ -69,12 +76,12 @@ export function DashboardPage() {
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Crosshair className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No hunts yet</h3>
-            <p className="text-muted-foreground mb-6">Start your first AI-powered lead hunt</p>
+            <h3 className="text-lg font-semibold mb-2">还没有任务</h3>
+            <p className="text-muted-foreground mb-6">开始你的第一个 AI 获客任务</p>
             <Link to="/hunts/new">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
-                Create Hunt
+                创建任务
               </Button>
             </Link>
           </CardContent>
@@ -88,14 +95,14 @@ export function DashboardPage() {
                   <CardTitle className="text-sm font-medium truncate max-w-[70%]">
                     {huntTitle(hunt)}
                   </CardTitle>
-                  <Badge variant={statusVariant(hunt.status)}>{hunt.status}</Badge>
+                  <Badge variant={statusVariant(hunt.status)}>{getStatusLabel(hunt.status)}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1.5 text-2xl font-bold">
                       <Users className="h-5 w-5 text-muted-foreground" />
                       {hunt.leads_count}
-                      <span className="text-sm font-normal text-muted-foreground">leads</span>
+                      <span className="text-sm font-normal text-muted-foreground">线索</span>
                     </div>
                     {hunt.email_sequences_count > 0 && (
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -128,7 +135,7 @@ export function DashboardPage() {
                         <Clock className="h-3 w-3 shrink-0" />
                         <span>{formatTime(hunt.created_at)}</span>
                         {hunt.hunt_round > 0 && (
-                          <span className="ml-1">· Round {hunt.hunt_round}</span>
+                          <span className="ml-1">· 第 {hunt.hunt_round} 轮</span>
                         )}
                       </div>
                     )}

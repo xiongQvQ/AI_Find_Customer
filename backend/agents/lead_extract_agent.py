@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -37,6 +38,8 @@ from tools.email_verifier import EmailVerifierTool
 from tools.google_search import GoogleSearchTool
 from tools.jina_reader import JinaReaderTool
 from tools.llm_client import LLMTool
+from tools.llm_output import parse_json
+from tools.customs_router import find_customs_data as route_customs_data
 from tools.react_runner import ToolDef, react_loop
 from tools.url_filter import classify_url
 
@@ -60,6 +63,191 @@ def _emit_progress(event: str, **data: Any) -> None:
         _progress_callback({"event": event, **data})
 
 
+def _derive_priority_tier(fit_score: float, contactability_score: float) -> str:
+    """Derive a stable priority tier from fit and contactability."""
+    if fit_score < 0.1:
+        return "reject"
+    if fit_score >= 0.7 and contactability_score >= 0.55:
+        return "high"
+    if fit_score >= 0.45 and contactability_score >= 0.35:
+        return "medium"
+    return "low"
+
+
+def _has_concrete_customs_data(value: str | None) -> bool:
+    """Return True only when customs_data contains positive, concrete trade evidence."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    negative_markers = [
+        "no data found",
+        "no concrete customs data found",
+        "no detailed customs data available",
+        "no data available",
+        "no public customs data",
+        "not an importer/exporter",
+        "not an importer",
+        "not an exporter",
+        "not an importer/exporter of goods",
+        "not an importer/exporter of physical goods",
+        "service-based",
+        "engineering services provider",
+        "not applicable",
+    ]
+    return not any(marker in text for marker in negative_markers)
+
+
+def _split_person_name(name: str) -> tuple[str, str]:
+    parts = [p for p in re.findall(r"[a-zA-Z]+", (name or "").lower()) if p]
+    if not parts:
+        return "", ""
+    first = parts[0]
+    last = parts[-1] if len(parts) > 1 else ""
+    return first, last
+
+
+def _classify_email_pattern(name: str, email: str, domain: str) -> str | None:
+    first, last = _split_person_name(name)
+    if not first:
+        return None
+    normalized = str(email or "").strip().lower()
+    if not normalized or "@" not in normalized:
+        return None
+    local, email_domain = normalized.split("@", 1)
+    if email_domain != domain:
+        return None
+    if local in {"info", "sales", "contact", "support", "office", "hello", "admin"}:
+        return None
+    candidates = {
+        "first.last": f"{first}.{last}" if last else "",
+        "first_last": f"{first}_{last}" if last else "",
+        "firstlast": f"{first}{last}" if last else "",
+        "f.last": f"{first[:1]}.{last}" if last else "",
+        "flast": f"{first[:1]}{last}" if last else "",
+        "first": first,
+        "last": last,
+    }
+    for pattern, value in candidates.items():
+        if value and local == value:
+            return pattern
+    return None
+
+
+def _render_email_pattern(name: str, pattern: str, domain: str) -> str | None:
+    first, last = _split_person_name(name)
+    if not first:
+        return None
+    local_map = {
+        "first.last": f"{first}.{last}" if last else "",
+        "first_last": f"{first}_{last}" if last else "",
+        "firstlast": f"{first}{last}" if last else "",
+        "f.last": f"{first[:1]}.{last}" if last else "",
+        "flast": f"{first[:1]}{last}" if last else "",
+        "first": first,
+        "last": last,
+    }
+    local = local_map.get(pattern, "")
+    if not local:
+        return None
+    return f"{local}@{domain}"
+
+
+def _normalize_decision_maker_emails(lead: dict) -> dict:
+    """Keep inferred emails only when backed by a real same-domain pattern."""
+    decision_makers = lead.get("decision_makers", [])
+    if not isinstance(decision_makers, list) or not decision_makers:
+        return lead
+
+    website_domain = _normalized_domain(str(lead.get("website", "") or ""))
+    if not website_domain:
+        return lead
+
+    exact_patterns: list[str] = []
+    for item in decision_makers:
+        if not isinstance(item, dict):
+            continue
+        email = str(item.get("email", "") or "").strip().lower()
+        if not email or "(inferred)" in email or email == "inferred":
+            continue
+        pattern = _classify_email_pattern(str(item.get("name", "") or ""), email, website_domain)
+        if pattern:
+            exact_patterns.append(pattern)
+
+    chosen_pattern = exact_patterns[0] if exact_patterns else None
+
+    for item in decision_makers:
+        if not isinstance(item, dict):
+            continue
+        email = str(item.get("email", "") or "").strip()
+        if not email:
+            continue
+        lower = email.lower()
+        if "(inferred)" not in lower and lower != "inferred":
+            continue
+        if chosen_pattern:
+            inferred = _render_email_pattern(str(item.get("name", "") or ""), chosen_pattern, website_domain)
+            item["email"] = f"{inferred} (inferred)" if inferred else ""
+        else:
+            item["email"] = ""
+
+    lead["decision_makers"] = decision_makers
+    return lead
+
+
+def _apply_evidence_to_scores(lead: dict) -> dict:
+    """Adjust contactability/priority using concrete contact and customs evidence.
+
+    This is a bounded post-process step. It should improve ranking when we have
+    verifiable data, but not override a genuinely poor fit.
+    """
+    fit_score = min(max(float(lead.get("fit_score", lead.get("match_score", 0.0)) or 0.0), 0.0), 1.0)
+    contactability = min(max(float(lead.get("contactability_score", 0.0) or 0.0), 0.0), 1.0)
+    customs_score = min(max(float(lead.get("customs_score", 0.0) or 0.0), 0.0), 1.0)
+
+    if lead.get("emails"):
+        contactability += 0.12
+    if lead.get("phone_numbers"):
+        contactability += 0.06
+
+    decision_makers = lead.get("decision_makers", [])
+    if isinstance(decision_makers, list) and decision_makers:
+        contactability += 0.12
+        if any(isinstance(item, dict) and str(item.get("email", "")).strip() for item in decision_makers):
+            contactability += 0.08
+
+    customs_text = str(lead.get("customs_data", "") or "").strip().lower()
+    customs_evidence = [
+        item for item in lead.get("evidence", [])
+        if isinstance(item, dict) and "customs" in str(item.get("claim", "")).lower()
+    ]
+    has_customs_data = _has_concrete_customs_data(customs_text)
+    if has_customs_data:
+        customs_score += 0.45
+    if customs_evidence:
+        customs_score += min(0.35, 0.12 * len(customs_evidence))
+    customs_score = min(max(customs_score, 0.0), 1.0)
+    if has_customs_data:
+        contactability += 0.08
+    if customs_evidence:
+        contactability += min(0.08, 0.03 * len(customs_evidence))
+
+    contactability = min(max(contactability, 0.0), 1.0)
+    lead["fit_score"] = fit_score
+    lead["contactability_score"] = contactability
+    lead["customs_score"] = customs_score
+
+    current_priority = str(lead.get("priority_tier", "low") or "low")
+    derived_priority = _derive_priority_tier(fit_score, contactability)
+    if current_priority == "reject" and fit_score >= 0.1:
+        lead["priority_tier"] = derived_priority
+    elif current_priority in {"", "low"}:
+        lead["priority_tier"] = derived_priority
+    else:
+        order = {"reject": 0, "low": 1, "medium": 2, "high": 3}
+        lead["priority_tier"] = current_priority if order.get(current_priority, 1) >= order.get(derived_priority, 1) else derived_priority
+    return lead
+
+
 # ── Prompts ──────────────────────────────────────────────────────────────
 
 LEAD_EXTRACT_PROMPT = """You are a B2B lead extraction expert. Given scraped web page content, extract ALL available company and contact information as factual data — do NOT score or judge fit here.
@@ -71,7 +259,7 @@ Output MUST be valid JSON with this structure:
   "website": "...",
   "industry": "...",
   "business_types": ["manufacturer", "distributor", "importer", "wholesaler", "retailer", "agent", "installer", "integrator", "other"],
-  "description": "2-3 sentence description of what the company does, its main products, and markets served",
+  "description": "2-3 sentence Simplified Chinese summary of what the company does, its main products, and markets served",
   "contact_person": "name of key contact person, or null",
   "country_code": "two-letter ISO code or empty",
   "address": "full company address if found, or empty string",
@@ -88,7 +276,11 @@ Output MUST be valid JSON with this structure:
   "annual_revenue": "estimated revenue range if mentioned, or empty",
   "employee_count": "employee count or range if mentioned, or empty",
   "certifications": ["ISO 9001", "CE", ...],
-  "key_products": ["product1", "product2"]
+  "key_products": ["product1", "product2"],
+  "decision_makers": [
+    {"name": "...", "title": "...", "email": "...", "linkedin": "..."}
+  ],
+  "customs_data": "Simplified Chinese summary of import/export activity, top trading partners, or 'No data found'"
 }
 
 Rules:
@@ -96,33 +288,47 @@ Rules:
 - If the page is not a company page (article, search engine, social feed), set is_valid_lead = false
 - "website" should be the company's own official website URL if visible, otherwise use the page URL
 - "business_types": list ALL that apply (e.g. a company can be both "distributor" and "installer").
-- "description": 2-3 sentence description in ENGLISH (translate if source is different).
+- "description": 2-3 sentence description in Simplified Chinese for end users. Keep company names, product names, certifications, and proper nouns in their original form when needed.
 - Extract ALL contact information you can find: emails, phone numbers, social media links, physical address
 - For social_media, only include platforms where you find an actual URL or ID; omit keys with empty values
 - Phone numbers should include country code when available (e.g. "+49 30 12345678")
 - Look carefully for contact info in headers, footers, sidebars, and "Contact Us" sections
-- key_products: list the specific products/services this company offers (max 8)"""
+- key_products: list the specific products/services this company offers (max 8)
+- customs_data: if positive evidence exists, summarize it in Simplified Chinese; otherwise output exactly "No data found"."""
 
 
-LEAD_ASSESS_PROMPT = """You are a B2B sales qualification analyst. Your job is to score how well a prospect company fits as a potential BUYER of the seller's products.
+LEAD_ASSESS_PROMPT = """You are a B2B sales qualification analyst. Your job is to decide whether a prospect is a plausible CUSTOMER, CHANNEL PARTNER, or END-USER buyer of the seller's products.
 
-## FUNDAMENTAL QUESTION (answer this first)
-Would this prospect company plausibly BUY, USE, or DISTRIBUTE the seller's products?
-Potential buyers include:
-- Distributors, importers, wholesalers, trading companies that resell our products
-- End-users: factories, plants, or businesses that USE our products in operations (e.g. a food/beverage factory buying filling machines, a store buying packaging)
-- Retailers or resellers who carry our product category
+## PRIMARY DECISION
+Do NOT ask whether the prospect is merely industry-related. Ask:
+"Would this company plausibly buy, specify, integrate, import, distribute, or use our products?"
 
-Only set match_score = 0.0 if the prospect is a DIRECT COMPETITOR (manufactures the same products) or has ZERO plausible connection to our products.
+Valid customer roles include:
+- distributor, importer, wholesaler, trader, reseller
+- OEM / equipment maker / appliance maker / panel builder that buys components
+- end-user manufacturer or factory that uses the product category in operations
+- system integrator or installer with a clear procurement role
 
-You will be given:
-- **Company Profile**: factual data extracted from the prospect's website
-- **Seller Context**: the seller's products, industries, value propositions, ideal customer profile
-- **Negative Criteria**: specific rules to disqualify a lead (Knockout)
+Not every related company is a customer. Industry media, directories, schools, associations, recruiters, and pure content pages are not customers.
 
-## Output MUST be valid JSON:
+## Competitor rule
+Only disqualify as a direct competitor when the evidence clearly shows the prospect MANUFACTURES or owns a brand of the same core product as the seller.
+Do NOT auto-reject a company just because it sells related products. A distributor, importer, OEM, integrator, or reseller of similar products may still be a valid customer.
+
+## You will be given
+- Company Profile: factual data extracted from the prospect website and research
+- Seller Context: seller products, industries, value propositions, ICP
+- Negative Criteria: specific knockout rules
+
+## Output MUST be valid JSON
 {
   "match_score": 0.0,
+  "fit_score": 0.0,
+  "contactability_score": 0.0,
+  "priority_tier": "high|medium|low|reject",
+  "customer_role": "distributor|importer|wholesaler|oem|integrator|end_user|service|retailer|manufacturer|unknown",
+  "competitor_risk": "low|medium|high",
+  "evidence_strength": "low|medium|high",
   "score_breakdown": {
     "product_fit": 0.0,
     "industry_fit": 0.0,
@@ -130,18 +336,20 @@ You will be given:
   },
   "fit_reasons": [],
   "disqualify_reasons": [],
+  "risk_flags": [],
   "recommended_approach": ""
 }
 
-## Knockout Rules (CRITICAL — any one triggers match_score = 0.0)
-1. Prospect is a direct competitor: manufactures/produces the SAME type of products as the seller
-2. Prospect matches any of the Negative Criteria provided
-3. Prospect has ZERO plausible connection to the seller's products (completely different industry)
-When knocked out: list the specific reason in "disqualify_reasons", set all score_breakdown to 0.0.
-Do NOT knock out end-users — a food factory, beverage plant, cosmetics brand, or retailer is a valid potential buyer of packaging/filling equipment.
+## Reject only in these cases
+1. The prospect is clearly a direct competitor manufacturing the same core product.
+2. The prospect matches explicit negative criteria.
+3. The prospect is clearly not a company customer at all: media, directory, association, school, recruiter, government page, or pure content page.
+4. There is zero plausible path for them to buy, use, integrate, import, or distribute our products.
 
-## Scoring Dimensions (each 0.0-0.34, sum ≈ match_score, max 1.0)
-Only score these if the prospect passes the Knockout check.
+If uncertain, do NOT over-reject. Keep moderate scores and explain uncertainty in risk_flags.
+
+## Scoring Dimensions
+Only score after the reject check.
 
 ### 1. Product Fit (0.0-0.34)
 Would this company PURCHASE, USE, or DISTRIBUTE the seller's specific products?
@@ -183,15 +391,51 @@ GOOD: "As an electrical equipment wholesaler with 200+ retail clients in Poland,
 - MUST be in ENGLISH.
 
 ## Scoring calibration
-- 0.80-1.0: Strong buyer candidate — clear fit on all 3 dimensions
-- 0.55-0.79: Good fit on 2 dimensions
-- 0.30-0.54: Moderate fit, worth contacting
-- 0.10-0.29: Weak fit, low priority
-- 0.00-0.09: Not a viable buyer — direct competitor or completely unrelated
+- 0.80-1.0: Strong buyer candidate with clear role, product fit, and buying path
+- 0.55-0.79: Good fit with real customer evidence
+- 0.30-0.54: Plausible customer, but weaker or incomplete evidence
+- 0.10-0.29: Related company but weak buying path; low priority
+- 0.00-0.09: Reject only for true competitor, non-company entity, or no plausible buying path
 
-Be inclusive: end-users in the right industry are valid leads. A food/beverage company buying packaging machines scores high even if they are not a distributor.
-A generic trading company with no product specifics scores <= 0.3.
-A company in a completely unrelated industry (e.g. law firm, software company) scores 0.0."""
+Prefer false positives over false negatives at this stage, but never hallucinate a buying role. If the evidence only shows "related company", keep scores modest and explain why."""
+
+
+QUICK_GATE_PROMPT = """You are a high-recall B2B lead pre-qualification filter.
+
+Goal: remove only clearly wrong candidates before expensive deep research.
+
+Do NOT ask "is this company related to our industry?"
+Ask:
+"Is this a real company with a plausible role to buy, use, integrate, import, or distribute our products?"
+
+## Output MUST be valid JSON
+{
+  "pass_gate": true,
+  "entity_type": "company|directory|media|association|school|government|recruiter|unknown",
+  "customer_role_guess": "distributor|importer|wholesaler|oem|integrator|end_user|service|retailer|manufacturer|unknown",
+  "competitor_risk": "low|medium|high",
+  "confidence": 0.0,
+  "reason": "",
+  "risk_flags": []
+}
+
+## Gate policy
+Set pass_gate=false only for clear mismatch:
+- not a real company entity page
+- obvious direct competitor manufacturing the same core product
+- obvious B2C-only business with no B2B or procurement signal
+- clearly unrelated business with no plausible buy/use/distribute path
+
+If uncertain, keep it.
+
+## Critical rules
+- "Related company" is not enough. Look for a plausible buyer/channel/end-user role.
+- Do NOT reject a distributor/importer/OEM/integrator just because it sells related products.
+- Only classify competitor_risk=high when the evidence clearly shows same-core-product manufacturing or own-brand production.
+- confidence must be 0-1.
+- reason must be one concise English sentence.
+- risk_flags should be short tags like: competitor, directory, media, b2c_only, unrelated_industry, insufficient_data, possible_competitor.
+"""
 
 
 # ── Scrape & extract helpers ─────────────────────────────────────────────
@@ -214,47 +458,168 @@ def _extract_contacts_from_text(text: str) -> tuple[list[str], list[str], dict[s
     return emails, phones, social
 
 
+def _quick_gate_fallback(search_result: dict, insight: dict) -> tuple[bool, dict]:
+    """Rule fallback when quick-gate LLM is unavailable."""
+    maps = search_result.get("maps_data", {}) or {}
+    text = " ".join([
+        str(search_result.get("title", "")),
+        str(maps.get("type", "")),
+        " ".join(maps.get("types", []) if isinstance(maps.get("types"), list) else []),
+        str(maps.get("description", "")),
+    ]).lower()
+
+    b2c_markers = ["restaurant", "cafe", "bar", "salon", "spa", "hotel", "tourist", "bakery"]
+    if any(m in text for m in b2c_markers):
+        return False, {
+            "pass_gate": False,
+            "reason": "Likely B2C-only business with weak B2B procurement signal.",
+            "risk_flags": ["b2c_only"],
+            "confidence": 0.75,
+            "entity_type": "company",
+            "customer_role_guess": "retailer",
+            "competitor_risk": "low",
+        }
+
+    product_tokens = {
+        tok.strip().lower()
+        for p in insight.get("products", []) if isinstance(p, str)
+        for tok in p.split()
+        if len(tok.strip()) >= 4
+    }
+    competitor_markers = ["manufacturer", "factory", "producer", "oem"]
+    if any(m in text for m in competitor_markers) and any(t in text for t in product_tokens):
+        return False, {
+            "pass_gate": False,
+            "reason": "Likely direct competitor (same product family manufacturer).",
+            "risk_flags": ["competitor"],
+            "confidence": 0.7,
+            "entity_type": "company",
+            "customer_role_guess": "manufacturer",
+            "competitor_risk": "high",
+        }
+
+    return True, {
+        "pass_gate": True,
+        "reason": "Insufficient disqualifying evidence at pre-filter stage.",
+        "risk_flags": [],
+        "confidence": 0.5,
+        "entity_type": "company",
+        "customer_role_guess": "unknown",
+        "competitor_risk": "low",
+    }
+
+
+async def _quick_gate_candidate(search_result: dict, llm: LLMTool, insight: dict) -> tuple[bool, dict]:
+    """Low-cost pre-filter before deep ReAct enrichment."""
+    maps = search_result.get("maps_data", {}) or {}
+    prompt = (
+        "## Candidate (Google Maps / URL)\n"
+        f"title: {search_result.get('title', '')}\n"
+        f"website: {search_result.get('link', '') or maps.get('website', '')}\n"
+        f"address: {maps.get('address', '')}\n"
+        f"type: {maps.get('type', '')}\n"
+        f"types: {maps.get('types', [])}\n"
+        f"description: {maps.get('description', '')}\n\n"
+        "## Seller context\n"
+        f"products: {insight.get('products', [])}\n"
+        f"target industries: {insight.get('industries', [])}\n"
+        f"target customer profile: {insight.get('target_customer_profile', '')}\n"
+        f"negative criteria: {insight.get('negative_targeting_criteria', [])}\n"
+    )
+    try:
+        raw = await llm.generate(
+            prompt,
+            system=QUICK_GATE_PROMPT,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        if not isinstance(raw, str):
+            return _quick_gate_fallback(search_result, insight)
+        parsed = parse_json(raw, context="QuickGate")
+        if not isinstance(parsed, dict):
+            return _quick_gate_fallback(search_result, insight)
+
+        passed = bool(parsed.get("pass_gate", True))
+        competitor_risk = str(parsed.get("competitor_risk", "")).lower().strip()
+        entity_type = str(parsed.get("entity_type", "")).lower().strip()
+        customer_role_guess = str(parsed.get("customer_role_guess", "")).lower().strip()
+        if bool(parsed.get("suspected_competitor", False)):
+            passed = False
+        if competitor_risk == "high" and customer_role_guess not in {"distributor", "importer", "wholesaler", "oem", "integrator", "end_user"}:
+            passed = False
+        if entity_type and entity_type not in {"company", "unknown"}:
+            passed = False
+
+        return passed, {
+            "pass_gate": passed,
+            "reason": str(parsed.get("reason", "")) or "No reason provided",
+            "risk_flags": parsed.get("risk_flags", []) if isinstance(parsed.get("risk_flags"), list) else [],
+            "confidence": float(parsed.get("confidence", 0.0) or 0.0),
+            "entity_type": entity_type or "unknown",
+            "customer_role_guess": customer_role_guess or "unknown",
+            "competitor_risk": competitor_risk or "low",
+        }
+    except Exception as e:
+        logger.debug("[LeadExtract][QuickGate] fallback due to error: %s", e)
+        return _quick_gate_fallback(search_result, insight)
+
+
+def _normalized_domain(url: str) -> str:
+    """Normalize URL netloc for stable dedupe keys."""
+    domain = urlparse(url or "").netloc.lower().strip()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if ":" in domain:
+        domain = domain.split(":", 1)[0]
+    return domain
+
+
+def _official_website_domain(url: str) -> str:
+    """Return domain only for official company-site URLs.
+
+    Platform/profile/content URLs (LinkedIn, Thomasnet, etc.) are excluded
+    from dedupe keys to avoid false deduplication across different companies.
+    """
+    if classify_url(url or "") != "company_site":
+        return ""
+    return _normalized_domain(url)
+
+
 # ── ReAct system prompt for per-URL lead extraction ──────────────────────
 
-REACT_LEAD_SYSTEM = """You are a B2B lead research agent. Your goal: research a URL, extract company + contact info, score their fit as a potential buyer of our products, and output a structured JSON lead.
+REACT_LEAD_SYSTEM = """You are a B2B lead research agent. Your goal: research a candidate company, extract company + contact info, find key decision makers, verify contact channels, collect concrete customs/trade data, score their fit, and output a structured JSON lead.
 
-Tools available: scrape_page, google_search, extract_lead_info, assess_lead_fit.
+Tools available: scrape_page, google_search, find_customs_data, extract_lead_info, assess_lead_fit.
+
+## Enrichment Strategy
+Beyond the initial Maps record/URL, you MUST use `google_search` to find:
+1. **Official Website**: If website is missing, search by company name + address and identify the most likely official site.
+2. **Decision Makers**: Search for CEO / owner / purchasing manager / sales director and capture name + title.
+3. **Decision-Maker Email Inference**: Only infer a decision-maker email if you found a real same-domain employee email and can identify the company's naming pattern (e.g. first.last@, f.last@). Generic inboxes like info@ or sales@ are NOT enough to infer a person's email.
+4. **Customs Data (concrete, not generic)**: Search customs/import-export datasets (e.g. Panjiva, ImportGenius, Volza, customs portals). Include specific facts when available: period, trade direction, major partner countries, and product keywords/HS-related clues.
+5. **Contact Verification**: If no direct email found, search for contact page, distributor form, or procurement mailbox.
 
 ## Strategy by URL type
-
-**Company website** (e.g. solartech.de):
-1. scrape_page(url) → read content + auto-extracted contacts + contact page links
-2. If contact_page_links found and no emails yet → scrape ONE contact page
-3. extract_lead_info with all gathered content → get structured company facts
-4. assess_lead_fit with the extracted company profile → get match_score and fit analysis
-5. Output final JSON
-
-**B2B platform page** (e.g. alibaba.com/supplier/..., europages.com/...):
-1. scrape_page(url) → try to read the listing
-2. If scrape FAILS: google_search("<company name from URL> official website") → scrape_page(official_url)
-3. extract_lead_info → assess_lead_fit → output final JSON
-
-**LinkedIn company URL** (e.g. linkedin.com/company/acme-corp):
-1. Do NOT scrape LinkedIn. google_search("acme corp official website") using the company name from the URL slug
-2. scrape_page(official_website) → extract_lead_info → assess_lead_fit → output final JSON
-
-**Content page** (article, blog, directory listing):
-1. scrape_page(url) → extract_lead_info → assess_lead_fit → output final JSON
+... (keep existing type logic)
 
 ## CRITICAL RULES:
-- Maximum 6 tool-call rounds.
-- Maximum 2 pages scraped, maximum 1 Google search.
-- ALWAYS call assess_lead_fit after extract_lead_info for any real company — this gives the accurate match_score.
-- When calling assess_lead_fit, pass the FULL JSON string from extract_lead_info as company_profile — do NOT summarize or truncate it.
-- scrape_page auto-extracts emails, phones, and social media.
-- When scrape_page fails, ALWAYS try google_search as fallback.
-- Use the match_score returned by assess_lead_fit in your final JSON — do NOT invent a score.
+- Maximum 8 tool-call rounds.
+- ALWAYS call assess_lead_fit after extract_lead_info.
+- MUST attempt to find at least one decision maker and check customs data.
+- Use `find_customs_data` for customs/trade evidence before writing the final answer.
+- Customs data must be tool-grounded. If `find_customs_data` does not return positive evidence, output exactly "No data found".
+- Do NOT write explanatory negative customs sentences such as "no public data", "not an importer/exporter", or "service company so no customs data". Use exactly "No data found".
+- For decision makers, include title and best-available email. If inferred, add "(inferred)" in email string.
+- Never infer a personal email from domain alone. You must have same-domain employee email evidence plus a recognizable pattern first.
+- For customs data, include at least: period, trade direction, partner countries, and source URL when available.
+- Directly disqualify competitors (manufacturers of the same product).
+- Use the match_score returned by assess_lead_fit in your final JSON.
+- Use Simplified Chinese for user-facing summary fields such as description, customs_data, and evidence.claim. Keep names, product model numbers, HS codes, and URLs unchanged.
 
 ## Final Answer
 When done, output ONLY valid JSON:
-{"company_name":"...","website":"...","industry":"...","description":"...","contact_person":null,"country_code":"","address":"","emails":[],"phone_numbers":[],"social_media":{},"match_score":0.0}
-
-Output this JSON for every real company you find. Only skip if the URL is completely inaccessible and you cannot identify any company at all."""
+{"company_name":"...","website":"...","industry":"...","description":"...","contact_person":null,"country_code":"","address":"","emails":[],"phone_numbers":[],"social_media":{},"match_score":0.0,"fit_score":0.0,"contactability_score":0.0,"priority_tier":"high|medium|low|reject","decision_makers":[{"name":"","title":"","email":"","linkedin":"","source_url":""}],"customs_data":"","evidence":[{"claim":"","source_url":""}]}
+"""
 
 
 def _build_react_tools(
@@ -264,6 +629,7 @@ def _build_react_tools(
     insight: dict,
     *,
     _collected_contacts: dict | None = None,
+    _collected_customs: dict | None = None,
 ) -> list[ToolDef]:
     """Build the ReAct tool definitions for lead extraction.
 
@@ -352,6 +718,30 @@ def _build_react_tools(
             return raw
         except Exception as e:
             return json.dumps({"error": f"LLM extraction failed: {e}"})
+
+    async def tool_find_customs_data(
+        company_name: str = "",
+        website: str = "",
+        country: str = "",
+        product_keywords: list[str] | None = None,
+    ) -> str:
+        """Find concrete customs/trade evidence using provider-aware routing."""
+        if not company_name.strip():
+            return json.dumps({"error": "company_name is required"})
+        try:
+            payload = await route_customs_data(
+                company_name=company_name,
+                website=website,
+                country=country,
+                product_keywords=product_keywords or list(insight.get("products", [])),
+                google_search=google,
+                jina_reader=jina,
+            )
+            if _collected_customs is not None and payload.get("status") == "ok":
+                _collected_customs["result"] = payload
+            return json.dumps(payload)
+        except Exception as e:
+            return json.dumps({"error": f"Customs lookup failed: {e}"})
 
     async def tool_assess_lead_fit(company_profile: str = "") -> str:
         """Score how well a company fits as a buyer/distributor using the full insight context."""
@@ -444,6 +834,25 @@ def _build_react_tools(
             fn=tool_extract_lead_info,
         ),
         ToolDef(
+            name="find_customs_data",
+            description="Find concrete customs/import-export evidence for a company using provider-specific search and fetch logic. Use this before finalizing customs_data. Returns structured JSON with summary and evidence URLs.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "company_name": {"type": "string", "description": "The company legal or trading name"},
+                    "website": {"type": "string", "description": "Official website URL if known"},
+                    "country": {"type": "string", "description": "Country hint such as Germany"},
+                    "product_keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional product keywords to improve HS/product matching",
+                    },
+                },
+                "required": ["company_name"],
+            },
+            fn=tool_find_customs_data,
+        ),
+        ToolDef(
             name="assess_lead_fit",
             description="Score how well this company fits as a buyer/distributor for our products, using the full seller insight (products, industries, value propositions, target regions, ICP). Call this after extract_lead_info for any valid company. Pass the FULL JSON output from extract_lead_info as company_profile — do not truncate. Returns match_score (0-1), score_breakdown per dimension, evidence-based fit_reasons, and recommended_approach.",
             parameters={
@@ -483,11 +892,13 @@ async def _scrape_and_extract(
         Lead dict if valid, None otherwise.
     """
     url = search_result.get("link", "")
-    if not url:
+    maps_data = search_result.get("maps_data", {}) or {}
+    maps_title = (search_result.get("title") or maps_data.get("title") or "").strip()
+    if not url and not maps_title:
         return None
 
-    domain = urlparse(url).netloc
-    url_type = classify_url(url)
+    domain = urlparse(url).netloc if url else maps_title
+    url_type = classify_url(url) if url else "maps_place"
 
     logger.info("[LeadExtract] Processing %s (type=%s)", domain, url_type)
     _emit_progress("scraping", domain=domain, url=url)
@@ -501,10 +912,12 @@ async def _scrape_and_extract(
             "phones": set(),
             "social": {},
         }
+        collected_customs: dict = {"result": None}
 
         tools = _build_react_tools(
             jina, llm, google_search, insight,
             _collected_contacts=collected_contacts,
+            _collected_customs=collected_customs,
         )
 
         products = ", ".join(insight.get("products", []))
@@ -515,12 +928,27 @@ async def _scrape_and_extract(
             "platform_listing": "This is a B2B platform listing (e.g. Alibaba, Europages). The page may not be scrapable — if scrape fails, search for the company's official website.",
             "linkedin_company": "This is a LinkedIn company page. Do NOT try to scrape it — LinkedIn blocks scrapers. Instead, extract the company name from the URL slug and google_search for their official website.",
             "content_page": "This is a content page (article, blog, directory). Scrape it and look for a specific company featured in the content.",
+            "maps_place": "This is a Google Maps business place record. If website exists, prioritize that site. If website is missing, use google_search with company name + address to find official website and contacts first.",
         }
         type_hint = type_hints.get(url_type, "")
+        maps_context = ""
+        if maps_title or maps_data:
+            maps_context = (
+                "## Google Maps Context\n"
+                f"title: {maps_title or '(none)'}\n"
+                f"address: {maps_data.get('address', '')}\n"
+                f"type: {maps_data.get('type', '')}\n"
+                f"types: {maps_data.get('types', [])}\n"
+                f"website: {maps_data.get('website', '') or url}\n"
+                f"phone: {maps_data.get('phoneNumber', '') or maps_data.get('phone_number', '')}\n"
+                f"description: {maps_data.get('description', '')}\n"
+                f"email: {maps_data.get('email', '')}\n"
+            )
 
         user_prompt = (
             f"## Target URL\n{url}\n\n"
             f"## URL Type\n{type_hint}\n\n"
+            f"{maps_context}\n"
             f"## Our Products\n{products}\n\n"
             f"## Target Customer Profile\n{insight.get('target_customer_profile', 'B2B buyer')}\n\n"
             f"Research this URL and extract comprehensive company and contact information. "
@@ -535,7 +963,7 @@ async def _scrape_and_extract(
                 tools=tools,
                 required_json_fields=[
                     "company_name", "website", "emails",
-                    "match_score",
+                    "match_score", "decision_makers",
                 ],
                 hunt_id=hunt_id,
                 agent="lead_extract",
@@ -569,21 +997,44 @@ async def _scrape_and_extract(
             if v and isinstance(v, str) and v.startswith("http")
         }
 
+        existing_phones = sanitize_phone_list([str(p) for p in validated.get("phone_numbers", []) if p])
+        maps_phone = str(maps_data.get("phone_number", "") or maps_data.get("phoneNumber", "")).strip()
+        if maps_phone:
+            existing_phones = sanitize_phone_list(existing_phones + [maps_phone])
+
+        existing_emails = list(set(validated.get("emails", [])))
+        maps_email = str(maps_data.get("email", "")).strip()
+        if maps_email:
+            existing_emails = list(set(existing_emails + [maps_email]))
+
         lead = {
             "company_name": validated.get("company_name") or domain,
-            "website": validated.get("website") or url,
+            "website": validated.get("website") or url or maps_data.get("website", ""),
             "industry": validated.get("industry", ""),
             "business_types": validated.get("business_types", []),
-            "description": validated.get("description", ""),
-            "emails": list(set(validated.get("emails", []))),
-            "phone_numbers": sanitize_phone_list([str(p) for p in validated.get("phone_numbers", []) if p]),
+            "description": validated.get("description", "") or maps_data.get("description", ""),
+            "emails": existing_emails,
+            "phone_numbers": existing_phones,
             "contact_person": validated.get("contact_person"),
-            "address": validated.get("address", ""),
+            "address": validated.get("address", "") or maps_data.get("address", ""),
             "social_media": llm_social,
             "match_score": min(max(float(validated.get("match_score", 0.0)), 0.0), 1.0),
+            "fit_score": min(max(float(validated.get("fit_score", validated.get("match_score", 0.0))), 0.0), 1.0),
+            "contactability_score": min(max(float(validated.get("contactability_score", 0.0)), 0.0), 1.0),
+            "customs_score": min(max(float(validated.get("customs_score", 0.0)), 0.0), 1.0),
+            "priority_tier": str(validated.get("priority_tier", "low") or "low"),
+            "customer_role": str(validated.get("customer_role", "unknown") or "unknown"),
+            "competitor_risk": str(validated.get("competitor_risk", "low") or "low"),
+            "evidence_strength": str(validated.get("evidence_strength", "low") or "low"),
+            "risk_flags": validated.get("risk_flags", []) if isinstance(validated.get("risk_flags", []), list) else [],
             "source": domain,
             "country_code": validated.get("country_code", ""),
             "source_keyword": search_result.get("source_keyword", ""),
+            "decision_makers": validated.get("decision_makers", []),
+            "customs_records": validated.get("customs_records", []) if isinstance(validated.get("customs_records", []), list) else [],
+            "customs_data": validated.get("customs_data", ""),
+            "evidence": validated.get("evidence", []) if isinstance(validated.get("evidence", []), list) else [],
+            "maps_data": maps_data,
         }
 
         # ── P0-3: Merge Regex-extracted contacts into lead ────────────
@@ -595,6 +1046,47 @@ async def _scrape_and_extract(
             extra_phones=list(collected_contacts["phones"]),
             extra_social=collected_contacts["social"],
         )
+        customs_result = collected_customs.get("result") if isinstance(collected_customs, dict) else None
+        if isinstance(customs_result, dict) and customs_result.get("status") == "ok":
+            customs_summary = str(customs_result.get("summary", "")).strip()
+            current_customs = str(lead.get("customs_data", "") or "").strip()
+            if customs_summary and current_customs.lower() in {"", "no data found", "no concrete customs data found"}:
+                lead["customs_data"] = customs_summary
+            lead["customs_records"] = [
+                item for item in customs_result.get("evidence", [])
+                if isinstance(item, dict)
+            ]
+            existing_urls = {
+                str(item.get("source_url", ""))
+                for item in lead.get("evidence", [])
+                if isinstance(item, dict)
+            }
+            for item in customs_result.get("evidence", []):
+                if not isinstance(item, dict):
+                    continue
+                source_url = str(item.get("source_url", ""))
+                if not source_url or source_url in existing_urls:
+                    continue
+                parts = []
+                if item.get("provider"):
+                    parts.append(str(item["provider"]))
+                if item.get("trade_direction"):
+                    parts.append(str(item["trade_direction"]).replace("_", "/"))
+                if item.get("period"):
+                    parts.append(f"period {item['period']}")
+                if item.get("partner_countries"):
+                    parts.append(f"partners {', '.join(item['partner_countries'])}")
+                lead["evidence"].append({
+                    "claim": "Customs evidence: " + "; ".join(parts) if parts else "Customs evidence",
+                    "source_url": source_url,
+                })
+                existing_urls.add(source_url)
+        elif not _has_concrete_customs_data(lead.get("customs_data", "")):
+            lead["customs_data"] = "No data found"
+            lead["customs_records"] = []
+
+        lead = _normalize_decision_maker_emails(lead)
+        lead = _apply_evidence_to_scores(lead)
 
         contact_summary = (
             f"emails={len(lead['emails'])}, phones={len(lead['phone_numbers'])}, "
@@ -669,22 +1161,32 @@ async def lead_extract_node(state: HuntState) -> dict:
     insight = insight if isinstance(insight, dict) else {}
     keyword_stats = dict(state.get("keyword_search_stats", {}))
 
-    # Determine which URLs to process (skip already-extracted)
-    existing_domains = {urlparse(l.get("website", "")).netloc for l in existing_leads}
-    to_process = [
-        r for r in search_results
-        if urlparse(r.get("link", "")).netloc not in existing_domains
-        and r.get("link", "")
-    ]
+    # Determine which URLs to process (skip only by official website domain).
+    existing_domains = {
+        d for d in (_official_website_domain(l.get("website", "")) for l in existing_leads)
+        if d
+    }
+    to_process = []
+    for r in search_results:
+        link = r.get("link", "")
+        maps_title = (r.get("title") or (r.get("maps_data") or {}).get("title") or "").strip()
+        if not link and not maps_title:
+            continue
+        link_official_domain = _official_website_domain(link)
+        if link_official_domain and link_official_domain in existing_domains:
+            continue
+        to_process.append(r)
 
     # Filter out truly irrelevant URLs (search engines, entertainment)
-    processable = [r for r in to_process if classify_url(r.get("link", "")) != "irrelevant"]
+    processable = [
+        r for r in to_process
+        if (not r.get("link")) or classify_url(r.get("link", "")) != "irrelevant"
+    ]
 
     logger.info(
         "[LeadExtractAgent] %d URLs to process (%d irrelevant filtered out)",
         len(processable), len(to_process) - len(processable),
     )
-    _emit_progress("deep_scrape_start", total_urls=len(processable))
 
     if not processable:
         logger.info("[LeadExtractAgent] No processable URLs, skipping")
@@ -702,13 +1204,50 @@ async def lead_extract_node(state: HuntState) -> dict:
     google = GoogleSearchTool()
 
     try:
+        # ── Quick Gate: low-cost pre-filter before deep ReAct ───────────
+        async def _run_gate(r: dict) -> tuple[dict, bool, dict]:
+            try:
+                passed, gate = await _quick_gate_candidate(r, llm, insight)
+                return r, passed, gate
+            except Exception as e:
+                logger.warning("[LeadExtract][QuickGate] gate failed, fallback keep: %s", e)
+                return r, True, {"reason": "gate_error_fallback_keep", "risk_flags": ["insufficient_data"], "confidence": 0.0}
+
+        gated_candidates: list[dict] = []
+        filtered_count = 0
+        gate_tasks = [_run_gate(r) for r in processable]
+        for future in asyncio.as_completed(gate_tasks):
+            row, passed, gate = await future
+            if passed:
+                row["quick_gate"] = gate
+                gated_candidates.append(row)
+            else:
+                filtered_count += 1
+                _emit_progress(
+                    "gate_filtered",
+                    domain=(urlparse(row.get("link", "")).netloc or row.get("title", "unknown")),
+                    reason=gate.get("reason", ""),
+                    risk_flags=gate.get("risk_flags", []),
+                    confidence=gate.get("confidence", 0.0),
+                )
+
+        logger.info(
+            "[LeadExtractAgent] QuickGate kept %d / %d candidates (filtered=%d)",
+            len(gated_candidates), len(processable), filtered_count,
+        )
+        _emit_progress("deep_scrape_start", total_urls=len(gated_candidates), filtered_by_gate=filtered_count)
+
+        if not gated_candidates:
+            logger.info("[LeadExtractAgent] All candidates filtered by quick gate, skipping ReAct extraction")
+            return {"current_stage": "lead_extract"}
+
         scrape_tasks = [
             _scrape_and_extract(
                 r, jina, llm, semaphore,
                 insight=insight, google_search=google,
                 hunt_id=hunt_id, hunt_round=hunt_round,
             )
-            for r in processable
+            for r in gated_candidates
         ]
         
         results = []
@@ -732,10 +1271,11 @@ async def lead_extract_node(state: HuntState) -> dict:
     for lead in results:
         if lead is None:
             continue
-        domain = urlparse(lead["website"]).netloc
-        if domain in seen_domains:
+        official_domain = _official_website_domain(lead.get("website", ""))
+        if official_domain and official_domain in seen_domains:
             continue
-        seen_domains.add(domain)
+        if official_domain:
+            seen_domains.add(official_domain)
         new_leads.append(lead)
 
     # ── Verify emails via MX record check (concurrent) ───────────────────

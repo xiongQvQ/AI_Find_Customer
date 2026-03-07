@@ -13,33 +13,30 @@ from agents.search_agent import _REGION_GEO
 
 logger = logging.getLogger(__name__)
 
-KEYWORD_GEN_SYSTEM_PROMPT = """You are an expert B2B keyword strategist. Generate search keywords to find potential B2B buyers, distributors, importers, and wholesalers for a specific product.
+KEYWORD_GEN_SYSTEM_PROMPT = """You are an expert B2B keyword strategist specializing in Google Maps search. Generate search keywords and business categories to find potential B2B buyers, distributors, importers, and wholesalers for a specific product.
 
-## Keyword Dimension Coverage
+## Keyword Dimension Coverage for Google Maps
 Each batch of {n} keywords MUST cover multiple dimensions — do NOT generate all keywords from the same dimension:
 
-1. **Product + buyer role** — e.g. "solar inverter distributor Germany", "PV module importer Poland"
-2. **Industry + application** — e.g. "renewable energy wholesaler Europe", "off-grid solar installer Italy"
-3. **Value proposition** — e.g. "high efficiency solar panel supplier", "low voltage inverter OEM partner"
-4. **Buyer type** — e.g. "electrical equipment wholesale company", "energy storage system reseller"
-5. **Region + trade term** — e.g. "solar products import export Spain", "photovoltaic dealer Eastern Europe"
-6. **B2B platform** — e.g. "site:europages.com solar inverter", "site:kompass.com PV distributor"
-7. **Certification/standard** — e.g. "CE certified solar inverter buyer", "IEC 62109 compliant distributor"
+1. **Local Buyer Role + City/Region** — e.g. "solar inverter distributor Berlin", "PV module importer Warsaw"
+2. **Business Category + City/Region** — e.g. "electrical equipment wholesaler Munich", "renewable energy installer Paris"
+3. **Product + Wholesale/Trade** — e.g. "industrial machinery wholesale Lyon", "LED lighting supplier Madrid"
+4. **Niche Application + Service** — e.g. "off-grid solar system provider Milan", "EV charger installation company London"
+5. **Local Competitor/Market Keywords** — e.g. "renewable energy storage systems retailer", "photovoltaic equipment merchant"
 
 ## Rules
 1. Generate exactly {n} keywords as a JSON array of strings.
-2. Each keyword must be a specific, search-ready phrase (3-8 words).
+2. Each keyword must be a specific, search-ready phrase (2-5 words) optimized for Google Maps.
 3. Do NOT repeat any previously used keywords.
 4. Every keyword MUST target the specified regions — never generate keywords for other regions.
-5. Spread keywords across at least 4 different dimensions above.
-6. If feedback is provided: generate MORE keywords similar to high-performing ones, AVOID patterns of low-performing ones, and try UNTESTED dimensions.
-7. Prefer long-tail specific phrases over generic ones — they find more targeted leads.
+5. Focus on finding PHYSICAL businesses (distributors, wholesalers, showrooms, retailers).
+6. If feedback is provided: generate MORE keywords similar to high-performing ones, AVOID patterns of low-performing ones.
 
 ## Local Language Requirement
 {local_language_instruction}
 
 Output MUST be a valid JSON object with a "keywords" key containing an array of strings:
-{{"keywords": ["solar inverter distributor Germany", "PV module importer Poland", "renewable energy wholesaler Europe", ...]}}"""
+{{"keywords": ["solar inverter distributor Berlin", "electrical equipment wholesaler Munich", ...]}}"""
 
 
 # ── Language detection ───────────────────────────────────────────────────

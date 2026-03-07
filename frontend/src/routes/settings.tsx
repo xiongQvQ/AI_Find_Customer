@@ -30,7 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";  // 生产环境: VITE_API_URL=https://license.b2binsights.io
 
 // ── Provider definitions ──────────────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ const PROVIDERS: Provider[] = [
 
 async function fetchSettings() {
   const res = await fetch(`${API_BASE}/api/settings`);
-  if (!res.ok) throw new Error("Failed to load settings");
+  if (!res.ok) throw new Error("加载设置失败");
   return res.json();
 }
 
@@ -139,12 +139,12 @@ async function saveSettings(payload: Record<string, string>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to save settings");
+  if (!res.ok) throw new Error("保存设置失败");
 }
 
 async function fetchLicenseStatus() {
   const res = await fetch(`${API_BASE}/api/settings/license/status`);
-  if (!res.ok) throw new Error("Failed to check license");
+  if (!res.ok) throw new Error("检查授权失败");
   return res.json();
 }
 
@@ -156,7 +156,7 @@ async function activateLicense(data: { license_key: string; machine_label: strin
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.detail ?? "Activation failed");
+    throw new Error(err.detail ?? "激活失败");
   }
   return res.json();
 }
@@ -248,7 +248,7 @@ function ModelCombobox({
             id={id}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder ?? "Select or type a model…"}
+            placeholder={placeholder ?? "选择或输入模型名称…"}
             className="font-mono text-sm pr-8"
             onFocus={() => setOpen(true)}
           />
@@ -278,7 +278,7 @@ function ModelCombobox({
             ))}
             <div className="px-3 py-1.5 border-t">
               <p className="text-xs text-muted-foreground">
-                Or type any custom model name above
+                或直接在上方输入自定义模型名称
               </p>
             </div>
           </div>
@@ -286,7 +286,7 @@ function ModelCombobox({
       )}
       {isCustom && (
         <p className="text-xs text-muted-foreground mt-1">
-          ✎ Custom model: <span className="font-mono">{value}</span>
+          ✎ 自定义模型：<span className="font-mono">{value}</span>
         </p>
       )}
     </div>
@@ -297,19 +297,19 @@ function LicenseStatusBadge({ status }: { status: string }) {
   if (status === "valid")
     return (
       <Badge className="bg-green-500/15 text-green-600 border-green-500/30">
-        <CheckCircle2 className="h-3 w-3 mr-1" /> Active
+        <CheckCircle2 className="h-3 w-3 mr-1" /> 已激活
       </Badge>
     );
   if (status === "valid_offline")
     return (
       <Badge className="bg-yellow-500/15 text-yellow-600 border-yellow-500/30">
-        <AlertCircle className="h-3 w-3 mr-1" /> Offline Mode
+        <AlertCircle className="h-3 w-3 mr-1" /> 离线模式
       </Badge>
     );
   if (status === "not_activated")
     return (
       <Badge variant="outline">
-        <XCircle className="h-3 w-3 mr-1" /> Not Activated
+        <XCircle className="h-3 w-3 mr-1" /> 未激活
       </Badge>
     );
   return (
@@ -356,37 +356,37 @@ function LicensePanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-primary" />
-            <CardTitle>License</CardTitle>
+            <CardTitle>授权信息</CardTitle>
           </div>
           {licStatus && <LicenseStatusBadge status={licStatus.status} />}
         </div>
         <CardDescription>
-          Activate your AI Hunter license to unlock all features.
+          激活 B2Binsights 授权后可解锁全部功能。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" /> Checking license…
+            <Loader2 className="h-4 w-4 animate-spin" /> 正在检查授权…
           </div>
         )}
         {isActivated && licStatus && (
           <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
             {licStatus.customer_name && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Customer</span>
+                <span className="text-muted-foreground">客户</span>
                 <span className="font-medium">{licStatus.customer_name}</span>
               </div>
             )}
             {licStatus.plan && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Plan</span>
+                <span className="text-muted-foreground">套餐</span>
                 <span className="font-medium capitalize">{licStatus.plan}</span>
               </div>
             )}
             {licStatus.expires_at && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Token valid until</span>
+                <span className="text-muted-foreground">授权有效期</span>
                 <span className="font-medium">
                   {new Date(licStatus.expires_at).toLocaleDateString()}
                 </span>
@@ -400,7 +400,7 @@ function LicensePanel() {
         {!isActivated && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="license-key">License Key</Label>
+              <Label htmlFor="license-key">授权码</Label>
               <Input
                 id="license-key"
                 placeholder="AIHNT-XXXXX-XXXXX-XXXXX-XXXXX"
@@ -410,10 +410,10 @@ function LicensePanel() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="machine-label">Device Name (optional)</Label>
+              <Label htmlFor="machine-label">设备名称（可选）</Label>
               <Input
                 id="machine-label"
-                placeholder="e.g. Work MacBook"
+                placeholder="例如：销售部 MacBook"
                 value={machineLabel}
                 onChange={(e) => setMachineLabel(e.target.value)}
               />
@@ -431,9 +431,9 @@ function LicensePanel() {
               className="w-full"
             >
               {activateMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Activating…</>
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 激活中…</>
               ) : (
-                "Activate License"
+                "激活授权"
               )}
             </Button>
           </div>
@@ -448,13 +448,13 @@ function LicensePanel() {
               className="text-destructive hover:text-destructive"
             >
               {deactivateMutation.isPending ? (
-                <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Deactivating…</>
+                <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> 解绑中…</>
               ) : (
-                "Deactivate this device"
+                "解绑当前设备"
               )}
             </Button>
             <p className="text-xs text-muted-foreground mt-1">
-              Use this to transfer your license to another machine.
+              如需迁移授权到其他设备，请先解绑当前设备。
             </p>
           </div>
         )}
@@ -502,17 +502,17 @@ function LLMProviderPanel({
       <CardHeader>
         <div className="flex items-center gap-2">
           <Cpu className="h-5 w-5 text-primary" />
-          <CardTitle className="text-base">AI Model Configuration</CardTitle>
+          <CardTitle className="text-base">AI 模型配置</CardTitle>
         </div>
         <CardDescription>
-          Select your LLM provider, enter the API key, then choose models.
+          选择 LLM 供应商，填写 API Key，并配置默认模型与推理模型。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
 
         {/* Provider selector */}
         <div className="space-y-1.5">
-          <Label>LLM Provider</Label>
+          <Label>LLM 供应商</Label>
           <div className="grid grid-cols-4 gap-2">
             {PROVIDERS.map((p) => (
               <button
@@ -538,7 +538,7 @@ function LLMProviderPanel({
             id="llm-api-key"
             value={apiKeyValue}
             onChange={(v) => onChange(provider.apiKeyField, v)}
-            placeholder={provider.apiKeyPlaceholder || `Enter ${provider.label} API key`}
+            placeholder={provider.apiKeyPlaceholder || `输入 ${provider.label} API Key`}
           />
         </div>
 
@@ -547,9 +547,9 @@ function LLMProviderPanel({
         {/* Default / Fast model */}
         <div className="space-y-1.5">
           <Label htmlFor="llm-default-model">
-            Default Model
+            默认模型
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              — extraction, keyword gen, email craft
+              — 用于提取、关键词生成、邮件生成
             </span>
           </Label>
           <ModelCombobox
@@ -564,9 +564,9 @@ function LLMProviderPanel({
         {/* Reasoning model */}
         <div className="space-y-1.5">
           <Label htmlFor="llm-reasoning-model">
-            Reasoning Model
+            推理模型
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              — ReAct agent decisions
+              — 用于 ReAct 决策
             </span>
           </Label>
           <ModelCombobox
@@ -588,20 +588,20 @@ function LLMProviderPanel({
 type FieldDef = { key: string; label: string; placeholder?: string; secret?: boolean; hint?: string };
 
 const SEARCH_FIELDS: FieldDef[] = [
-  { key: "tavily_api_key", label: "Tavily API Key", placeholder: "tvly-… (comma-separated for multi-key)", secret: true, hint: "Primary web search. Supports multiple keys: key1,key2" },
-  { key: "serper_api_key", label: "Serper API Key", placeholder: "", secret: true, hint: "Google Maps search + web search fallback" },
-  { key: "jina_api_key", label: "Jina Reader API Key", placeholder: "", secret: true, hint: "Web scraping" },
-  { key: "amap_api_key", label: "Amap API Key (高德)", placeholder: "", secret: true, hint: "China region map search" },
-  { key: "baidu_api_key", label: "Baidu API Key (百度)", placeholder: "", secret: true, hint: "China region web search" },
+  { key: "tavily_api_key", label: "Tavily API Key", placeholder: "tvly-…（多 Key 用逗号分隔）", secret: true, hint: "通用网页搜索，支持多 Key：key1,key2" },
+  { key: "serper_api_key", label: "Serper API Key", placeholder: "", secret: true, hint: "Google Maps 搜索及部分网页补充查询" },
+  { key: "jina_api_key", label: "Jina Reader API Key", placeholder: "", secret: true, hint: "网页读取与抓取" },
+  { key: "amap_api_key", label: "Amap API Key（高德）", placeholder: "", secret: true, hint: "中国区域地图搜索" },
+  { key: "baidu_api_key", label: "Baidu API Key（百度）", placeholder: "", secret: true, hint: "中国区域网页搜索" },
 ];
 
 const EMAIL_FIELDS: FieldDef[] = [
-  { key: "hunter_api_key", label: "Hunter.io API Key", placeholder: "", secret: true, hint: "Email finder" },
+  { key: "hunter_api_key", label: "Hunter.io API Key", placeholder: "", secret: true, hint: "企业邮箱发现" },
 ];
 
 const CONCURRENCY_FIELDS: FieldDef[] = [
-  { key: "search_concurrency", label: "Search Concurrency", placeholder: "10", hint: "Max parallel search API calls" },
-  { key: "scrape_concurrency", label: "Scrape Concurrency", placeholder: "5", hint: "Max parallel Jina scrape calls" },
+  { key: "search_concurrency", label: "搜索并发数", placeholder: "10", hint: "搜索 API 最大并发调用数" },
+  { key: "scrape_concurrency", label: "抓取并发数", placeholder: "5", hint: "Jina 抓取最大并发调用数" },
 ];
 
 function FieldGroup({
@@ -719,7 +719,7 @@ export function SettingsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading settings…
+        <Loader2 className="h-6 w-6 animate-spin mr-2" /> 正在加载设置…
       </div>
     );
   }
@@ -729,21 +729,21 @@ export function SettingsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Settings className="h-6 w-6" /> Settings
+            <Settings className="h-6 w-6" /> 系统设置
           </h1>
           {data?.env_path && (
             <p className="text-xs text-muted-foreground mt-1">
-              Config: <code className="bg-muted px-1 rounded">{data.env_path}</code>
+              配置文件：<code className="bg-muted px-1 rounded">{data.env_path}</code>
             </p>
           )}
         </div>
         <Button onClick={handleSave} disabled={saveMutation.isPending}>
           {saveMutation.isPending ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 保存中…</>
           ) : saved ? (
-            <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" /> Saved</>
+            <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" /> 已保存</>
           ) : (
-            <><Save className="h-4 w-4 mr-2" /> Save Settings</>
+            <><Save className="h-4 w-4 mr-2" /> 保存设置</>
           )}
         </Button>
       </div>
@@ -758,9 +758,9 @@ export function SettingsPage() {
 
       {/* Search */}
       <FieldGroup
-        title="Search API Keys"
+        title="搜索 API 密钥"
         icon={<Search className="h-5 w-5 text-primary" />}
-        description="Tavily is the primary web search engine. Serper is used for Google Maps and as fallback."
+        description="Tavily 用于通用网页检索，Serper 用于 Google Maps 与部分补充查询。"
         fields={SEARCH_FIELDS}
         values={values}
         onChange={handleChange}
@@ -768,7 +768,7 @@ export function SettingsPage() {
 
       {/* Email */}
       <FieldGroup
-        title="Email Tools"
+        title="邮箱工具"
         icon={<Mail className="h-5 w-5 text-primary" />}
         fields={EMAIL_FIELDS}
         values={values}
@@ -777,9 +777,9 @@ export function SettingsPage() {
 
       {/* Concurrency */}
       <FieldGroup
-        title="Performance"
+        title="性能参数"
         icon={<RefreshCw className="h-5 w-5 text-primary" />}
-        description="Adjust concurrency limits based on your API rate limits."
+        description="根据你的 API 限流情况调整并发设置。"
         fields={CONCURRENCY_FIELDS}
         values={values}
         onChange={handleChange}
@@ -788,11 +788,11 @@ export function SettingsPage() {
       <div className="flex justify-end pb-8">
         <Button onClick={handleSave} disabled={saveMutation.isPending} size="lg">
           {saveMutation.isPending ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 保存中…</>
           ) : saved ? (
-            <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" /> Saved</>
+            <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" /> 已保存</>
           ) : (
-            <><Save className="h-4 w-4 mr-2" /> Save Settings</>
+            <><Save className="h-4 w-4 mr-2" /> 保存设置</>
           )}
         </Button>
       </div>

@@ -175,6 +175,7 @@ class TestE2EPipeline:
              patch("agents.lead_extract_agent.react_loop", return_value=FAKE_LEAD_VALID) as MockReact, \
              patch("agents.lead_extract_agent.get_settings") as mock_lead_settings, \
              patch("agents.email_craft_agent.LLMTool") as MockLLMEmail, \
+             patch("agents.email_craft_agent.react_loop", return_value=FAKE_EMAIL_SEQUENCE), \
              patch("agents.email_craft_agent.get_settings") as mock_email_settings:
 
             # ── InsightAgent mocks ──────────────────────────────────────
@@ -199,7 +200,19 @@ class TestE2EPipeline:
             MockSearch.return_value = search_inst
 
             maps_inst = AsyncMock()
-            maps_inst.search = AsyncMock(return_value=[])
+            maps_inst.search = AsyncMock(return_value=[
+                {
+                    "title": "EnergieDist GmbH",
+                    "website": "https://energiedist.de",
+                    "address": "Berlin, Germany",
+                    "type": "Energy supplier",
+                    "types": ["Energy supplier"],
+                    "phone_number": "+49 30 12345678",
+                    "description": "Distributor of renewable energy equipment.",
+                    "email": "sales@energiedist.de",
+                    "place_id": "maps-e2e-1",
+                }
+            ])
             maps_inst.close = AsyncMock()
             MockMaps.return_value = maps_inst
 
@@ -296,6 +309,7 @@ class TestE2EPipeline:
              patch("agents.lead_extract_agent.react_loop", return_value=json.dumps({"is_valid_lead": False, "emails": [], "phone_numbers": [], "social_media": {}, "match_score": 0.0})) as MockReact2, \
              patch("agents.lead_extract_agent.get_settings") as mock_lead_settings, \
              patch("agents.email_craft_agent.LLMTool") as MockLLMEmail, \
+             patch("agents.email_craft_agent.react_loop", return_value=FAKE_EMAIL_SEQUENCE), \
              patch("agents.email_craft_agent.get_settings") as mock_email_settings:
 
             # InsightAgent

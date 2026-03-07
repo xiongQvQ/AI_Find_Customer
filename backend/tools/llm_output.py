@@ -161,6 +161,17 @@ LEAD_REQUIRED: dict[str, type | tuple[type, ...]] = {
     "phone_numbers": list,
     "social_media": dict,
     "match_score": (int, float),
+    "fit_score": (int, float),
+    "contactability_score": (int, float),
+    "customs_score": (int, float),
+    "priority_tier": str,
+    "customer_role": str,
+    "competitor_risk": str,
+    "evidence_strength": str,
+    "risk_flags": list,
+    "decision_makers": list,
+    "customs_records": list,
+    "customs_data": (str, type(None)),
 }
 
 LEAD_DEFAULTS: dict[str, Any] = {
@@ -173,10 +184,22 @@ LEAD_DEFAULTS: dict[str, Any] = {
     "phone_numbers": [],
     "social_media": {},
     "match_score": 0.0,
+    "fit_score": 0.0,
+    "contactability_score": 0.0,
+    "customs_score": 0.0,
+    "priority_tier": "low",
+    "customer_role": "unknown",
+    "competitor_risk": "low",
+    "evidence_strength": "low",
+    "risk_flags": [],
     "contact_person": None,
     "address": "",
     "country_code": "",
     "business_types": [],
+    "decision_makers": [],
+    "customs_records": [],
+    "customs_data": None,
+    "evidence": [],
 }
 
 EMAIL_SEQUENCE_REQUIRED: dict[str, type | tuple[type, ...]] = {

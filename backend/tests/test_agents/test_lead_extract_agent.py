@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from agents.lead_extract_agent import lead_extract_node, _scrape_and_extract, _verify_lead_emails
+from agents.lead_extract_agent import lead_extract_node, _scrape_and_extract, _verify_lead_emails, _apply_evidence_to_scores, _quick_gate_candidate, _has_concrete_customs_data, _normalize_decision_maker_emails
 import asyncio
 
 
@@ -154,6 +154,38 @@ class TestScrapeAndExtract:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_maps_only_result_without_link_is_supported(self):
+        sem = asyncio.Semaphore(5)
+        jina = AsyncMock()
+        llm = AsyncMock()
+        google = AsyncMock()
+
+        with patch("agents.lead_extract_agent.react_loop", return_value=VALID_REACT_RESULT):
+            result = await _scrape_and_extract(
+                {
+                    "title": "SolarTech GmbH",
+                    "link": "",
+                    "source_keyword": "kw1",
+                    "maps_data": {
+                        "title": "SolarTech GmbH",
+                        "address": "Berlin",
+                        "type": "Solar company",
+                        "types": ["Solar company"],
+                        "website": "https://solartech.de",
+                        "phoneNumber": "+49 30 12345678",
+                        "description": "Leading solar panel distributor in Berlin.",
+                        "email": "info@solartech.de",
+                    },
+                },
+                jina, llm, sem, insight={"products": ["solar inverter"]}, google_search=google,
+            )
+
+        assert result is not None
+        assert result["company_name"] == "SolarTech GmbH"
+        assert result["maps_data"]["address"] == "Berlin"
+        assert "info@solartech.de" in result["emails"]
+
+    @pytest.mark.asyncio
     async def test_match_score_clamped(self):
         sem = asyncio.Semaphore(5)
         jina = AsyncMock()
@@ -222,7 +254,7 @@ class TestScrapeAndExtract:
 
     @pytest.mark.asyncio
     async def test_react_tools_are_built_with_correct_dependencies(self):
-        """Verify that _build_react_tools creates 4 tools: scrape_page, google_search, extract_lead_info, assess_lead_fit."""
+        """Verify that _build_react_tools creates 5 tools including customs lookup."""
         from agents.lead_extract_agent import _build_react_tools
 
         jina = AsyncMock()
@@ -232,9 +264,9 @@ class TestScrapeAndExtract:
 
         tools = _build_react_tools(jina, llm, google, insight)
 
-        assert len(tools) == 4
+        assert len(tools) == 5
         tool_names = {t.name for t in tools}
-        assert tool_names == {"scrape_page", "google_search", "extract_lead_info", "assess_lead_fit"}
+        assert tool_names == {"scrape_page", "google_search", "find_customs_data", "extract_lead_info", "assess_lead_fit"}
 
     @pytest.mark.asyncio
     async def test_react_tool_scrape_page_auto_extracts_contacts(self):
@@ -291,6 +323,72 @@ class TestScrapeAndExtract:
         result = await lead_tool.fn(page_content="Some company page content")
         parsed = json.loads(result)
         assert parsed["company_name"] == "SolarTech GmbH"
+
+
+class TestQuickGate:
+    @pytest.mark.asyncio
+    async def test_quick_gate_rejects_non_company_entity(self):
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value=json.dumps({
+            "pass_gate": False,
+            "entity_type": "directory",
+            "customer_role_guess": "unknown",
+            "competitor_risk": "low",
+            "confidence": 0.92,
+            "reason": "Directory page, not a real prospect company.",
+            "risk_flags": ["directory"],
+        }))
+
+        passed, gate = await _quick_gate_candidate(
+            {"title": "Industrial Directory Listing", "maps_data": {"description": "Supplier directory"}},
+            llm,
+            {"products": ["micro switch"]},
+        )
+
+        assert passed is False
+        assert gate["entity_type"] == "directory"
+        assert "directory" in gate["risk_flags"]
+
+    @pytest.mark.asyncio
+    async def test_quick_gate_keeps_possible_channel_even_with_competitor_risk(self):
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value=json.dumps({
+            "pass_gate": True,
+            "entity_type": "company",
+            "customer_role_guess": "distributor",
+            "competitor_risk": "high",
+            "confidence": 0.61,
+            "reason": "Sells related products but appears to act as distributor/importer.",
+            "risk_flags": ["possible_competitor"],
+        }))
+
+        passed, gate = await _quick_gate_candidate(
+            {"title": "Acme Electrical", "maps_data": {"description": "Distributor of industrial switches"}},
+            llm,
+            {"products": ["micro switch"]},
+        )
+
+        assert passed is True
+        assert gate["customer_role_guess"] == "distributor"
+        assert gate["competitor_risk"] == "high"
+
+    @pytest.mark.asyncio
+    async def test_react_tool_find_customs_data(self):
+        """Test the customs router tool function directly."""
+        from agents.lead_extract_agent import _build_react_tools
+
+        with patch("agents.lead_extract_agent.route_customs_data", new=AsyncMock(return_value={
+            "status": "ok",
+            "summary": "importgenius: period 2024; import; partners: Vietnam. Source: https://example.com",
+            "evidence": [{"provider": "importgenius", "source_url": "https://example.com"}],
+        })):
+            tools = _build_react_tools(AsyncMock(), AsyncMock(), AsyncMock(), {"products": ["micro switch"]})
+            customs_tool = next(t for t in tools if t.name == "find_customs_data")
+
+            result = await customs_tool.fn(company_name="Acme GmbH", website="https://acme.de", country="Germany")
+            parsed = json.loads(result)
+            assert parsed["status"] == "ok"
+            assert parsed["evidence"][0]["provider"] == "importgenius"
 
 
 class TestLeadExtractNode:
@@ -386,6 +484,105 @@ class TestLeadExtractNode:
             result = await lead_extract_node(state)
 
         assert result["keyword_search_stats"]["kw1"]["leads_found"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_dedupe_by_linkedin_host(self):
+        """Different LinkedIn company pages must not be deduped by linkedin.com host."""
+        state = _base_state(
+            search_results=[
+                {"link": "https://linkedin.com/company/acme-a", "source_keyword": "kw1"},
+                {"link": "https://linkedin.com/company/acme-b", "source_keyword": "kw1"},
+            ]
+        )
+
+        async def react_for_linkedin(**kwargs):
+            prompt = kwargs.get("user_prompt", "")
+            if "acme-a" in prompt:
+                return json.dumps({
+                    "company_name": "Acme A",
+                    "website": "https://linkedin.com/company/acme-a",
+                    "industry": "Manufacturing",
+                    "description": "A",
+                    "emails": ["a@example.com"],
+                    "phone_numbers": [],
+                    "social_media": {},
+                    "match_score": 0.7,
+                })
+            return json.dumps({
+                "company_name": "Acme B",
+                "website": "https://linkedin.com/company/acme-b",
+                "industry": "Manufacturing",
+                "description": "B",
+                "emails": ["b@example.com"],
+                "phone_numbers": [],
+                "social_media": {},
+                "match_score": 0.71,
+            })
+
+        with patch("agents.lead_extract_agent.JinaReaderTool") as MockJina, \
+             patch("agents.lead_extract_agent.LLMTool") as MockLLM, \
+             patch("agents.lead_extract_agent.GoogleSearchTool") as MockGoogle, \
+             patch("agents.lead_extract_agent.react_loop", side_effect=react_for_linkedin), \
+             patch("agents.lead_extract_agent.get_settings") as mock_settings:
+
+            mock_settings.return_value.scrape_concurrency = 5
+            MockJina.return_value = AsyncMock(close=AsyncMock())
+            MockLLM.return_value = AsyncMock(close=AsyncMock())
+            MockGoogle.return_value = AsyncMock(close=AsyncMock())
+
+            result = await lead_extract_node(state)
+
+        # Should keep both; no dedupe on linkedin.com host
+        assert len(result["leads"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_dedupes_platform_results_by_official_website(self):
+        """Platform URLs should dedupe only when extracted official website matches."""
+        state = _base_state(
+            search_results=[
+                {"link": "https://thomasnet.com/company/acme-a", "source_keyword": "kw1"},
+                {"link": "https://alibaba.com/company/acme-a", "source_keyword": "kw1"},
+            ]
+        )
+
+        async def react_for_platforms(**kwargs):
+            prompt = kwargs.get("user_prompt", "")
+            if "thomasnet.com" in prompt:
+                return json.dumps({
+                    "company_name": "Acme Corp",
+                    "website": "https://acme.com",
+                    "industry": "Manufacturing",
+                    "description": "A",
+                    "emails": ["sales@acme.com"],
+                    "phone_numbers": [],
+                    "social_media": {},
+                    "match_score": 0.8,
+                })
+            return json.dumps({
+                "company_name": "Acme Corporation",
+                "website": "https://www.acme.com/about",
+                "industry": "Manufacturing",
+                "description": "B",
+                "emails": ["contact@acme.com"],
+                "phone_numbers": [],
+                "social_media": {},
+                "match_score": 0.81,
+            })
+
+        with patch("agents.lead_extract_agent.JinaReaderTool") as MockJina, \
+             patch("agents.lead_extract_agent.LLMTool") as MockLLM, \
+             patch("agents.lead_extract_agent.GoogleSearchTool") as MockGoogle, \
+             patch("agents.lead_extract_agent.react_loop", side_effect=react_for_platforms), \
+             patch("agents.lead_extract_agent.get_settings") as mock_settings:
+
+            mock_settings.return_value.scrape_concurrency = 5
+            MockJina.return_value = AsyncMock(close=AsyncMock())
+            MockLLM.return_value = AsyncMock(close=AsyncMock())
+            MockGoogle.return_value = AsyncMock(close=AsyncMock())
+
+            result = await lead_extract_node(state)
+
+        assert len(result["leads"]) == 1
 
     @pytest.mark.asyncio
     async def test_empty_search_results(self):
@@ -533,7 +730,7 @@ class TestCollectedContactsMerge:
 
         # Without _collected_contacts (backward compat)
         tools = _build_react_tools(AsyncMock(), AsyncMock(), AsyncMock(), {})
-        assert len(tools) == 4  # scrape_page, google_search, extract_lead_info, assess_lead_fit
+        assert len(tools) == 5  # scrape_page, google_search, find_customs_data, extract_lead_info, assess_lead_fit
 
         # With _collected_contacts
         collected = {"emails": set(), "phones": set(), "social": {}}
@@ -541,7 +738,57 @@ class TestCollectedContactsMerge:
             AsyncMock(), AsyncMock(), AsyncMock(), {},
             _collected_contacts=collected,
         )
-        assert len(tools) == 4
+        assert len(tools) == 5
+
+    @pytest.mark.asyncio
+    async def test_customs_tool_result_merged_into_lead(self):
+        """If ReAct calls the customs tool but omits customs_data, post-processing should fill it."""
+        sem = asyncio.Semaphore(5)
+        react_result_no_customs = json.dumps({
+            "company_name": "Acme Corp",
+            "website": "https://acme.com",
+            "industry": "Manufacturing",
+            "description": "Test company",
+            "emails": [],
+            "phone_numbers": [],
+            "social_media": {},
+            "customs_data": "No data found",
+            "evidence": [],
+            "match_score": 0.7,
+        })
+
+        async def react_loop_that_calls_customs(**kwargs):
+            tools = kwargs.get("tools", [])
+            customs_tool = next((t for t in tools if t.name == "find_customs_data"), None)
+            if customs_tool:
+                await customs_tool.fn(company_name="Acme Corp", website="https://acme.com", country="Germany")
+            return react_result_no_customs
+
+        with patch("agents.lead_extract_agent.route_customs_data", new=AsyncMock(return_value={
+            "status": "ok",
+            "summary": "importgenius: period 2024; import; partners: Vietnam. Source: https://importgenius.com/importers/acme-corp",
+            "evidence": [
+                {
+                    "provider": "importgenius",
+                    "source_url": "https://importgenius.com/importers/acme-corp",
+                    "trade_direction": "import",
+                    "period": "2024",
+                    "partner_countries": ["Vietnam"],
+                }
+            ],
+        })), patch("agents.lead_extract_agent.react_loop", side_effect=react_loop_that_calls_customs):
+            result = await _scrape_and_extract(
+                {"link": "https://acme.com", "source_keyword": "kw1"},
+                AsyncMock(), AsyncMock(), sem,
+                insight={"products": ["micro switch"]},
+                google_search=AsyncMock(),
+            )
+
+        assert result is not None
+        assert "importgenius" in result["customs_data"]
+        assert len(result["customs_records"]) == 1
+        assert result["customs_records"][0]["provider"] == "importgenius"
+        assert any("importgenius.com/importers/acme-corp" in item["source_url"] for item in result["evidence"])
 
 
 class TestEmailVerification:
@@ -652,3 +899,113 @@ class TestVerifyLeadEmails:
         assert result["match_score"] == 0.8
         assert result["company_name"] == "TestCo"
 
+
+class TestEvidenceScoring:
+    def test_customs_and_contacts_raise_contactability_and_priority(self):
+        lead = {
+            "company_name": "Acme",
+            "match_score": 0.72,
+            "fit_score": 0.72,
+            "contactability_score": 0.1,
+            "priority_tier": "low",
+            "emails": ["sales@acme.com"],
+            "phone_numbers": ["+49 30 123456"],
+            "decision_makers": [{"name": "Jane", "title": "Purchasing Manager", "email": "jane@acme.com"}],
+            "customs_data": "importgenius: period 2024; import; partners: Vietnam. Source: https://example.com",
+            "evidence": [{"claim": "Customs evidence: import; period 2024", "source_url": "https://example.com"}],
+        }
+
+        result = _apply_evidence_to_scores(lead)
+        assert result["contactability_score"] > 0.4
+        assert result["customs_score"] > 0.5
+        assert result["priority_tier"] == "high"
+
+    def test_low_fit_stays_low_even_with_contact_and_customs(self):
+        lead = {
+            "company_name": "WeakFit",
+            "match_score": 0.2,
+            "fit_score": 0.2,
+            "contactability_score": 0.0,
+            "priority_tier": "low",
+            "emails": ["info@weakfit.com"],
+            "phone_numbers": ["+1 555 0000"],
+            "decision_makers": [{"name": "Tom", "title": "Owner", "email": "tom@weakfit.com"}],
+            "customs_data": "importgenius: period 2024; import. Source: https://example.com",
+            "evidence": [{"claim": "Customs evidence: import", "source_url": "https://example.com"}],
+        }
+
+        result = _apply_evidence_to_scores(lead)
+        assert result["contactability_score"] > 0.3
+        assert result["customs_score"] > 0.4
+        assert result["priority_tier"] == "low"
+
+    def test_negative_customs_explanation_does_not_count_as_customs_data(self):
+        assert _has_concrete_customs_data("No detailed customs data available through public sources.") is False
+        assert _has_concrete_customs_data("No data found - company is an engineering services provider, not an importer/exporter") is False
+        assert _has_concrete_customs_data("importgenius: period 2024; import; partners: Vietnam. Source: https://example.com") is True
+
+    def test_negative_customs_text_does_not_raise_customs_score(self):
+        lead = {
+            "company_name": "Service Co",
+            "fit_score": 0.8,
+            "contactability_score": 0.2,
+            "customs_score": 0.0,
+            "priority_tier": "low",
+            "emails": [],
+            "phone_numbers": [],
+            "decision_makers": [],
+            "customs_data": "No data available - this is a UK-based service company, not an importer/exporter of goods",
+            "evidence": [],
+        }
+        result = _apply_evidence_to_scores(lead)
+        assert result["customs_score"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_negative_customs_text_is_normalized_to_no_data_without_tool_evidence(self):
+        sem = asyncio.Semaphore(5)
+        react_result_negative_customs = json.dumps({
+            "company_name": "Service Co",
+            "website": "https://serviceco.com",
+            "industry": "Engineering services",
+            "description": "Service company",
+            "emails": [],
+            "phone_numbers": [],
+            "social_media": {},
+            "customs_data": "No data available - this is a service company, not an importer/exporter of goods",
+            "evidence": [],
+            "match_score": 0.4,
+        })
+
+        with patch("agents.lead_extract_agent.react_loop", return_value=react_result_negative_customs):
+            result = await _scrape_and_extract(
+                {"link": "https://serviceco.com", "source_keyword": "kw1"},
+                AsyncMock(), AsyncMock(), sem,
+                insight={"products": ["servo motor"]},
+                google_search=AsyncMock(),
+            )
+
+        assert result is not None
+        assert result["customs_data"] == "No data found"
+
+
+class TestDecisionMakerEmailInference:
+    def test_inferred_email_without_pattern_evidence_is_removed(self):
+        lead = {
+            "website": "https://degrenne.fr",
+            "decision_makers": [
+                {"name": "Francois Degrenne", "title": "Owner/CEO", "email": "francois@degrenne.fr (inferred)"},
+            ],
+        }
+        result = _normalize_decision_maker_emails(lead)
+        assert result["decision_makers"][0]["email"] == ""
+
+    def test_inferred_email_uses_real_same_domain_pattern(self):
+        lead = {
+            "website": "https://acme.com",
+            "decision_makers": [
+                {"name": "Jane Smith", "title": "Sales Director", "email": "jane.smith@acme.com"},
+                {"name": "John Doe", "title": "CEO", "email": "inferred"},
+            ],
+        }
+        result = _normalize_decision_maker_emails(lead)
+        assert result["decision_makers"][1]["email"] == "john.doe@acme.com (inferred)"

@@ -8,6 +8,9 @@ requires-python = ">=3.11"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "live: marks tests as live integration tests that hit the real license server (deselect with '-m not live')",
+]
 
 [tool.ruff]
 line-length = 100

@@ -35,6 +35,31 @@ _hunts: dict[str, dict] = load_all_hunts()
 _sse_queues: dict[str, list[asyncio.Queue]] = {}
 
 
+def _lead_key(lead: dict[str, Any]) -> str:
+    website = str(lead.get("website", "") or "").strip().lower()
+    if website:
+        return f"w:{website}"
+    company_name = str(lead.get("company_name", "") or "").strip().lower()
+    if company_name:
+        return f"c:{company_name}"
+    emails = lead.get("emails") or []
+    if isinstance(emails, list) and emails:
+        return f"e:{str(emails[0]).strip().lower()}"
+    return "raw:" + json.dumps(lead, sort_keys=True, ensure_ascii=False)
+
+
+def _dedupe_leads(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for lead in leads:
+        if isinstance(lead, dict):
+            merged[_lead_key(lead)] = lead
+    return list(merged.values())
+
+
+def _unique_leads_count(leads: list[dict[str, Any]]) -> int:
+    return len(_dedupe_leads(leads))
+
+
 # ── Request / Response models ───────────────────────────────────────────
 
 class HuntRequest(BaseModel):
@@ -116,7 +141,7 @@ def _broadcast_stage_data(hunt_id: str, completed_stage: str, state: dict) -> No
         payload["hunt_round"] = state.get("hunt_round", 1)
 
     elif completed_stage == "lead_extract":
-        payload["leads_count"] = len(state.get("leads", []))
+        payload["leads_count"] = _unique_leads_count(state.get("leads", []))
         payload["hunt_round"] = state.get("hunt_round", 1)
 
     elif completed_stage == "evaluate":
@@ -188,7 +213,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
                 result = hunt.setdefault("result", {})
                 leads = result.setdefault("leads", [])
                 leads.append(data["lead"])
-                hunt["leads_count"] = len(leads)
+                hunt["leads_count"] = _unique_leads_count(leads)
                 save_hunt(hunt_id, hunt)
 
     set_progress_callback(_on_lead_progress)
@@ -221,7 +246,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
 
                 stage = node_output.get("current_stage", prev_stage)
                 hunt_round = accumulated.get("hunt_round", prev_round)
-                leads_count = len(accumulated.get("leads", []))
+                leads_count = _unique_leads_count(accumulated.get("leads", []))
                 email_count = len(accumulated.get("email_sequences", []))
 
                 # Update in-memory store
@@ -277,7 +302,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
             "result": accumulated,
             "current_stage": accumulated.get("current_stage", "done"),
             "hunt_round": accumulated.get("hunt_round", 0),
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "email_sequences_count": len(accumulated.get("email_sequences", [])),
             "completed_at": now_iso(),
             "cost_summary": cost_summary,
@@ -285,12 +310,12 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
         save_hunt(hunt_id, _hunts[hunt_id])
 
         logger.info("[Hunt %s] Completed — %d leads, %d email sequences, %d rounds",
-                    hunt_id[:8], len(accumulated.get("leads", [])),
+                    hunt_id[:8], _unique_leads_count(accumulated.get("leads", [])),
                     len(accumulated.get("email_sequences", [])),
                     accumulated.get("hunt_round", 0))
 
         _broadcast(hunt_id, "completed", {
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "email_sequences_count": len(accumulated.get("email_sequences", [])),
             "hunt_round": accumulated.get("hunt_round", 0),
         })
@@ -306,7 +331,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
             "completed_at": now_iso(),
             "cost_summary": cost_summary,
             "result": accumulated,
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "hunt_round": accumulated.get("hunt_round", 0),
         })
         save_hunt(hunt_id, _hunts[hunt_id])
@@ -427,7 +452,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
                 result = hunt.setdefault("result", {})
                 leads = result.setdefault("leads", [])
                 leads.append(data["lead"])
-                hunt["leads_count"] = len(leads)
+                hunt["leads_count"] = _unique_leads_count(leads)
                 save_hunt(hunt_id, hunt)
 
     set_progress_callback(_on_lead_progress)
@@ -457,7 +482,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
 
                 stage = node_output.get("current_stage", prev_stage)
                 hunt_round = accumulated.get("hunt_round", prev_round)
-                leads_count = len(accumulated.get("leads", []))
+                leads_count = _unique_leads_count(accumulated.get("leads", []))
                 email_count = len(accumulated.get("email_sequences", []))
 
                 _hunts[hunt_id].update({
@@ -501,7 +526,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
             "result": accumulated,
             "current_stage": accumulated.get("current_stage", "done"),
             "hunt_round": accumulated.get("hunt_round", 0),
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "email_sequences_count": len(accumulated.get("email_sequences", [])),
             "completed_at": now_iso(),
         })
@@ -510,11 +535,11 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
         logger.info(
             "[Hunt %s] Resume completed — %d leads, %d rounds",
             hunt_id[:8],
-            len(accumulated.get("leads", [])),
+            _unique_leads_count(accumulated.get("leads", [])),
             accumulated.get("hunt_round", 0),
         )
         _broadcast(hunt_id, "completed", {
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "email_sequences_count": len(accumulated.get("email_sequences", [])),
             "hunt_round": accumulated.get("hunt_round", 0),
         })
@@ -530,7 +555,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
             "completed_at": now_iso(),
             "cost_summary": cost_summary,
             "result": accumulated,
-            "leads_count": len(accumulated.get("leads", [])),
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
             "hunt_round": accumulated.get("hunt_round", 0),
         })
         save_hunt(hunt_id, _hunts[hunt_id])
@@ -612,12 +637,13 @@ async def get_hunt_status(hunt_id: str):
         raise HTTPException(status_code=404, detail="Hunt not found")
 
     hunt = _hunts[hunt_id]
+    result = hunt.get("result") or {}
     return HuntStatus(
         hunt_id=hunt_id,
         status=hunt["status"],
         current_stage=hunt.get("current_stage"),
         hunt_round=hunt.get("hunt_round", 0),
-        leads_count=hunt.get("leads_count", 0),
+        leads_count=_unique_leads_count(result.get("leads", [])),
         email_sequences_count=hunt.get("email_sequences_count", 0),
         error=hunt.get("error"),
     )
@@ -631,11 +657,12 @@ async def get_hunt_result(hunt_id: str):
 
     hunt = _hunts[hunt_id]
     result = hunt.get("result") or {}
+    deduped_leads = _dedupe_leads(result.get("leads", []))
     return HuntResult(
         hunt_id=hunt_id,
         status=hunt["status"],
         insight=result.get("insight"),
-        leads=result.get("leads", []),
+        leads=deduped_leads,
         email_sequences=result.get("email_sequences", []),
         used_keywords=result.get("used_keywords", []),
         hunt_round=result.get("hunt_round", 0),
@@ -650,10 +677,11 @@ async def list_hunts():
     """List all hunts with their status."""
     items = []
     for hid, h in _hunts.items():
+        result = h.get("result") or {}
         items.append({
             "hunt_id": hid,
             "status": h["status"],
-            "leads_count": h.get("leads_count", 0),
+            "leads_count": _unique_leads_count(result.get("leads", [])),
             "created_at": h.get("created_at", ""),
             "website_url": h.get("website_url", ""),
             "product_keywords": h.get("product_keywords", []),
@@ -727,7 +755,7 @@ async def resume_hunt(hunt_id: str, request: ResumeRequest, background_tasks: Ba
         "error": None,
         "current_stage": None,
         "hunt_round": 0,
-        "leads_count": len(prior_result.get("leads", [])),
+        "leads_count": _unique_leads_count(prior_result.get("leads", [])),
         "resumed_at": now_iso(),
     })
     save_hunt(hunt_id, _hunts[hunt_id])
@@ -735,5 +763,3 @@ async def resume_hunt(hunt_id: str, request: ResumeRequest, background_tasks: Ba
     background_tasks.add_task(_run_resume_hunt, hunt_id, request, prior_result)
 
     return HuntResponse(hunt_id=hunt_id, status="pending")
-
-

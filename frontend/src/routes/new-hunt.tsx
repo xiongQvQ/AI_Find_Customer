@@ -57,7 +57,7 @@ export function NewHuntPage() {
       const result = await api.uploadFiles(files);
       setUploadedFiles((prev) => [...prev, ...result]);
     } catch (err: unknown) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+      setUploadError(err instanceof Error ? err.message : "上传失败");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -101,8 +101,8 @@ export function NewHuntPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">New Hunt</h1>
-        <p className="text-muted-foreground mt-1">Configure your AI-powered B2B lead hunting campaign</p>
+        <h1 className="text-3xl font-bold tracking-tight">新建任务</h1>
+        <p className="text-muted-foreground mt-1">配置你的 AI B2B 获客任务</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -111,10 +111,10 @@ export function NewHuntPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5 text-primary" />
-              <CardTitle className="text-lg">What are you looking for?</CardTitle>
+              <CardTitle className="text-lg">你想找什么客户？</CardTitle>
             </div>
             <CardDescription>
-              Describe your hunt goal in plain language — regions, customer type, product. AI will extract the details automatically. (optional)
+              用自然语言描述你的目标市场、客户类型和产品，系统会自动提取关键信息。（可选）
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -125,7 +125,7 @@ export function NewHuntPage() {
             />
             {description && (
               <p className="text-xs text-muted-foreground mt-2">
-                AI will auto-extract: target regions, customer profile, and product keywords from this description.
+                系统会自动从这段描述中提取目标地区、客户画像和产品关键词。
               </p>
             )}
           </CardContent>
@@ -134,8 +134,8 @@ export function NewHuntPage() {
         {/* ── Company Website ────────────────────────── */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Company Website <span className="text-muted-foreground font-normal text-sm">(optional)</span></CardTitle>
-            <CardDescription>Your company website for deeper ICP analysis</CardDescription>
+            <CardTitle className="text-lg">企业官网 <span className="text-muted-foreground font-normal text-sm">（可选）</span></CardTitle>
+            <CardDescription>用于更深入地分析你的客户画像和产品定位</CardDescription>
           </CardHeader>
           <CardContent>
             <Input
@@ -151,10 +151,10 @@ export function NewHuntPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Upload className="h-5 w-5 text-primary" />
-              <CardTitle className="text-lg">Upload Company Materials <span className="text-muted-foreground font-normal text-sm">(optional)</span></CardTitle>
+              <CardTitle className="text-lg">上传企业资料 <span className="text-muted-foreground font-normal text-sm">（可选）</span></CardTitle>
             </div>
             <CardDescription>
-              Upload product catalogs, company profiles, or any documents. Supports PDF, Word, Excel, TXT, MD, CSV.
+              支持上传产品目录、公司介绍或其他资料，支持 PDF、Word、Excel、TXT、MD、CSV。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -166,10 +166,10 @@ export function NewHuntPage() {
               <p className="text-sm text-muted-foreground">
                 {isUploading ? (
                   <span className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+                    <Loader2 className="h-4 w-4 animate-spin" /> 上传中…
                   </span>
                 ) : (
-                  "Click to select files, or drag & drop"
+                  "点击选择文件，或直接拖拽到这里"
                 )}
               </p>
               <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, TXT, MD, CSV</p>
@@ -203,13 +203,13 @@ export function NewHuntPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Product Keywords</CardTitle>
-            <CardDescription>Keywords describing your products or services</CardDescription>
+            <CardTitle className="text-lg">产品关键词</CardTitle>
+            <CardDescription>描述你的产品或服务的核心关键词</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2">
               <Input
-                placeholder="e.g. solar inverter"
+                placeholder="例如：micro switch"
                 value={keywordInput}
                 onChange={(e) => setKeywordInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKeyword())}
@@ -235,8 +235,8 @@ export function NewHuntPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Target Customer Profile</CardTitle>
-            <CardDescription>Describe your ideal customer type (optional)</CardDescription>
+            <CardTitle className="text-lg">目标客户画像</CardTitle>
+            <CardDescription>描述你的理想客户类型（可选）</CardDescription>
           </CardHeader>
           <CardContent>
             <Input
@@ -245,15 +245,15 @@ export function NewHuntPage() {
               onChange={(e) => setTargetCustomerProfile(e.target.value)}
             />
             <p className="text-xs text-muted-foreground mt-2">
-              This helps generate keywords targeting specific customer types like wholesalers, distributors, agents, etc.
+              这有助于生成更贴合批发商、分销商、代理商等客户类型的搜索关键词。
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Target Regions</CardTitle>
-            <CardDescription>Geographic regions to search for leads</CardDescription>
+            <CardTitle className="text-lg">目标地区</CardTitle>
+            <CardDescription>希望重点搜索的国家或地区</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2">
@@ -284,12 +284,12 @@ export function NewHuntPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Hunt Settings</CardTitle>
-            <CardDescription>Configure hunt parameters</CardDescription>
+            <CardTitle className="text-lg">任务参数</CardTitle>
+            <CardDescription>配置线索数量和搜索轮次</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Target Lead Count</label>
+              <label className="text-sm font-medium">目标线索数量</label>
               <Input
                 type="number"
                 min={1}
@@ -299,7 +299,7 @@ export function NewHuntPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Max Rounds</label>
+              <label className="text-sm font-medium">最大轮次</label>
               <Input
                 type="number"
                 min={1}
@@ -313,16 +313,16 @@ export function NewHuntPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">AI Email Generation</CardTitle>
-            <CardDescription>Optionally generate personalized outreach emails for discovered leads</CardDescription>
+            <CardTitle className="text-lg">AI 邮件生成</CardTitle>
+            <CardDescription>可选为已发现线索生成个性化开发邮件</CardDescription>
           </CardHeader>
           <CardContent>
             <label className="flex items-center justify-between cursor-pointer">
               <div className="flex items-center gap-3">
                 <Mail className="h-5 w-5 text-muted-foreground" />
                 <div>
-                  <p className="text-sm font-medium">Generate AI Emails</p>
-                  <p className="text-xs text-muted-foreground">Create multi-language email sequences after hunting completes</p>
+                  <p className="text-sm font-medium">生成 AI 邮件</p>
+                  <p className="text-xs text-muted-foreground">任务完成后自动生成多语言邮件序列</p>
                 </div>
               </div>
               <button
@@ -356,7 +356,7 @@ export function NewHuntPage() {
           ) : (
             <Crosshair className="h-4 w-4 mr-2" />
           )}
-          Start Hunt
+          {createHunt.isPending ? "任务启动中..." : "开始挖掘"}
         </Button>
       </form>
     </div>

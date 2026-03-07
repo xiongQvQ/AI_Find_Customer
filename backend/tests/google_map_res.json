@@ -1,0 +1,77 @@
+{
+    "searchParameters": {
+        "q": "micro switch",
+        "type": "maps",
+        "num": 10,
+        "page": 1,
+        "engine": "google"
+    },
+    "ll": "@40.5831392,-122.3670936,15z",
+    "places": [
+        {
+            "position": 1,
+            "title": "Best Buy",
+            "address": "1010 Hilltop Dr, Redding, CA 96003",
+            "latitude": 40.592591299999995,
+            "longitude": -122.3596934,
+            "rating": 4,
+            "ratingCount": 2812,
+            "priceLevel": "$$",
+            "type": "Computer store",
+            "types": [
+                "Computer store",
+                "Appliance store",
+                "Electronics store",
+                "Home theater store",
+                "Music store",
+                "Video game store",
+                "Video store"
+            ],
+            "website": "https://stores.bestbuy.com/ca/redding/1010-hilltop-dr-838.html/?ref=NS&loc=ns100",
+            "phoneNumber": "(530) 222-9200",
+            "description": "Chain retailer with a large array of brand-name electronics, computers, appliances & more.",
+            "openingHours": {
+                "Thursday": "10 AM–8 PM",
+                "Friday": "10 AM–8 PM",
+                "Saturday": "10 AM–8 PM",
+                "Sunday": "10 AM–8 PM",
+                "Monday": "10 AM–8 PM",
+                "Tuesday": "10 AM–8 PM",
+                "Wednesday": "10 AM–8 PM"
+            },
+            "thumbnailUrl": "https://lh3.googleusercontent.com/gps-cs-s/AHVAwerNbEmLt2vogXawFfqeoH8fvSnXX6XrZdWfR9Wpf1UTBk02bBc142JikARh4PtWMrqrzLfqkakTXAuMYYD3Sr-S0T7I4Aafe_zomtwr-RuGOt3-ymUIzoLWVCDNT9gvHTaUhNvLAQ",
+            "cid": "17809956851832591072",
+            "fid": "0x54d2932a5568fbab:0xf729ad65428412e0",
+            "placeId": "ChIJq_toVSqT0lQR4BKEQmWtKfc"
+        },
+        {
+            "position": 2,
+            "title": "Bentronics",
+            "address": "141 Locust St, Redding, CA 96001",
+            "latitude": 40.5736871,
+            "longitude": -122.3744938,
+            "rating": 4.8,
+            "ratingCount": 69,
+            "type": "Electronics store",
+            "types": [
+                "Electronics store"
+            ],
+            "website": "https://www.bentronics.com/",
+            "phoneNumber": "(530) 246-2227",
+            "openingHours": {
+                "Thursday": "9 AM–5 PM",
+                "Friday": "9 AM–5 PM",
+                "Saturday": "10 AM–4 PM",
+                "Sunday": "Closed",
+                "Monday": "9 AM–5 PM",
+                "Tuesday": "9 AM–5 PM",
+                "Wednesday": "9 AM–5 PM"
+            },
+            "thumbnailUrl": "https://lh3.googleusercontent.com/p/AF1QipML56Et72nmJxHOfcoI7-kznVl1HwqtcWQnNJD9",
+            "cid": "2500170341462985031",
+            "fid": "0x54d2ecea6012b2c5:0x22b263add8de4947",
+            "placeId": "ChIJxbISYOrs0lQRR0ne2K1jsiI"
+        }
+    ],
+    "credits": 3
+}
