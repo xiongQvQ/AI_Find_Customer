@@ -1,0 +1,160 @@
+"""Tests for api/settings_routes.py settings behavior."""
+
+import os
+from unittest.mock import MagicMock, patch
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from api.app import create_app
+
+
+@pytest.fixture
+def app(monkeypatch):
+    from config.settings import get_settings
+
+    monkeypatch.setenv("SETTINGS_API_ENABLED", "true")
+    get_settings.cache_clear()
+    app = create_app()
+    yield app
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+async def client(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+class TestGetSettings:
+    @pytest.mark.asyncio
+    async def test_returns_settings_shape(self, client):
+        with (
+            patch("api.settings_routes.read_settings", return_value={"OPENAI_API_KEY": "sk-abcdefgh"}),
+            patch("api.settings_routes.is_configured", return_value=True),
+        ):
+            resp = await client.get("/api/settings")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "settings" in data
+        assert "is_configured" in data
+        assert "env_path" not in data
+        assert data["is_configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_masks_all_secret_values(self, client):
+        with (
+            patch(
+                "api.settings_routes.read_settings",
+                return_value={
+                    "OPENAI_API_KEY": "sk-abcdefghijklmnop",
+                    "SERPER_API_KEY": "serper-secret-1234",
+                    "JINA_API_KEY": "jina-secret-5678",
+                },
+            ),
+            patch("api.settings_routes.is_configured", return_value=True),
+        ):
+            resp = await client.get("/api/settings")
+
+        data = resp.json()
+        assert data["settings"]["OPENAI_API_KEY"] != "sk-abcdefghijklmnop"
+        assert "****" in data["settings"]["SERPER_API_KEY"]
+        assert "****" in data["settings"]["JINA_API_KEY"]
+
+
+class TestSaveSettings:
+    @pytest.mark.asyncio
+    async def test_saves_search_keys(self, client):
+        with (
+            patch("api.settings_routes.update_settings") as mock_update,
+            patch("api.settings_routes.get_settings") as mock_gs,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            resp = await client.post(
+                "/api/settings",
+                json={
+                    "serper_api_key": "serper-live-key",
+                    "jina_api_key": "jina-live-key",
+                },
+            )
+
+        assert resp.status_code == 204
+        updates = mock_update.call_args[0][0]
+        assert updates["SERPER_API_KEY"] == "serper-live-key"
+        assert updates["JINA_API_KEY"] == "jina-live-key"
+
+    @pytest.mark.asyncio
+    async def test_skips_empty_and_masked_values(self, client):
+        with (
+            patch("api.settings_routes.update_settings") as mock_update,
+            patch("api.settings_routes.get_settings") as mock_gs,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            resp = await client.post(
+                "/api/settings",
+                json={
+                    "openai_api_key": "sk-a****bcde",
+                    "serper_api_key": "",
+                    "tavily_api_key": "tvly-valid",
+                },
+            )
+
+        assert resp.status_code == 204
+        updates = mock_update.call_args[0][0]
+        assert "OPENAI_API_KEY" not in updates
+        assert "SERPER_API_KEY" not in updates
+        assert updates["TAVILY_API_KEY"] == "tvly-valid"
+
+    @pytest.mark.asyncio
+    async def test_updates_os_environ(self, client):
+        original_serper = os.environ.get("SERPER_API_KEY")
+        original_jina = os.environ.get("JINA_API_KEY")
+        try:
+            with (
+                patch("api.settings_routes.update_settings"),
+                patch("api.settings_routes.get_settings") as mock_gs,
+            ):
+                mock_gs.cache_clear = MagicMock()
+                resp = await client.post(
+                    "/api/settings",
+                    json={
+                        "serper_api_key": "serper-env-test",
+                        "jina_api_key": "jina-env-test",
+                    },
+                )
+
+            assert resp.status_code == 204
+            assert os.environ["SERPER_API_KEY"] == "serper-env-test"
+            assert os.environ["JINA_API_KEY"] == "jina-env-test"
+        finally:
+            if original_serper is None:
+                os.environ.pop("SERPER_API_KEY", None)
+            else:
+                os.environ["SERPER_API_KEY"] = original_serper
+            if original_jina is None:
+                os.environ.pop("JINA_API_KEY", None)
+            else:
+                os.environ["JINA_API_KEY"] = original_jina
+
+
+class TestMaskHelpers:
+    def test_masks_long_value(self):
+        from api.settings_routes import _mask
+
+        result = _mask("sk-abcdefghijklmnop")
+        assert "****" in result
+        assert result.startswith("sk-a")
+        assert result.endswith("mnop")
+
+    def test_short_value_not_masked(self):
+        from api.settings_routes import _mask
+
+        assert _mask("short") == "short"
+
+    def test_is_masked_detection(self):
+        from api.settings_routes import _is_masked
+
+        assert _is_masked("sk-a****bcde") is True
+        assert _is_masked("sk-fullkeyhere") is False
