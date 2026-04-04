@@ -10,6 +10,8 @@ export interface HuntRequest {
   target_lead_count: number;
   max_rounds: number;
   enable_email_craft: boolean;
+  email_template_examples: string[];
+  email_template_notes: string;
 }
 
 export interface UploadedFile {
@@ -75,6 +77,8 @@ export interface ResumeRequest {
   target_lead_count: number;
   max_rounds: number;
   enable_email_craft: boolean;
+  email_template_examples?: string[];
+  email_template_notes?: string;
 }
 
 export interface HuntListItem {
