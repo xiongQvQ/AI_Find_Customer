@@ -389,6 +389,16 @@ function LLMProviderPanel({
 // ── Search / Email / Performance panels (simple field groups) ─────────────────
 
 type FieldDef = { key: string; label: string; placeholder?: string; secret?: boolean; hint?: string };
+type EmailProviderPreset = {
+  id: string;
+  label: string;
+  smtpHost: string;
+  smtpPort: string;
+  imapHost: string;
+  imapPort: string;
+  useTls: string;
+  note: string;
+};
 
 const SEARCH_FIELDS: FieldDef[] = [
   { key: "tavily_api_key", label: "Tavily API Key", placeholder: "tvly-…（多 Key 用逗号分隔）", secret: true, hint: "通用网页搜索，支持多 Key：key1,key2" },
@@ -414,6 +424,79 @@ const EMAIL_DELIVERY_FIELDS: FieldDef[] = [
   { key: "email_imap_port", label: "IMAP Port", placeholder: "993" },
   { key: "email_imap_username", label: "IMAP 用户名", placeholder: "sales@example.com" },
   { key: "email_imap_password", label: "IMAP 授权码 / 密码", placeholder: "", secret: true },
+];
+
+const EMAIL_PROVIDER_PRESETS: EmailProviderPreset[] = [
+  {
+    id: "manual",
+    label: "手动填写",
+    smtpHost: "",
+    smtpPort: "",
+    imapHost: "",
+    imapPort: "",
+    useTls: "true",
+    note: "适合自建邮箱、地区化企业邮箱，或管理员给了专用网关地址的场景。",
+  },
+  {
+    id: "qq",
+    label: "QQ 邮箱",
+    smtpHost: "smtp.qq.com",
+    smtpPort: "465",
+    imapHost: "imap.qq.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "通常需要在 QQ 邮箱设置里开启 IMAP/SMTP，并生成授权码。",
+  },
+  {
+    id: "exmail_qq",
+    label: "腾讯企业邮箱",
+    smtpHost: "smtp.exmail.qq.com",
+    smtpPort: "465",
+    imapHost: "imap.exmail.qq.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "适合腾讯企业邮箱常见配置；若管理员提供专用地址，请以管理员配置为准。",
+  },
+  {
+    id: "netease_163",
+    label: "网易 163 邮箱",
+    smtpHost: "smtp.163.com",
+    smtpPort: "465",
+    imapHost: "imap.163.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "通常需要先在邮箱安全设置里开启 IMAP/SMTP，并使用客户端授权码。",
+  },
+  {
+    id: "netease_126",
+    label: "网易 126 邮箱",
+    smtpHost: "smtp.126.com",
+    smtpPort: "465",
+    imapHost: "imap.126.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "126 邮箱常见默认配置，授权方式通常与 163 类似。",
+  },
+  {
+    id: "netease_qiye",
+    label: "网易企业邮箱",
+    smtpHost: "smtp.qiye.163.com",
+    smtpPort: "465",
+    imapHost: "imap.qiye.163.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "网易企业邮箱可能按区域或管理员策略使用不同地址；不一致时请以管理员提供为准。",
+  },
+  {
+    id: "aliyun_qiye",
+    label: "阿里云企业邮箱",
+    smtpHost: "smtp.mxhichina.com",
+    smtpPort: "465",
+    imapHost: "imap.mxhichina.com",
+    imapPort: "993",
+    useTls: "true",
+    note: "阿里云企业邮箱常见默认配置；部分企业可能由管理员提供独立服务器地址。",
+  },
 ];
 
 const CONCURRENCY_FIELDS: FieldDef[] = [
@@ -480,6 +563,7 @@ function EmailDeliveryPanel({
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
 }) {
+  const [selectedPresetId, setSelectedPresetId] = useState("manual");
   const smtpConfigured = Boolean(
     values.email_from_address &&
     values.email_smtp_host &&
@@ -530,6 +614,37 @@ function EmailDeliveryPanel({
       description: "最近一次连接测试成功，可以进入对应自动化链路。",
     },
   } as const;
+  const selectedPreset = EMAIL_PROVIDER_PRESETS.find((item) => item.id === selectedPresetId) ?? EMAIL_PROVIDER_PRESETS[0];
+
+  const applyProviderPreset = (preset: EmailProviderPreset) => {
+    setSelectedPresetId(preset.id);
+    if (preset.id === "manual") {
+      return;
+    }
+    onChange("email_smtp_host", preset.smtpHost);
+    onChange("email_smtp_port", preset.smtpPort);
+    onChange("email_imap_host", preset.imapHost);
+    onChange("email_imap_port", preset.imapPort);
+    onChange("email_use_tls", preset.useTls);
+    if (values.email_from_address) {
+      onChange("email_smtp_username", values.email_from_address);
+      onChange("email_imap_username", values.email_from_address);
+      if (!values.email_reply_to) {
+        onChange("email_reply_to", values.email_from_address);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const matchedPreset = EMAIL_PROVIDER_PRESETS.find((preset) => (
+      preset.id !== "manual" &&
+      values.email_smtp_host === preset.smtpHost &&
+      values.email_smtp_port === preset.smtpPort &&
+      values.email_imap_host === preset.imapHost &&
+      values.email_imap_port === preset.imapPort
+    ));
+    setSelectedPresetId(matchedPreset?.id ?? "manual");
+  }, [values.email_imap_host, values.email_imap_port, values.email_smtp_host, values.email_smtp_port]);
 
   return (
     <Card>
@@ -577,6 +692,36 @@ function EmailDeliveryPanel({
             <p>4. `SMTP 授权码 / 密码` 用于发信；`IMAP 授权码 / 密码` 用于收取回信。部分服务两者可以相同，部分服务需要分别确认。</p>
             <p>5. 填完后先点“测试 SMTP 连接”和“测试 IMAP 连接”。测试成功后，系统才会允许开启自动发送和回信自动检测。</p>
           </div>
+        </div>
+
+        <div className="rounded-md border px-4 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">邮箱服务商模板</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                选择后会自动填入常见 SMTP / IMAP 默认值，你仍然可以手动修改。
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {EMAIL_PROVIDER_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyProviderPreset(preset)}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  selectedPresetId === preset.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {selectedPreset.note}
+          </p>
         </div>
 
         {EMAIL_DELIVERY_FIELDS.map((f) => (
