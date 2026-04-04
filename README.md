@@ -112,12 +112,14 @@ flowchart TD
 3. `consumer` 领取这个 job 时，会先准备 `template_seed`
 4. 然后再创建真实 hunt，执行搜索、抽取、评估、邮件生成
 5. hunt 完成后自动创建 campaign，并交给 `EmailScheduler` 消费发送
+6. 首页和详情页优先展示 `job` 队列状态，只有在真实 hunt 已创建后，才继续下钻到 hunt 详情
 
 这意味着：
 
 - 前端负责 `提交任务 + 查看队列 + 查看 Hunt / Campaign 状态`
 - 后端负责 `真正执行 producer / consumer + scheduler`
 - 有界面和无界面现在走的是同一套底层任务系统，不再是两套分裂逻辑
+- 队列任务详情页会展示 `job 状态 / 尝试次数 / 目标线索数 / 当前线索数 / Hunt 阶段 / 最近错误`
 
 ## 邮件能力
 
@@ -483,6 +485,8 @@ cp automation_job.example.json automation_job.json
 - 最多跑 `20` 轮
 - 只要单轮还能新增 `1` 个 lead，就继续
 - 但整个系统通过 producer / consumer 持续入队和消费，所以整体不会停
+
+`backend/automation_job.example.json` 已经按这组推荐值更新，可以直接复制后开始跑持续任务。
 
 不建议把“单个 hunt”做成无限执行；更合理的是“单个 hunt 有边界，但队列系统 7x24 持续运行”。
 

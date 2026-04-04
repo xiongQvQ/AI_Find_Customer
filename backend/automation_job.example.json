@@ -1,18 +1,19 @@
 {
-  "description": "Find distributors and importers of switch components in the United States for Guangdong Yushun Electrical Co., Ltd.",
+  "website_url": "https://www.gdushun.com/",
+  "description": "Find electrical distributors, importers and wholesalers who may buy micro switches, rotary switches and anti-dumping switches.",
   "product_keywords": [
     "micro switch",
-    "rotary selector switch",
-    "toggle switch"
+    "rotary switch",
+    "anti-dumping switch"
   ],
-  "target_customer_profile": "Electrical distributors, importers, and industrial component wholesalers",
+  "target_customer_profile": "Electrical distributors, importers and wholesalers",
   "target_regions": [
     "United States"
   ],
   "target_lead_count": 100,
-  "max_rounds": 10,
-  "min_new_leads_threshold": 5,
+  "max_rounds": 20,
+  "min_new_leads_threshold": 1,
   "enable_email_craft": true,
   "email_template_examples": [],
-  "email_template_notes": "Keep the email concise, professional, and suitable for export B2B outreach."
+  "email_template_notes": "Keep the tone professional, concise, and suitable for foreign trade cold outreach."
 }

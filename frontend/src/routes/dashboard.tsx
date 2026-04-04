@@ -98,7 +98,9 @@ export function DashboardPage() {
               <Card key={job.job_id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium truncate max-w-[70%]">
-                    {jobTitle(job)}
+                    <Link to="/automation/$jobId" params={{ jobId: job.job_id }} className="hover:underline">
+                      {jobTitle(job)}
+                    </Link>
                   </CardTitle>
                   <Badge variant={queueStatusVariant(job)}>{getStatusLabel(job.status)}</Badge>
                 </CardHeader>
@@ -142,6 +144,9 @@ export function DashboardPage() {
                     {job.last_error && (
                       <div className="text-destructive">最近错误：{job.last_error}</div>
                     )}
+                    <Link to="/automation/$jobId" params={{ jobId: job.job_id }} className="text-primary hover:underline">
+                      查看队列任务详情
+                    </Link>
                     {detailLink}
                   </div>
                 </CardContent>
