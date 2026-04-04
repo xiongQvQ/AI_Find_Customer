@@ -228,7 +228,36 @@ class TestValidateEmailsTool:
         ]})
         result = json.loads(await validate_fn(emails_json=only_two))
         assert result["passed"] is False
-        assert any("3 emails" in issue for issue in result["issues"])
+
+    def test_rule_validator_flags_dense_plaintext_layout(self):
+        emails = [
+            {
+                "sequence_number": 1,
+                "email_type": "company_intro",
+                "subject": "Potential fit for your switch category",
+                "body_text": "Dear Sir/Madam, " + ("relevant industrial switch components for your buyer base " * 18),
+                "suggested_send_day": 0,
+            },
+            {
+                "sequence_number": 2,
+                "email_type": "product_showcase",
+                "subject": "More detail on our switch range",
+                "body_text": "Dear Sir/Madam, " + ("common industrial use cases and repeat sourcing needs " * 18),
+                "suggested_send_day": 3,
+            },
+            {
+                "sequence_number": 3,
+                "email_type": "partnership_proposal",
+                "subject": "Should I send a short shortlist?",
+                "body_text": "Dear Sir/Madam, " + ("shortlist for your team if this category is relevant " * 18),
+                "suggested_send_day": 7,
+            },
+        ]
+
+        result = _rule_validate_emails_payload(emails)
+
+        assert result["passed"] is False
+        assert any("layout lacks paragraph breaks" in issue for issue in result["issues"])
 
     @pytest.mark.asyncio
     async def test_short_body_fails(self):

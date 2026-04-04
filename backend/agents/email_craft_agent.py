@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from config.settings import get_settings
+from emailing.body_format import format_email_sequence_bodies, format_plaintext_email_body
 from emailing.policy import choose_email_target
 from emailing.template_pipeline import compose_template_plan, extract_template_profile
 from graph.state import HuntState
@@ -266,7 +267,13 @@ Your task: write a 3-email outreach sequence for a potential buyer/distributor, 
 3. Each email: 100-200 words.
 4. Personalise based on the lead's industry and description.
 5. Include specific product references.
-6. Output ONLY the JSON object — no extra text."""
+6. Use proper plain-text email layout:
+   - salutation line
+   - blank line
+   - 2-3 short body paragraphs
+   - blank line
+   - closing line
+7. Output ONLY the JSON object — no extra text."""
 
 
 EMAIL_FEWSHOT_EXAMPLES = """
@@ -372,6 +379,7 @@ Your task is to revise the sequence so it:
 - preserves any part of the sequence that already works
 - does not invent claims, certifications, customers, or performance statements
 - keeps valid personalization, CTA intent, and send-day progression unless a listed issue requires changing them
+- keeps a real plain-text email layout with visible paragraph breaks instead of one dense block
 
 Return JSON only in the same schema as the original sequence."""
 
@@ -608,12 +616,16 @@ def _rule_validate_emails_payload(emails_list: list[dict[str, Any]]) -> dict[str
         if not str(em.get("subject", "") or "").strip():
             issues.append(f"Email {i + 1}: subject is empty")
         body = str(em.get("body_text", "") or "")
+        formatted_body = format_plaintext_email_body(body)
         wc = len(body.split())
         if wc < 50:
             issues.append(f"Email {i + 1}: body_text too short ({wc} words, min 50)")
             suggestions.append(f"Email {i + 1}: expand to 100-200 words")
         elif wc > 300:
             issues.append(f"Email {i + 1}: body_text too long ({wc} words, max 300)")
+        if wc >= 50 and "\n\n" not in formatted_body:
+            issues.append(f"Email {i + 1}: plain-text layout lacks paragraph breaks")
+            suggestions.append(f"Email {i + 1}: use salutation, 2-3 short paragraphs, and a separate closing line")
 
         lowered_body = body.lower()
         lowered_subject = str(em.get("subject", "") or "").lower()
@@ -1185,6 +1197,10 @@ def _review_email_sequence(
             score -= 10
             issues.append(f"Email {index + 1} body is too long ({wc} words).")
             suggestions.append(f"Tighten Email {index + 1} for faster readability.")
+        if wc >= 50 and "\n\n" not in format_plaintext_email_body(body):
+            score -= 8
+            issues.append(f"Email {index + 1} plain-text layout is too dense.")
+            suggestions.append(f"Format Email {index + 1} with visible paragraph breaks and a separate closing.")
 
         expected_day = required_days[index] if index < len(required_days) else None
         if expected_day is not None and email.get("suggested_send_day") != expected_day:
@@ -1500,7 +1516,7 @@ async def _craft_for_lead(
             logger.warning("[EmailCraft] No emails in output for %s", lead.get("company_name"))
             return None
 
-        emails = validated["emails"]
+        emails = format_email_sequence_bodies(validated["emails"])
         review_summary = _review_email_sequence(
             lead,
             locale=locale,
@@ -1525,7 +1541,7 @@ async def _craft_for_lead(
             validation_max_revisions=max(0, int(getattr(settings, "email_validation_max_revisions", 2) or 2)),
             max_rounds=max(0, int(getattr(settings, "email_review_auto_fix_rounds", 2) or 2)),
         )
-        emails = list(optimized_sequence.get("emails", []) or emails)
+        emails = format_email_sequence_bodies(list(optimized_sequence.get("emails", []) or emails))
         logger.info("[EmailCraft] %s → %d emails in %s", lead.get("company_name"), len(emails), locale)
 
         return {
@@ -1675,7 +1691,7 @@ async def email_craft_node(state: HuntState) -> dict:
                                 validation_max_revisions=max(0, int(getattr(settings, "email_validation_max_revisions", 2) or 2)),
                                 max_rounds=max(0, int(getattr(settings, "email_review_auto_fix_rounds", 2) or 2)),
                             )
-                            applied["emails"] = list(optimized_sequence.get("emails", []) or validated["emails"])
+                            applied["emails"] = format_email_sequence_bodies(list(optimized_sequence.get("emails", []) or validated["emails"]))
                             applied["review_summary"] = review_summary
                             applied["validation_summary"] = {
                                 "passed": review_summary["status"] == "approved",

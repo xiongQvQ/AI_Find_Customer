@@ -10,6 +10,8 @@ from email.message import EmailMessage
 from typing import Any
 from uuid import uuid4
 
+from emailing.body_format import format_plaintext_email_body
+
 
 def _send_via_smtp_sync(
     account: dict[str, Any],
@@ -29,7 +31,7 @@ def _send_via_smtp_sync(
     message_id = f"<{uuid4()}@{(account.get('from_email') or 'localhost').split('@')[-1] or 'localhost'}>"
     msg["Message-ID"] = message_id
     msg["Date"] = email.utils.formatdate(localtime=True)
-    msg.set_content(body_text)
+    msg.set_content(format_plaintext_email_body(body_text))
 
     host = str(account.get("smtp_host", "") or "").strip()
     port = int(account.get("smtp_port", 587) or 587)
@@ -119,4 +121,3 @@ async def send_email(
         return {"ok": False, "provider": provider, "provider_message_id": "", "thread_key": thread_key or subject, "sent_at": "", "error": str(exc), "error_type": error_type}
     except (TimeoutError, OSError) as exc:
         return {"ok": False, "provider": provider, "provider_message_id": "", "thread_key": thread_key or subject, "sent_at": "", "error": str(exc), "error_type": "network_error"}
-
