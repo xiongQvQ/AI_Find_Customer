@@ -1200,9 +1200,18 @@ async def lead_extract_node(state: HuntState) -> dict:
     settings = get_settings()
     search_results = state.get("search_results", [])
     existing_leads = state.get("leads", [])
+    target_lead_count = max(0, int(state.get("target_lead_count", 0) or 0))
     insight = state.get("insight")
     insight = insight if isinstance(insight, dict) else {}
     keyword_stats = dict(state.get("keyword_search_stats", {}))
+
+    if target_lead_count and len(existing_leads) >= target_lead_count:
+        logger.info(
+            "[LeadExtractAgent] Skipping extraction because existing leads already satisfy target (%d/%d)",
+            len(existing_leads),
+            target_lead_count,
+        )
+        return {"current_stage": "lead_extract"}
 
     # Determine which URLs to process (skip only by official website domain).
     existing_domains = {
@@ -1304,22 +1313,51 @@ async def lead_extract_node(state: HuntState) -> dict:
             return {"current_stage": "lead_extract"}
 
         scrape_tasks = [
-            _scrape_and_extract(
+            asyncio.create_task(_scrape_and_extract(
                 r, jina, llm, semaphore,
                 insight=insight, google_search=google,
                 hunt_id=hunt_id, hunt_round=hunt_round,
-            )
+            ))
             for r in gated_candidates
         ]
-        
+
         results = []
+        target_new_leads = max(0, target_lead_count - len(existing_leads)) if target_lead_count else 0
+        incremental_seen_domains: set[str] = set(existing_domains)
+        incremental_new_count = 0
+        reached_target_early = False
         # Use as_completed to process results as they finish (better for logging/monitoring)
         for future in asyncio.as_completed(scrape_tasks):
             try:
                 res = await future
+                if res is None:
+                    continue
                 results.append(res)
+                if target_new_leads <= 0:
+                    continue
+                official_domain = _official_website_domain(res.get("website", ""))
+                if official_domain and official_domain in incremental_seen_domains:
+                    continue
+                if official_domain:
+                    incremental_seen_domains.add(official_domain)
+                incremental_new_count += 1
+                if incremental_new_count >= target_new_leads:
+                    reached_target_early = True
+                    for task in scrape_tasks:
+                        if not task.done():
+                            task.cancel()
+                    logger.info(
+                        "[LeadExtractAgent] Reached target early (%d new leads); cancelled %d remaining scrape tasks",
+                        incremental_new_count,
+                        sum(1 for task in scrape_tasks if task.cancelled() or not task.done()),
+                    )
+                    break
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error("[LeadExtractAgent] Task failed: %s", e)
+        if reached_target_early:
+            await asyncio.gather(*scrape_tasks, return_exceptions=True)
 
     finally:
         await jina.close()

@@ -81,6 +81,42 @@ class HuntJobQueue:
             ).fetchone()
         return int(row[0]) if row else 0
 
+    def count_retrying_since(self, since_iso: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM hunt_jobs
+                WHERE status IN ('queued', 'running')
+                  AND last_error != ''
+                  AND updated_at >= ?
+                """,
+                (since_iso,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def list_recent_retrying_jobs(self, *, since_iso: str, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM hunt_jobs
+                WHERE status IN ('queued', 'running')
+                  AND last_error != ''
+                  AND updated_at >= ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (since_iso, max(1, int(limit))),
+            ).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["payload"] = json.loads(str(item.get("payload_json") or "{}"))
+            except json.JSONDecodeError:
+                item["payload"] = {}
+            results.append(item)
+        return results
+
     def claim_next(self, *, worker_id: str, now_iso: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             conn.isolation_level = None
@@ -153,7 +189,7 @@ class HuntJobQueue:
                 (finished_at, finished_at, error_message[:2000], job_id),
             )
 
-    def requeue(self, job_id: str, *, available_at: str, error_message: str, updated_at: str) -> None:
+    def requeue(self, job_id: str, *, available_at: str, error_message: str, updated_at: str, hunt_id: str = "") -> None:
         with self._connect() as conn:
             conn.execute(
                 """
@@ -161,8 +197,9 @@ class HuntJobQueue:
                 SET status = 'queued',
                     available_at = ?,
                     updated_at = ?,
-                    last_error = ?
+                    last_error = ?,
+                    last_hunt_id = CASE WHEN ? != '' THEN ? ELSE last_hunt_id END
                 WHERE id = ?
                 """,
-                (available_at, updated_at, error_message[:2000], job_id),
+                (available_at, updated_at, error_message[:2000], hunt_id, hunt_id, job_id),
             )

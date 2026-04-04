@@ -10,12 +10,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.automation_routes import router as automation_router
+from api.hunt_store import load_all_hunts
 from api.email_routes import router as email_router
 from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from automation.metrics import collect_automation_metrics, collect_automation_status
-from automation.notifier import render_alert_text, render_summary_text, send_feishu_text
+from automation.notifier import (
+    render_alert_text,
+    render_discovery_batch_text,
+    render_send_batch_text,
+    render_summary_text,
+    send_feishu_text,
+)
 from config.settings import get_settings
 from emailing.readiness import ensure_imap_tested, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
@@ -91,6 +98,13 @@ async def _email_reply_loop() -> None:
 async def _automation_notify_loop() -> None:
     last_summary_at = 0.0
     last_alert_at = 0.0
+    discovery_buffer: list[dict[str, str | int]] = []
+    send_buffer: list[dict[str, str]] = []
+    seen_hunt_ids: set[str] = set()
+    seen_sent_message_ids: set[str] = set()
+    primed = False
+    last_discovery_flush_at = 0.0
+    last_send_flush_at = 0.0
     loop = asyncio.get_running_loop()
     while True:
         try:
@@ -101,6 +115,76 @@ async def _automation_notify_loop() -> None:
                 continue
 
             now_monotonic = loop.time()
+            if bool(getattr(settings, "automation_event_notifications_enabled", True)):
+                batch_flush_interval = max(60, int(getattr(settings, "automation_event_flush_interval_seconds", 600) or 600))
+                discovery_batch_size = max(1, int(getattr(settings, "automation_discovery_batch_size", 5) or 5))
+                send_batch_size = max(1, int(getattr(settings, "automation_send_batch_size", 10) or 10))
+
+                hunts = load_all_hunts()
+                store = EmailStore(settings.email_db_path)
+                store.init_db()
+                if not primed:
+                    seen_hunt_ids.update(
+                        hunt_id for hunt_id, hunt in hunts.items()
+                        if str(hunt.get("status", "") or "") == "completed"
+                    )
+                    seen_sent_message_ids.update(
+                        str(item.get("id", "") or "")
+                        for item in store.list_sent_messages_since(since_iso="1970-01-01T00:00:00+00:00", limit=5000)
+                        if str(item.get("id", "") or "")
+                    )
+                    primed = True
+                    last_discovery_flush_at = now_monotonic
+                    last_send_flush_at = now_monotonic
+
+                for hunt_id, hunt in hunts.items():
+                    if hunt_id in seen_hunt_ids:
+                        continue
+                    if str(hunt.get("status", "") or "") != "completed":
+                        continue
+                    seen_hunt_ids.add(hunt_id)
+                    result = hunt.get("result") or {}
+                    for lead in result.get("leads", []) or []:
+                        if not isinstance(lead, dict):
+                            continue
+                        emails = lead.get("emails", []) or []
+                        discovery_buffer.append({
+                            "company_name": str(lead.get("company_name", "") or ""),
+                            "website": str(lead.get("website", "") or ""),
+                            "email_count": len(emails) if isinstance(emails, list) else 0,
+                        })
+
+                for item in store.list_sent_messages_since(since_iso="1970-01-01T00:00:00+00:00", limit=500):
+                    message_id = str(item.get("id", "") or "")
+                    if not message_id or message_id in seen_sent_message_ids:
+                        continue
+                    seen_sent_message_ids.add(message_id)
+                    send_buffer.append({
+                        "company_name": str(item.get("lead_name", "") or ""),
+                        "lead_email": str(item.get("lead_email", "") or ""),
+                        "subject": str(item.get("subject", "") or ""),
+                    })
+
+                if discovery_buffer and (
+                    len(discovery_buffer) >= discovery_batch_size
+                    or now_monotonic - last_discovery_flush_at >= batch_flush_interval
+                ):
+                    text = render_discovery_batch_text(discovery_buffer[:])
+                    await asyncio.to_thread(send_feishu_text, webhook_url, text)
+                    discovery_buffer.clear()
+                    last_discovery_flush_at = now_monotonic
+                    logger.info("[AutomationNotify] discovery batch sent")
+
+                if send_buffer and (
+                    len(send_buffer) >= send_batch_size
+                    or now_monotonic - last_send_flush_at >= batch_flush_interval
+                ):
+                    text = render_send_batch_text(send_buffer[:])
+                    await asyncio.to_thread(send_feishu_text, webhook_url, text)
+                    send_buffer.clear()
+                    last_send_flush_at = now_monotonic
+                    logger.info("[AutomationNotify] send batch sent")
+
             if bool(settings.automation_summary_enabled):
                 interval = max(300, int(settings.automation_summary_interval_seconds or 7200))
                 if now_monotonic - last_summary_at >= interval:

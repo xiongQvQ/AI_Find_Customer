@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import pytest
 
-from scripts.headless_worker import _headers, _normalize_base_url, build_hunt_payload, run_cycle
+from scripts.headless_worker import ApiError, _headers, _normalize_base_url, build_hunt_payload, run_cycle
 
 
 class _Args:
@@ -140,3 +141,29 @@ def test_run_cycle_skips_campaign_when_disabled(monkeypatch):
 
     assert result["hunt_id"] == "hunt-xyz"
     assert result["campaign"] is None
+
+
+def test_run_cycle_sends_immediate_failure_notification_when_hunt_creation_fails(monkeypatch):
+    class Args(_Args):
+        api_base_url = "http://127.0.0.1:8000"
+        api_token = "secret"
+        request_timeout_seconds = 30
+        status_poll_seconds = 0
+        auto_start_campaign = True
+        campaign_name_prefix = "Auto Campaign"
+
+    notifications: list[str] = []
+
+    def fake_request_json(*, method, base_url, path, api_token, payload=None, timeout_seconds=60):
+        if path == "/api/v1/email-template-seeds/prepare":
+            return {"template_seed": {"source": "pre_generated", "template_profile": {}, "template_plan": {}}}
+        raise ApiError("POST /api/v1/hunts failed: 500 backend down")
+
+    monkeypatch.setattr("scripts.headless_worker._request_json", fake_request_json)
+    monkeypatch.setattr("scripts.headless_worker._notify_feishu", lambda text: notifications.append(text))
+
+    with pytest.raises(ApiError):
+        run_cycle(Args())
+
+    assert any("任务失败" in item for item in notifications)
+    assert any("backend down" in item for item in notifications)

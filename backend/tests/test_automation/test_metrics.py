@@ -11,10 +11,20 @@ def test_collect_automation_status_and_metrics(monkeypatch, tmp_path):
 
     queue = HuntJobQueue(queue_path)
     queue.init_db()
-    queue.enqueue({"description": "Find buyers"}, now_iso="2026-04-04T00:00:00+00:00")
     running_id = queue.enqueue({"description": "Find more buyers"}, now_iso="2026-04-04T00:00:00+00:00")
-    queue.claim_next(worker_id="worker-a", now_iso="2026-04-04T00:00:01+00:00")
+    claimed_completed = queue.claim_next(worker_id="worker-a", now_iso="2026-04-04T00:00:01+00:00")
+    assert claimed_completed is not None
     queue.mark_completed(running_id, hunt_id="hunt-1", finished_at="9999-04-04T01:00:00+00:00")
+    retry_id = queue.enqueue({"website_url": "https://retry.example.com"}, now_iso="9999-04-04T00:00:00+00:00")
+    claimed_retry = queue.claim_next(worker_id="worker-b", now_iso="9999-04-04T00:05:00+00:00")
+    assert claimed_retry is not None
+    queue.requeue(
+        retry_id,
+        available_at="9999-04-04T00:10:00+00:00",
+        error_message="hunt hunt-failed failed: minimax 429",
+        updated_at="9999-04-04T00:06:00+00:00",
+        hunt_id="hunt-failed",
+    )
 
     store = EmailStore(email_db)
     store.init_db()
@@ -121,6 +131,13 @@ def test_collect_automation_status_and_metrics(monkeypatch, tmp_path):
                 "leads": [{"company_name": "A"}, {"company_name": "B"}],
                 "email_sequences": [{}, {}],
             },
+        },
+        "hunt-failed": {
+            "status": "failed",
+            "created_at": "9999-04-04T00:30:00+00:00",
+            "current_stage": "lead_extract",
+            "error": "minimax 429",
+            "payload": {"website_url": "https://retry.example.com"},
         }
     }
 
@@ -131,9 +148,53 @@ def test_collect_automation_status_and_metrics(monkeypatch, tmp_path):
     assert status["email_queue"]["sent"] == 1
     assert status["email_queue"]["active_campaigns"] == 1
     assert metrics["hunts"]["new_leads"] == 2
+    assert metrics["hunt_jobs"]["retrying"] == 1
     assert metrics["emails"]["sent"] == 1
     assert metrics["emails"]["failed"] == 1
     assert metrics["emails"]["replied"] == 1
+    assert metrics["recent_failed_hunts"][0]["retry_status"] == "queued_retry"
     assert metrics["recent_failures"][0]["failure_reason"] == "smtp_timeout"
     assert metrics["top_failure_reasons"][0]["failure_reason"] == "smtp_timeout"
     assert metrics["recent_completed_hunts"][0]["lead_count"] == 2
+
+
+def test_collect_automation_metrics_loads_persisted_hunts_when_not_provided(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "queue.db")
+    email_db = str(tmp_path / "email.db")
+
+    queue = HuntJobQueue(queue_path)
+    queue.init_db()
+
+    store = EmailStore(email_db)
+    store.init_db()
+
+    monkeypatch.setattr(
+        "automation.metrics.get_settings",
+        lambda: type("S", (), {
+            "automation_queue_db_path": queue_path,
+            "email_db_path": email_db,
+            "email_auto_send_enabled": True,
+            "email_reply_detection_enabled": True,
+            "automation_summary_enabled": True,
+            "automation_alerts_enabled": True,
+        })(),
+    )
+    monkeypatch.setattr(
+        "automation.metrics.load_all_hunts",
+        lambda: {
+            "hunt_2": {
+                "status": "completed",
+                "created_at": "9999-04-04T00:00:00+00:00",
+                "result": {
+                    "leads": [{"company_name": "A"}],
+                    "email_sequences": [{}, {}, {}],
+                },
+            }
+        },
+    )
+
+    metrics = collect_automation_metrics(hours=24)
+
+    assert metrics["hunts"]["completed"] == 1
+    assert metrics["hunts"]["new_leads"] == 1
+    assert metrics["hunts"]["generated_email_sequences"] == 3

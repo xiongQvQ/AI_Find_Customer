@@ -211,38 +211,45 @@ def _wait_for_hunt(
 
 def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
     try:
-        template_seed = _prepare_template_seed(
+        try:
+            template_seed = _prepare_template_seed(
+                base_url=args.api_base_url,
+                api_token=args.api_token,
+                payload=payload,
+                timeout_seconds=args.request_timeout_seconds,
+            )
+            if template_seed is not None:
+                payload = dict(payload)
+                payload["template_seed"] = template_seed
+                logger.info("prepared template seed before hunt creation")
+        except Exception as exc:
+            logger.warning("template seed preparation failed, continuing without pre-generated seed: %s", exc)
+
+        created = _request_json(
+            method="POST",
             base_url=args.api_base_url,
+            path="/api/v1/hunts",
             api_token=args.api_token,
             payload=payload,
             timeout_seconds=args.request_timeout_seconds,
         )
-        if template_seed is not None:
-            payload = dict(payload)
-            payload["template_seed"] = template_seed
-            logger.info("prepared template seed before hunt creation")
+        hunt_id = str(created["hunt_id"])
+        logger.info(
+            "created hunt=%s target_leads=%s email_craft=%s",
+            hunt_id[:8],
+            payload.get("target_lead_count"),
+            payload.get("enable_email_craft"),
+        )
+        try:
+            _notify_feishu(render_hunt_started_text(payload, hunt_id=hunt_id))
+        except Exception as exc:
+            logger.warning("failed to send start notification for hunt=%s: %s", hunt_id[:8], exc)
     except Exception as exc:
-        logger.warning("template seed preparation failed, continuing without pre-generated seed: %s", exc)
-
-    created = _request_json(
-        method="POST",
-        base_url=args.api_base_url,
-        path="/api/v1/hunts",
-        api_token=args.api_token,
-        payload=payload,
-        timeout_seconds=args.request_timeout_seconds,
-    )
-    hunt_id = str(created["hunt_id"])
-    logger.info(
-        "created hunt=%s target_leads=%s email_craft=%s",
-        hunt_id[:8],
-        payload.get("target_lead_count"),
-        payload.get("enable_email_craft"),
-    )
-    try:
-        _notify_feishu(render_hunt_started_text(payload, hunt_id=hunt_id))
-    except Exception as exc:
-        logger.warning("failed to send start notification for hunt=%s: %s", hunt_id[:8], exc)
+        try:
+            _notify_feishu(render_hunt_failed_text(payload, error_message=str(exc)))
+        except Exception as notify_exc:
+            logger.warning("failed to send failure notification before hunt start: %s", notify_exc)
+        raise
 
     try:
         status = _wait_for_hunt(
@@ -303,10 +310,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             "email_sequence_count": len(sequences) if isinstance(sequences, list) else 0,
             "campaign": campaign_summary,
         }
-        try:
-            _notify_feishu(render_hunt_completed_text(final_result))
-        except Exception as exc:
-            logger.warning("failed to send completion notification for hunt=%s: %s", hunt_id[:8], exc)
+        _notify_feishu(render_hunt_completed_text(final_result))
         return final_result
     except Exception as exc:
         try:

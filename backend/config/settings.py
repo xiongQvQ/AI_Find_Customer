@@ -210,6 +210,10 @@ class Settings(BaseSettings):
     automation_alert_interval_seconds: int = 1800
     automation_alert_backlog_threshold: int = 20
     automation_alert_failed_messages_threshold: int = 10
+    automation_event_notifications_enabled: bool = True
+    automation_discovery_batch_size: int = 5
+    automation_send_batch_size: int = 10
+    automation_event_flush_interval_seconds: int = 600
 
     # --- Hunt persistence ---
     hunts_dir: str = _resolve_dir("data/hunts")  # directory for JSON hunt files

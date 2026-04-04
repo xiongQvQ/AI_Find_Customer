@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import socket
 import sys
 import time
@@ -31,6 +32,11 @@ def _now_iso() -> str:
 
 def _worker_id() -> str:
     return f"{socket.gethostname()}:{Path(__file__).name}"
+
+
+def _extract_hunt_id_from_error(message: str) -> str:
+    match = re.search(r"hunt\s+([^\s:]+)\s+failed:", str(message or ""))
+    return str(match.group(1)) if match else ""
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -119,7 +125,13 @@ def run_consumer(args: argparse.Namespace) -> int:
             raise
         except Exception as exc:
             available_at = (datetime.now(timezone.utc) + timedelta(seconds=max(1, args.retry_delay_seconds))).isoformat()
-            queue.requeue(str(job["id"]), available_at=available_at, error_message=str(exc), updated_at=_now_iso())
+            queue.requeue(
+                str(job["id"]),
+                available_at=available_at,
+                error_message=str(exc),
+                updated_at=_now_iso(),
+                hunt_id=_extract_hunt_id_from_error(str(exc)),
+            )
             logger.exception("job=%s failed and was requeued: %s", str(job["id"])[:8], exc)
             if not args.continuous:
                 return 1

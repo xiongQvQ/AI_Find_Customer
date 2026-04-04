@@ -35,8 +35,10 @@ def test_requeue_failed_job(tmp_path):
         available_at="2026-04-04T00:05:00+00:00",
         error_message="temporary failure",
         updated_at="2026-04-04T00:01:00+00:00",
+        hunt_id="hunt-456",
     )
     job = queue.get(job_id)
     assert job is not None
     assert job["status"] == "queued"
     assert job["last_error"] == "temporary failure"
+    assert job["last_hunt_id"] == "hunt-456"

@@ -494,6 +494,69 @@ class TestLeadExtractNode:
         assert result["keyword_search_stats"]["kw1"]["leads_found"] >= 1
 
     @pytest.mark.asyncio
+    async def test_stops_deep_scrape_once_target_lead_count_is_reached(self):
+        state = _base_state(
+            target_lead_count=1,
+            search_results=[
+                {"link": "https://firstlead.com", "source_keyword": "kw1"},
+                {"link": "https://secondlead.com", "source_keyword": "kw1"},
+            ],
+        )
+        blocked_started = asyncio.Event()
+        blocked_cancelled = asyncio.Event()
+
+        async def fake_scrape_and_extract(search_result, *args, **kwargs):
+            link = search_result["link"]
+            if "firstlead.com" in link:
+                return {
+                    "company_name": "First Lead",
+                    "website": "https://firstlead.com",
+                    "industry": "Electrical",
+                    "description": "First lead",
+                    "emails": [],
+                    "phone_numbers": [],
+                    "social_media": {},
+                    "match_score": 0.8,
+                    "source_keyword": "kw1",
+                }
+            blocked_started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                blocked_cancelled.set()
+                raise
+            return {
+                "company_name": "Second Lead",
+                "website": "https://secondlead.com",
+                "industry": "Electrical",
+                "description": "Second lead",
+                "emails": [],
+                "phone_numbers": [],
+                "social_media": {},
+                "match_score": 0.7,
+                "source_keyword": "kw1",
+            }
+
+        with patch("agents.lead_extract_agent.JinaReaderTool") as MockJina, \
+             patch("agents.lead_extract_agent.LLMTool") as MockLLM, \
+             patch("agents.lead_extract_agent.GoogleSearchTool") as MockGoogle, \
+             patch("agents.lead_extract_agent._quick_gate_candidate", new=AsyncMock(return_value=(True, {"reason": "keep"}))), \
+             patch("agents.lead_extract_agent._scrape_and_extract", side_effect=fake_scrape_and_extract), \
+             patch("agents.lead_extract_agent.get_settings") as mock_settings:
+
+            mock_settings.return_value.scrape_concurrency = 5
+            MockJina.return_value = AsyncMock(close=AsyncMock())
+            MockLLM.return_value = AsyncMock(close=AsyncMock())
+            MockGoogle.return_value = AsyncMock(close=AsyncMock())
+
+            result = await lead_extract_node(state)
+
+        assert len(result["leads"]) == 1
+        assert result["leads"][0]["company_name"] == "First Lead"
+        assert blocked_started.is_set()
+        assert blocked_cancelled.is_set()
+
+    @pytest.mark.asyncio
     async def test_does_not_dedupe_by_linkedin_host(self):
         """Different LinkedIn company pages must not be deduped by linkedin.com host."""
         state = _base_state(
