@@ -105,16 +105,20 @@ flowchart TD
 
 当前版本的邮件链路分成 3 层：
 
-1. 线索挖掘完成后，可选开启 `AI 邮件生成`
+1. 可以先基于官网洞察与历史模板样例预生成一版 `template seed`
+2. 线索挖掘完成后，可选开启 `AI 邮件生成`
 2. 在任务详情页中预览、审核、手动发送、手动查回信
 3. 把已批准的邮件序列创建为 `campaign`，再进入自动发送 / 自动回信检测
 
 ### 邮件生成
 
 - 新建任务或继续挖掘时可以开启 `AI 邮件生成`
+- 也可以先调用 `POST /api/v1/email-template-seeds/prepare` 预生成模板种子，再把 `template_seed` 带进 hunt
 - 可以不提供模板，系统会自动生成模板策略和 3 步英文开发信
 - 也可以提供历史邮件样例与备注，系统会先提取你的风格再生成
+- 如果请求里已经带了 `template_seed`，邮件生成会优先复用这份种子，只对具体 lead 做轻量个性化，而不是每次从零起草模板策略
 - 生成结果会包含：
+  - `template_seed`
   - `template_profile`
   - `template_plan`
   - `validation_summary`
@@ -371,7 +375,7 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 
 ## 无界面部署到 VPS
 
-如果你不需要前端界面，只想在 VPS 上持续执行“挖掘 -> 生成邮件 -> 自动发送”，现在有两种模式：
+如果你不需要前端界面，只想在 VPS 上持续执行“模板准备 -> 挖掘 -> 生成邮件 -> 自动发送”，现在有两种模式：
 
 - 简单模式：`headless_worker.py`
   适合单机串行跑，一轮 hunt 完成后再开始下一轮
@@ -393,8 +397,8 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 当前真实逻辑再具体一点：
 
 1. `hunt_queue.py producer` 把 hunt payload 持久化写入 SQLite 的 `hunt_jobs`
-2. `hunt_queue.py consumer` 领取一个 `hunt_job`
-3. consumer 调 `/api/v1/hunts` 创建一个真实 hunt
+2. 如果 payload 开启了 `enable_email_craft`，consumer 会先调 `POST /api/v1/email-template-seeds/prepare` 生成 `template_seed`
+3. consumer 把 `template_seed` 注入 hunt payload，再调 `/api/v1/hunts` 创建真实 hunt
 4. consumer 轮询这个 hunt，直到状态变成 `completed`
 5. hunt 完成后，如果开启了邮件生成，consumer 会自动调 `/api/v1/hunts/{hunt_id}/email-campaigns`
 6. campaign 创建时，会把可发送的邮件序列写进 SQLite：
@@ -407,6 +411,7 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 几个关键实现细节：
 
 - `lead_extract` 会先按官网域名去重，再做深度抓取，避免同一家公司被多个官网 URL 重复送进 LLM
+- `template_seed` 负责把“模板策略生成”和“线索挖掘”解耦，所以 producer / consumer 不需要等整批 lead 全部完成后再决定模板方向
 - `email_messages` 是真正的持久化发送队列，适合 producer / consumer 长期运行
 - 如果一个 lead 抽到了多个企业邮箱，campaign 会为每个唯一邮箱建立独立 sequence 和 message 队列项
 - 模板不会无限复用同一个 seed；超过模板发送上限后会自动生成新版本继续跑
@@ -465,7 +470,8 @@ python scripts/headless_worker.py \
 
 上面这条命令的语义是：
 
-- 每轮先挖到 `target_lead_count`
+- 每轮如果开启邮件生成，会先准备一份 `template_seed`
+- 然后再挖到 `target_lead_count`
 - 然后自动生成邮件
 - 然后自动建 campaign
 - 然后把邮件写入持久化待发送队列

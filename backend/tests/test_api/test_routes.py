@@ -91,6 +91,21 @@ class TestCreateHunt:
         assert request.enable_email_craft is True
 
     @pytest.mark.asyncio
+    @patch("api.routes._run_hunt", new_callable=AsyncMock)
+    async def test_create_hunt_accepts_template_seed(self, mock_run, client):
+        resp = await client.post("/api/v1/hunts", json={
+            "enable_email_craft": True,
+            "template_seed": {
+                "source": "pre_generated",
+                "template_profile": {"tone": "professional"},
+                "template_plan": {"cta_strategy": "Ask a qualification question"},
+            },
+        })
+        assert resp.status_code == 200
+        request = mock_run.call_args[0][1]
+        assert request.template_seed["source"] == "pre_generated"
+
+    @pytest.mark.asyncio
     async def test_create_hunt_invalid_lead_count(self, client):
         resp = await client.post("/api/v1/hunts", json={
             "target_lead_count": 0,
@@ -167,6 +182,44 @@ class TestHuntStatus:
     async def test_status_not_found(self, client):
         resp = await client.get("/api/v1/hunts/nonexistent-id/status")
         assert resp.status_code == 404
+
+
+class TestTemplateSeed:
+    @pytest.mark.asyncio
+    async def test_prepare_template_seed(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "api.routes.insight_node",
+            AsyncMock(return_value={"insight": {
+                "company_name": "Guangdong Yushun",
+                "products": ["micro switch"],
+                "industries": ["Electrical components"],
+                "value_propositions": ["Factory-direct supply"],
+                "target_customer_profile": "Distributors",
+                "summary": "Switch manufacturer",
+            }}),
+        )
+
+        with patch("api.routes.LLMTool") as MockLLM:
+            llm = AsyncMock()
+            llm.close = AsyncMock()
+            llm.generate = AsyncMock(return_value='{"tone":"professional"}')
+            MockLLM.return_value = llm
+
+            resp = await client.post("/api/v1/email-template-seeds/prepare", json={
+                "website_url": "https://www.gdushun.com/",
+                "description": "Find distributors",
+                "product_keywords": ["micro switch"],
+                "target_customer_profile": "Distributors",
+                "target_regions": ["United States"],
+                "email_template_examples": ["Dear Sir/Madam"],
+                "email_template_notes": "Keep it concise",
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()["template_seed"]
+        assert data["source"] == "pre_generated"
+        assert "template_profile" in data
+        assert "template_plan" in data
 
 
 class TestHuntResult:

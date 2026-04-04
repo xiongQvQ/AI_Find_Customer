@@ -87,6 +87,39 @@ def _request_json(
         raise ApiError(f"{method.upper()} {path} failed: {exc.reason}") from exc
 
 
+def _prepare_template_seed(
+    *,
+    base_url: str,
+    api_token: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+) -> dict[str, Any] | None:
+    if not bool(payload.get("enable_email_craft")):
+        return None
+    if isinstance(payload.get("template_seed"), dict):
+        return payload.get("template_seed")
+    request_payload = {
+        "website_url": payload.get("website_url", ""),
+        "description": payload.get("description", ""),
+        "product_keywords": list(payload.get("product_keywords", []) or []),
+        "target_customer_profile": payload.get("target_customer_profile", ""),
+        "target_regions": list(payload.get("target_regions", []) or []),
+        "uploaded_file_ids": list(payload.get("uploaded_file_ids", []) or payload.get("uploaded_files", []) or []),
+        "email_template_examples": list(payload.get("email_template_examples", []) or []),
+        "email_template_notes": payload.get("email_template_notes", ""),
+    }
+    response = _request_json(
+        method="POST",
+        base_url=base_url,
+        path="/api/v1/email-template-seeds/prepare",
+        api_token=api_token,
+        payload=request_payload,
+        timeout_seconds=timeout_seconds,
+    )
+    template_seed = response.get("template_seed")
+    return template_seed if isinstance(template_seed, dict) else None
+
+
 def _load_payload_file(path: str) -> dict[str, Any]:
     payload_path = Path(path).expanduser().resolve()
     data = json.loads(payload_path.read_text(encoding="utf-8"))
@@ -177,6 +210,20 @@ def _wait_for_hunt(
 
 
 def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        template_seed = _prepare_template_seed(
+            base_url=args.api_base_url,
+            api_token=args.api_token,
+            payload=payload,
+            timeout_seconds=args.request_timeout_seconds,
+        )
+        if template_seed is not None:
+            payload = dict(payload)
+            payload["template_seed"] = template_seed
+            logger.info("prepared template seed before hunt creation")
+    except Exception as exc:
+        logger.warning("template seed preparation failed, continuing without pre-generated seed: %s", exc)
+
     created = _request_json(
         method="POST",
         base_url=args.api_base_url,

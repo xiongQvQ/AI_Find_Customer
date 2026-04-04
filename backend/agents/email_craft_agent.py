@@ -1378,6 +1378,7 @@ async def _craft_for_lead(
     *,
     email_template_examples: list[str] | None = None,
     email_template_notes: str = "",
+    prepared_template_seed: dict[str, Any] | None = None,
     react_max_iterations: int = 3,
     hunt_id: str = "",
     hunt_round: int = 0,
@@ -1414,20 +1415,26 @@ async def _craft_for_lead(
         products = ", ".join(insight.get("products", []))
         rules = _get_locale_rules(locale)
         strategy_brief = await _synthesise_email_brief(lead, insight, target, llm)
-        template_profile = await extract_template_profile(
-            llm,
-            examples=list(email_template_examples or []),
-            lead=lead,
-            insight=insight,
-            notes=email_template_notes,
-        )
-        template_plan = await compose_template_plan(
-            llm,
-            lead=lead,
-            insight=insight,
-            template_profile=template_profile,
-            notes=email_template_notes,
-        )
+        seed_profile = (prepared_template_seed or {}).get("template_profile")
+        seed_plan = (prepared_template_seed or {}).get("template_plan")
+        if isinstance(seed_profile, dict) and isinstance(seed_plan, dict):
+            template_profile = copy.deepcopy(seed_profile)
+            template_plan = copy.deepcopy(seed_plan)
+        else:
+            template_profile = await extract_template_profile(
+                llm,
+                examples=list(email_template_examples or []),
+                lead=lead,
+                insight=insight,
+                notes=email_template_notes,
+            )
+            template_plan = await compose_template_plan(
+                llm,
+                lead=lead,
+                insight=insight,
+                template_profile=template_profile,
+                notes=email_template_notes,
+            )
 
         user_prompt = (
             f"## Your Company\n"
@@ -1566,6 +1573,7 @@ async def _craft_for_lead(
             "emails": emails,
             "template_profile": template_profile,
             "template_plan": template_plan,
+            "template_seed_source": str((prepared_template_seed or {}).get("source", "") or ""),
             "review_summary": review_summary,
             "review_optimization": review_optimization,
             "auto_send_eligible": _review_allows_send(review_summary, settings),
@@ -1598,6 +1606,7 @@ async def email_craft_node(state: HuntState) -> dict:
     hunt_round = state.get("hunt_round", 0)
     email_template_examples = list(state.get("email_template_examples", []) or [])
     email_template_notes = str(state.get("email_template_notes", "") or "")
+    prepared_template_seed = state.get("template_seed") if isinstance(state.get("template_seed"), dict) else None
     llm = LLMTool(
         model_type="email",
         hunt_id=hunt_id,
@@ -1626,6 +1635,7 @@ async def email_craft_node(state: HuntState) -> dict:
             semaphore,
             email_template_examples=email_template_examples,
             email_template_notes=email_template_notes,
+            prepared_template_seed=prepared_template_seed,
             react_max_iterations=settings.react_max_iterations,
             hunt_id=hunt_id,
             hunt_round=hunt_round,

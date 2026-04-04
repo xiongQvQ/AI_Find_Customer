@@ -26,6 +26,7 @@ class HuntState(TypedDict):
     enable_email_craft: bool               # whether to generate emails after hunting
     email_template_examples: list[str]
     email_template_notes: str
+    template_seed: Optional[dict]
 
     # ── Stage 1: Insight (runs once) ────────────────────────────────────
     insight: Optional[dict]

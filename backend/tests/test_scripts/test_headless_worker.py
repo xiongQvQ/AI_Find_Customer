@@ -79,6 +79,7 @@ def test_run_cycle_creates_hunt_then_campaign(monkeypatch):
         campaign_name_prefix = "Auto Campaign"
 
     responses = [
+        {"template_seed": {"source": "pre_generated", "template_profile": {}, "template_plan": {}}},
         {"hunt_id": "hunt-123"},
         {"status": "running", "current_stage": "search", "leads_count": 40, "email_sequences_count": 0},
         {"status": "completed", "current_stage": "email_craft", "leads_count": 100, "email_sequences_count": 12},
@@ -103,6 +104,7 @@ def test_run_cycle_creates_hunt_then_campaign(monkeypatch):
     assert result["email_sequence_count"] == 12
     assert result["campaign"] == {"campaign_id": "camp-456", "status": "active"}
     assert calls == [
+        ("POST", "/api/v1/email-template-seeds/prepare"),
         ("POST", "/api/v1/hunts"),
         ("GET", "/api/v1/hunts/hunt-123/status"),
         ("GET", "/api/v1/hunts/hunt-123/status"),
@@ -122,6 +124,7 @@ def test_run_cycle_skips_campaign_when_disabled(monkeypatch):
         campaign_name_prefix = "Auto Campaign"
 
     responses = [
+        {"template_seed": {"source": "pre_generated", "template_profile": {}, "template_plan": {}}},
         {"hunt_id": "hunt-xyz"},
         {"status": "completed", "current_stage": "email_craft", "leads_count": 100, "email_sequences_count": 3},
         {"status": "completed", "leads": [{"company_name": "Acme"}], "email_sequences": [{}]},

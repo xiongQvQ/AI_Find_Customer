@@ -21,8 +21,10 @@ from agents.search_agent import search_node
 from agents.lead_extract_agent import lead_extract_node, set_progress_callback
 from agents.email_craft_agent import email_craft_node
 from config.settings import get_settings
+from emailing.template_pipeline import compose_template_plan, extract_template_profile
 from emailing.imap_client import search_recent_replies
 from emailing.readiness import ensure_imap_ready, ensure_imap_tested, ensure_smtp_ready
+from tools.llm_client import LLMTool
 from emailing.smtp_client import send_smtp_email
 from api.hunt_store import load_all_hunts, save_hunt, now_iso
 from api.security import require_api_access
@@ -99,6 +101,7 @@ class HuntRequest(BaseModel):
     enable_email_craft: bool = Field(default=False, description="Whether to generate emails after hunting")
     email_template_examples: list[str] = Field(default_factory=list, description="Optional historical outreach emails or template samples from the user")
     email_template_notes: str = Field(default="", description="Optional notes about preferred style, offer, or constraints")
+    template_seed: dict[str, Any] | None = None
 
 
 class ResumeRequest(BaseModel):
@@ -108,6 +111,22 @@ class ResumeRequest(BaseModel):
     enable_email_craft: bool = Field(default=False)
     email_template_examples: list[str] = Field(default_factory=list)
     email_template_notes: str = ""
+    template_seed: dict[str, Any] | None = None
+
+
+class TemplateSeedRequest(BaseModel):
+    website_url: str = ""
+    description: str = ""
+    product_keywords: list[str] = Field(default_factory=list)
+    target_customer_profile: str = ""
+    target_regions: list[str] = Field(default_factory=list)
+    uploaded_file_ids: list[str] = Field(default_factory=list)
+    email_template_examples: list[str] = Field(default_factory=list)
+    email_template_notes: str = ""
+
+
+class TemplateSeedResponse(BaseModel):
+    template_seed: dict[str, Any]
 
 
 class HuntResponse(BaseModel):
@@ -186,6 +205,133 @@ def _broadcast(hunt_id: str, event: str, data: dict) -> None:
 
 def _clean_email(value: str) -> str:
     return str(value or "").replace("(inferred)", "").strip()
+
+
+def _fallback_template_seed(request: TemplateSeedRequest, insight: dict[str, Any]) -> dict[str, Any]:
+    synthetic_buyer = {
+        "company_name": request.target_customer_profile or "Target Buyer",
+        "industry": request.target_customer_profile or "Potential distributor or importer",
+        "description": request.description,
+        "website": "",
+        "country_code": "",
+    }
+    return {
+        "source": "pre_generated",
+        "prepared_from": {
+            "website_url": request.website_url,
+            "description": request.description,
+            "product_keywords": list(request.product_keywords),
+            "target_customer_profile": request.target_customer_profile,
+            "target_regions": list(request.target_regions),
+        },
+        "synthetic_buyer": synthetic_buyer,
+        "insight_snapshot": insight,
+        "template_profile": {
+            "source": "auto_generated",
+            "tone": "professional",
+            "subject_style": "specific and low-pressure",
+        },
+        "template_plan": {
+            "template_source": "auto_generated",
+            "recipient_profile": synthetic_buyer["industry"],
+            "cta_strategy": "Ask a low-friction qualification question.",
+        },
+        "notes": request.email_template_notes,
+    }
+
+
+async def _prepare_template_seed(request: TemplateSeedRequest) -> dict[str, Any]:
+    uploaded_files = _validate_uploaded_file_ids(request.uploaded_file_ids)
+    insight_state = {
+        "website_url": request.website_url,
+        "description": request.description,
+        "product_keywords": list(request.product_keywords),
+        "target_customer_profile": request.target_customer_profile,
+        "target_regions": list(request.target_regions),
+        "uploaded_files": uploaded_files,
+        "target_lead_count": 1,
+        "max_rounds": 1,
+        "min_new_leads_threshold": 1,
+        "enable_email_craft": True,
+        "email_template_examples": list(request.email_template_examples),
+        "email_template_notes": request.email_template_notes,
+        "template_seed": None,
+        "insight": None,
+        "keywords": [],
+        "used_keywords": [],
+        "search_results": [],
+        "seen_urls": [],
+        "matched_platforms": [],
+        "keyword_search_stats": {},
+        "leads": [],
+        "email_sequences": [],
+        "hunt_round": 0,
+        "prev_round_lead_count": 0,
+        "round_feedback": None,
+        "current_stage": "template_seed",
+        "hunt_id": f"template-seed-{uuid.uuid4().hex[:8]}",
+        "messages": [],
+    }
+
+    insight_payload: dict[str, Any] = {}
+    try:
+        insight_payload = await insight_node(insight_state)
+    except Exception as exc:
+        logger.warning("[TemplateSeed] Insight generation failed, using minimal fallback: %s", exc)
+    insight = insight_payload.get("insight") if isinstance(insight_payload, dict) else None
+    if not isinstance(insight, dict):
+        insight = {
+            "company_name": request.website_url or "Seller Company",
+            "products": list(request.product_keywords),
+            "industries": [request.target_customer_profile] if request.target_customer_profile else [],
+            "value_propositions": [],
+            "target_customer_profile": request.target_customer_profile,
+            "summary": request.description,
+        }
+
+    synthetic_buyer = {
+        "company_name": request.target_customer_profile or "Target Buyer",
+        "industry": request.target_customer_profile or "Potential distributor or importer",
+        "description": request.description or "Prospective buyer discovered by hunting workflow.",
+        "website": "",
+        "country_code": "",
+    }
+    llm = LLMTool(model_type="email", hunt_id="", agent="template_seed", hunt_round=0)
+    try:
+        template_profile = await extract_template_profile(
+            llm,
+            examples=list(request.email_template_examples),
+            lead=synthetic_buyer,
+            insight=insight,
+            notes=request.email_template_notes,
+        )
+        template_plan = await compose_template_plan(
+            llm,
+            lead=synthetic_buyer,
+            insight=insight,
+            template_profile=template_profile,
+            notes=request.email_template_notes,
+        )
+        return {
+            "source": "pre_generated",
+            "prepared_from": {
+                "website_url": request.website_url,
+                "description": request.description,
+                "product_keywords": list(request.product_keywords),
+                "target_customer_profile": request.target_customer_profile,
+                "target_regions": list(request.target_regions),
+            },
+            "synthetic_buyer": synthetic_buyer,
+            "insight_snapshot": insight,
+            "template_profile": template_profile,
+            "template_plan": template_plan,
+            "notes": request.email_template_notes,
+        }
+    except Exception as exc:
+        logger.warning("[TemplateSeed] Preparation failed, using fallback seed: %s", exc)
+        return _fallback_template_seed(request, insight)
+    finally:
+        await llm.close()
 
 
 def _sequence_is_send_approved(sequence: dict[str, Any]) -> bool:
@@ -372,6 +518,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
         "enable_email_craft": request.enable_email_craft,
         "email_template_examples": list(request.email_template_examples),
         "email_template_notes": request.email_template_notes,
+        "template_seed": request.template_seed or None,
         "insight": None,
         "keywords": [],
         "used_keywords": [],
@@ -596,6 +743,7 @@ def _slim_state(prior_result: dict, request: ResumeRequest) -> dict:
         "uploaded_files": prior_result.get("uploaded_files", []),
         "email_template_examples": list(request.email_template_examples) or prior_result.get("email_template_examples", []),
         "email_template_notes": request.email_template_notes or prior_result.get("email_template_notes", ""),
+        "template_seed": request.template_seed or prior_result.get("template_seed"),
         "insight": prior_result.get("insight"),          # skip re-running insight
         "used_keywords": used_keywords,
         "keyword_search_stats": keyword_search_stats,
@@ -806,6 +954,11 @@ async def upload_files(files: list[UploadFile] = File(...)):
         logger.info("[Upload] Saved %s → %s", file.filename, dest)
 
     return {"uploaded": results}
+
+
+@router.post("/email-template-seeds/prepare", response_model=TemplateSeedResponse, dependencies=[Depends(require_api_access)])
+async def prepare_email_template_seed(request: TemplateSeedRequest):
+    return TemplateSeedResponse(template_seed=await _prepare_template_seed(request))
 
 
 @router.post("/hunts", response_model=HuntResponse, dependencies=[Depends(require_api_access)])
