@@ -1278,7 +1278,7 @@ export function HuntDetailPage() {
   const [stageData, setStageData] = useState<StageDataMap>({});
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "leads" | "email-log">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "leads" | "emails" | "email-log">("overview");
   const [realtimeLeads, setRealtimeLeads] = useState<Lead[]>([]);
   const [emailFilter, setEmailFilter] = useState<"all" | "approved" | "needs_review">("all");
   const [previewSequence, setPreviewSequence] = useState<EmailSequence | null>(null);
@@ -1347,6 +1347,18 @@ export function HuntDetailPage() {
     refetchInterval: sse.status === "running" ? 3000 : false,
     retry: false,
   });
+  const { data: automationJob } = useQuery({
+    queryKey: ["automation-job-by-hunt", huntId],
+    queryFn: () => api.getAutomationJobByHunt(huntId),
+    retry: false,
+  });
+  const { data: campaigns } = useQuery({
+    queryKey: ["email-campaigns", huntId],
+    queryFn: () => api.listEmailCampaigns(huntId),
+    enabled: !!huntId,
+    refetchInterval: 5000,
+    retry: false,
+  });
 
   // Merge persisted partial leads + SSE pushes so leads tab updates immediately.
   const displayLeads = useMemo(() => {
@@ -1411,6 +1423,14 @@ export function HuntDetailPage() {
   const queuedLogCount = emailLogRows.filter((row) => row.sendStatus === "queued").length;
   const failedLogCount = emailLogRows.filter((row) => row.sendStatus === "failed").length;
   const repliedLogCount = emailLogRows.filter((row) => row.replyCount > 0).length;
+  const activeCampaignCount = useMemo(
+    () => (campaigns || []).filter((item) => item.campaign.status === "active").length,
+    [campaigns],
+  );
+  const totalCampaignSequenceCount = useMemo(
+    () => (campaigns || []).reduce((sum, item) => sum + (item.sequence_count || 0), 0),
+    [campaigns],
+  );
 
   const { data: costData } = useQuery({
     queryKey: ["hunt-cost", huntId],
@@ -1795,7 +1815,7 @@ export function HuntDetailPage() {
 
       {/* Tab switcher */}
       <div className="flex gap-1 border-b">
-        {(["overview", "leads", "email-log"] as const).map((tab) => (
+        {(["overview", "leads", "emails", "email-log"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1809,12 +1829,106 @@ export function HuntDetailPage() {
               ? "总览"
               : tab === "leads"
                 ? `线索${leadsTabCount > 0 ? ` (${leadsTabCount})` : ""}`
+                : tab === "emails"
+                  ? `邮件${emailCount > 0 ? ` (${emailCount})` : ""}`
                 : `邮件日志${emailLogRows.length > 0 ? ` (${emailLogRows.length})` : ""}`}
           </button>
         ))}
       </div>
 
       {activeTab === "overview" && (<>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">队列任务</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-2xl font-semibold">{automationJob?.status || "-"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {automationJob ? `尝试 ${automationJob.attempt_count} 次` : "当前 hunt 未绑定 queue job"}
+                </p>
+              </div>
+              {automationJob && (
+                <Link to="/automation/$jobId" params={{ jobId: automationJob.job_id }}>
+                  <Button variant="outline" size="sm">查看任务</Button>
+                </Link>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">当前阶段</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{automationJob?.hunt_stage || sse.stage || "-"}</p>
+            <p className="text-xs text-muted-foreground">
+              {automationJob?.hunt_status ? `Hunt 状态：${automationJob.hunt_status}` : "由 consumer 执行搜索、抽取、评估和邮件生成"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Campaign</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{activeCampaignCount}</p>
+            <p className="text-xs text-muted-foreground">
+              {(campaigns || []).length > 0
+                ? `共 ${(campaigns || []).length} 个 campaign，覆盖 ${totalCampaignSequenceCount} 条发送序列`
+                : "当前还没有已创建的 campaign"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">发送队列</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">{queuedLogCount}</p>
+            <p className="text-xs text-muted-foreground">
+              已发送 {sentLogCount} · 失败 {failedLogCount} · 回复 {repliedLogCount}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {automationJob?.last_error && (
+        <Card className="border-amber-300">
+          <CardContent className="py-4 text-sm text-amber-700 dark:text-amber-300">
+            队列任务最近错误：{automationJob.last_error}
+          </CardContent>
+        </Card>
+      )}
+
+      {(campaigns || []).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Campaign 运营状态</CardTitle>
+            <CardDescription>当前 hunt 关联的自动发送任务，会由持久化发送队列和 scheduler 消费。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(campaigns || []).map((item) => (
+              <div key={item.campaign.id} className="rounded-md border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{item.campaign.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      状态 {item.campaign.status} · 语言 {item.campaign.default_language} · 语气 {item.campaign.tone}
+                    </p>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    发送 {item.sent_count} · 待发 {item.pending_count} · 失败 {item.failed_count}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stage Progress — clickable steps */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -2045,6 +2159,40 @@ export function HuntDetailPage() {
       })()}
       </>)}
 
+      <LeadDetailSheet
+        lead={selectedLead}
+        open={selectedLead !== null}
+        onClose={() => setSelectedLead(null)}
+      />
+
+      <EmailSequencePreviewSheet
+        sequence={previewSequence}
+        open={previewSequence !== null}
+        onClose={() => {
+          setPreviewSequence(null);
+          setPreviewSequenceIndex(null);
+        }}
+        onApprove={() => {
+          if (previewSequenceIndex === null) return;
+          emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "approved" });
+        }}
+        onReject={() => {
+          if (previewSequenceIndex === null) return;
+          emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "rejected" });
+        }}
+        onSendDraft={(sequenceNumber) => {
+          if (previewSequenceIndex === null) return;
+          sendDraftMutation.mutate({ sequenceIndex: previewSequenceIndex, sequenceNumber });
+        }}
+        onDetectReplies={() => {
+          if (previewSequenceIndex === null) return;
+          detectRepliesMutation.mutate({ sequenceIndex: previewSequenceIndex });
+        }}
+        isUpdating={emailDecisionMutation.isPending}
+        isSending={sendDraftMutation.isPending}
+        isCheckingReplies={detectRepliesMutation.isPending}
+      />
+
       {activeTab === "leads" && (
         <>
           {/* Stats */}
@@ -2065,8 +2213,8 @@ export function HuntDetailPage() {
                 <div className="flex items-center gap-2">
                   <Mail className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-2xl font-bold">-</p>
-                    <p className="text-xs text-muted-foreground">邮件能力待开发</p>
+                    <p className="text-2xl font-bold">{emailCount}</p>
+                    <p className="text-xs text-muted-foreground">已生成邮件序列</p>
                   </div>
                 </div>
               </CardContent>
@@ -2248,49 +2396,22 @@ export function HuntDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Lead Detail Sheet */}
-          <LeadDetailSheet
-            lead={selectedLead}
-            open={selectedLead !== null}
-            onClose={() => setSelectedLead(null)}
-          />
+        </>
+      )}
 
-          <EmailSequencePreviewSheet
-            sequence={previewSequence}
-            open={previewSequence !== null}
-            onClose={() => {
-              setPreviewSequence(null);
-              setPreviewSequenceIndex(null);
-            }}
-            onApprove={() => {
-              if (previewSequenceIndex === null) return;
-              emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "approved" });
-            }}
-            onReject={() => {
-              if (previewSequenceIndex === null) return;
-              emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "rejected" });
-            }}
-            onSendDraft={(sequenceNumber) => {
-              if (previewSequenceIndex === null) return;
-              sendDraftMutation.mutate({ sequenceIndex: previewSequenceIndex, sequenceNumber });
-            }}
-            onDetectReplies={() => {
-              if (previewSequenceIndex === null) return;
-              detectRepliesMutation.mutate({ sequenceIndex: previewSequenceIndex });
-            }}
-            isUpdating={emailDecisionMutation.isPending}
-            isSending={sendDraftMutation.isPending}
-            isCheckingReplies={detectRepliesMutation.isPending}
-          />
-
-          {/* Email Sequences */}
-          {emailCount > 0 && result && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">邮件序列</CardTitle>
-                <CardDescription>已生成 {result.email_sequences.length} 组个性化邮件序列</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+      {activeTab === "emails" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">AI 邮件预览</CardTitle>
+            <CardDescription>
+              {emailCount > 0
+                ? `已生成 ${emailCount} 组个性化邮件序列，可在这里预览、审核并进入发送流程。`
+                : "当前任务还没有可预览的 AI 邮件。请先在创建任务或继续挖掘时开启 AI 邮件生成。"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {emailCount > 0 && result ? (
+              <>
                 <div className="flex flex-wrap gap-2">
                   {([
                     ["all", `全部 (${emailCount})`],
@@ -2483,10 +2604,14 @@ export function HuntDetailPage() {
                     </details>
                   );
                 })}
-              </CardContent>
-            </Card>
-          )}
-        </>
+              </>
+            ) : (
+              <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                当前还没有 AI 邮件可预览。请在创建任务或继续挖掘时开启邮件生成。
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {activeTab === "email-log" && (

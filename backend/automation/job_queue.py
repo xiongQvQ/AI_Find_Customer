@@ -160,6 +160,26 @@ class HuntJobQueue:
             data["payload"] = {}
         return data
 
+    def get_by_hunt_id(self, hunt_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM hunt_jobs
+                WHERE last_hunt_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (hunt_id,),
+            ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["payload"] = json.loads(str(data.get("payload_json") or "{}"))
+        except json.JSONDecodeError:
+            data["payload"] = {}
+        return data
+
     def list_jobs(self, *, limit: int = 100) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

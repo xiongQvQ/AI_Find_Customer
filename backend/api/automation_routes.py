@@ -89,6 +89,15 @@ async def get_automation_job(job_id: str):
     return _serialize_job(job)
 
 
+@router.get("/jobs/by-hunt/{hunt_id}", dependencies=[Depends(require_api_access)])
+async def get_automation_job_by_hunt(hunt_id: str):
+    queue = _queue()
+    job = queue.get_by_hunt_id(hunt_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Automation job not found for hunt")
+    return _serialize_job(job)
+
+
 @router.get("/status", dependencies=[Depends(require_api_access)])
 async def get_automation_status():
     return collect_automation_status(hunts=_hunts)

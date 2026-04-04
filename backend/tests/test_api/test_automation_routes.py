@@ -74,6 +74,13 @@ def test_automation_job_routes(monkeypatch):
                 return None
             return fake_job
 
+        def get_by_hunt_id(self, hunt_id):
+            if hunt_id == "missing-hunt":
+                return None
+            job = dict(fake_job)
+            job["last_hunt_id"] = hunt_id
+            return job
+
         def list_jobs(self, limit=100):
             return [fake_job]
 
@@ -90,7 +97,9 @@ def test_automation_job_routes(monkeypatch):
     })
     listed = client.get("/api/v1/automation/jobs")
     detail = client.get("/api/v1/automation/jobs/job-1")
+    by_hunt = client.get("/api/v1/automation/jobs/by-hunt/hunt-1")
     missing = client.get("/api/v1/automation/jobs/missing")
+    missing_by_hunt = client.get("/api/v1/automation/jobs/by-hunt/missing-hunt")
 
     assert created.status_code == 200
     assert created.json()["job_id"] == "job-1"
@@ -98,4 +107,7 @@ def test_automation_job_routes(monkeypatch):
     assert listed.json()[0]["website_url"] == "https://www.gdushun.com/"
     assert detail.status_code == 200
     assert detail.json()["target_lead_count"] == 100
+    assert by_hunt.status_code == 200
+    assert by_hunt.json()["last_hunt_id"] == "hunt-1"
     assert missing.status_code == 404
+    assert missing_by_hunt.status_code == 404

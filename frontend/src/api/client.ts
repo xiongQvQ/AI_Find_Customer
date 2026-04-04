@@ -376,6 +376,9 @@ export const api = {
   getAutomationJob: (jobId: string) =>
     request<AutomationJob>(`/automation/jobs/${jobId}`),
 
+  getAutomationJobByHunt: (huntId: string) =>
+    request<AutomationJob>(`/automation/jobs/by-hunt/${huntId}`),
+
   getHuntStatus: (huntId: string) =>
     request<HuntStatus>(`/hunts/${huntId}/status`),
 
