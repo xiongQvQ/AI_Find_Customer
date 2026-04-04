@@ -160,6 +160,35 @@ class HuntJobQueue:
             data["payload"] = {}
         return data
 
+    def list_jobs(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM hunt_jobs
+                ORDER BY
+                  CASE status
+                    WHEN 'running' THEN 0
+                    WHEN 'queued' THEN 1
+                    WHEN 'failed' THEN 2
+                    WHEN 'completed' THEN 3
+                    ELSE 4
+                  END,
+                  updated_at DESC,
+                  created_at DESC
+                LIMIT ?
+                """,
+                (max(1, int(limit)),),
+            ).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            try:
+                data["payload"] = json.loads(str(data.get("payload_json") or "{}"))
+            except json.JSONDecodeError:
+                data["payload"] = {}
+            results.append(data)
+        return results
+
     def mark_completed(self, job_id: str, *, hunt_id: str, finished_at: str) -> None:
         with self._connect() as conn:
             conn.execute(

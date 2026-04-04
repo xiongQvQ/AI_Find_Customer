@@ -36,3 +36,66 @@ def test_automation_routes(monkeypatch):
     assert metrics.json()["window_hours"] == 2
     assert health.status_code == 200
     assert health.json()["backlog_email_messages"] == 3
+
+
+def test_automation_job_routes(monkeypatch):
+    app = create_app()
+    client = TestClient(app)
+
+    fake_job = {
+        "id": "job-1",
+        "status": "queued",
+        "created_at": "2026-04-05T00:00:00+00:00",
+        "updated_at": "2026-04-05T00:00:00+00:00",
+        "started_at": "",
+        "finished_at": "",
+        "attempt_count": 1,
+        "last_error": "",
+        "last_hunt_id": "",
+        "payload": {
+            "website_url": "https://www.gdushun.com/",
+            "description": "Find distributors",
+            "product_keywords": ["micro switch"],
+            "target_regions": ["United States"],
+            "target_lead_count": 100,
+            "enable_email_craft": True,
+        },
+    }
+
+    class FakeQueue:
+        def init_db(self):
+            return None
+
+        def enqueue(self, payload, now_iso):
+            return "job-1"
+
+        def get(self, job_id):
+            if job_id == "missing":
+                return None
+            return fake_job
+
+        def list_jobs(self, limit=100):
+            return [fake_job]
+
+    monkeypatch.setattr("api.automation_routes._queue", lambda: FakeQueue())
+    monkeypatch.setattr("api.automation_routes.load_hunt", lambda hunt_id: None)
+
+    created = client.post("/api/v1/automation/jobs", json={
+        "website_url": "https://www.gdushun.com/",
+        "description": "Find distributors",
+        "product_keywords": ["micro switch"],
+        "target_regions": ["United States"],
+        "target_lead_count": 100,
+        "enable_email_craft": True,
+    })
+    listed = client.get("/api/v1/automation/jobs")
+    detail = client.get("/api/v1/automation/jobs/job-1")
+    missing = client.get("/api/v1/automation/jobs/missing")
+
+    assert created.status_code == 200
+    assert created.json()["job_id"] == "job-1"
+    assert listed.status_code == 200
+    assert listed.json()[0]["website_url"] == "https://www.gdushun.com/"
+    assert detail.status_code == 200
+    assert detail.json()["target_lead_count"] == 100
+    assert missing.status_code == 404

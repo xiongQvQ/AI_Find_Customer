@@ -34,9 +34,9 @@ export function NewHuntPage() {
   });
 
   const createHunt = useMutation({
-    mutationFn: api.createHunt,
-    onSuccess: (data) => {
-      navigate({ to: "/hunts/$huntId", params: { huntId: data.hunt_id } });
+    mutationFn: api.createAutomationJob,
+    onSuccess: () => {
+      navigate({ to: "/" });
     },
   });
 
@@ -134,7 +134,7 @@ export function NewHuntPage() {
     <div className="max-w-2xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">新建任务</h1>
-        <p className="text-muted-foreground mt-1">配置你的 AI B2B 获客任务</p>
+        <p className="text-muted-foreground mt-1">提交到任务队列，由生产者消费者模式持续执行</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -461,7 +461,7 @@ export function NewHuntPage() {
           ) : (
             <Crosshair className="h-4 w-4 mr-2" />
           )}
-          {createHunt.isPending ? "任务启动中..." : "开始挖掘"}
+          {createHunt.isPending ? "任务提交中..." : "提交到队列"}
         </Button>
       </form>
     </div>

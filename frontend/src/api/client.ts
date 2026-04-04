@@ -311,6 +311,28 @@ export interface DetectReplyResponse {
   replies: Array<Record<string, string>>;
 }
 
+export interface AutomationJob {
+  job_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  started_at: string;
+  finished_at: string;
+  attempt_count: number;
+  last_error: string;
+  last_hunt_id: string;
+  website_url: string;
+  description: string;
+  product_keywords: string[];
+  target_regions: string[];
+  target_lead_count: number;
+  enable_email_craft: boolean;
+  hunt_status: string;
+  hunt_stage: string;
+  hunt_error: string;
+  leads_count: number;
+}
+
 async function requestSettings<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${SETTINGS_API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -341,6 +363,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  createAutomationJob: (data: HuntRequest) =>
+    request<AutomationJob>("/automation/jobs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  listAutomationJobs: () =>
+    request<AutomationJob[]>("/automation/jobs"),
+
+  getAutomationJob: (jobId: string) =>
+    request<AutomationJob>(`/automation/jobs/${jobId}`),
 
   getHuntStatus: (huntId: string) =>
     request<HuntStatus>(`/hunts/${huntId}/status`),
