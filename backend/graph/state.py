@@ -23,6 +23,8 @@ class HuntState(TypedDict):
     target_lead_count: int
     max_rounds: int
     enable_email_craft: bool               # whether to generate emails after hunting
+    email_template_examples: list[str]
+    email_template_notes: str
 
     # ── Stage 1: Insight (runs once) ────────────────────────────────────
     insight: Optional[dict]

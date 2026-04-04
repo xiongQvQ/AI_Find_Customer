@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from config.settings import get_settings
+from emailing.template_pipeline import compose_template_plan, extract_template_profile
 from graph.state import HuntState
 from tools.llm_client import LLMTool
 from tools.react_runner import ToolDef, react_loop
@@ -412,6 +413,8 @@ async def _craft_for_lead(
     llm: LLMTool,
     semaphore: asyncio.Semaphore,
     *,
+    email_template_examples: list[str] | None = None,
+    email_template_notes: str = "",
     react_max_iterations: int = 3,
     hunt_id: str = "",
     hunt_round: int = 0,
@@ -432,6 +435,20 @@ async def _craft_for_lead(
         company_name = insight.get("company_name", "Our Company")
         products = ", ".join(insight.get("products", []))
         rules = _get_locale_rules(locale)
+        template_profile = await extract_template_profile(
+            llm,
+            examples=list(email_template_examples or []),
+            lead=lead,
+            insight=insight,
+            notes=email_template_notes,
+        )
+        template_plan = await compose_template_plan(
+            llm,
+            lead=lead,
+            insight=insight,
+            template_profile=template_profile,
+            notes=email_template_notes,
+        )
 
         user_prompt = (
             f"## Your Company\n"
@@ -450,7 +467,14 @@ async def _craft_for_lead(
             f"Formality: {rules['formality']}\n"
             f"Expected salutation: {rules['salutation']}\n"
             f"Expected closing: {rules['closing']}\n\n"
+            f"## Template Guidance\n"
+            f"Template source: {template_profile.get('source', 'auto_generated')}\n"
+            f"Template notes: {email_template_notes}\n"
+            f"Template profile: {json.dumps(template_profile, ensure_ascii=False)}\n"
+            f"Template plan: {json.dumps(template_plan, ensure_ascii=False)}\n\n"
             f"Write the 3-email sequence in {rules['language']}. "
+            f"Preserve the user's historical style when examples are present, "
+            f"but adapt the content to this buyer and the template plan. "
             f"Call validate_emails after drafting, then revise if needed."
         )
 
@@ -490,6 +514,8 @@ async def _craft_for_lead(
             "lead": lead,
             "locale": locale,
             "emails": emails,
+            "template_profile": template_profile,
+            "template_plan": template_plan,
         }
 
 
@@ -517,6 +543,8 @@ async def email_craft_node(state: HuntState) -> dict:
     semaphore = asyncio.Semaphore(settings.email_gen_concurrency)
     hunt_id = state.get("hunt_id", "")
     hunt_round = state.get("hunt_round", 0)
+    email_template_examples = list(state.get("email_template_examples", []) or [])
+    email_template_notes = str(state.get("email_template_notes", "") or "")
     llm = LLMTool(
         hunt_id=hunt_id,
         agent="email_craft",
@@ -527,6 +555,8 @@ async def email_craft_node(state: HuntState) -> dict:
         tasks = [
             _craft_for_lead(
                 lead, insight, llm, semaphore,
+                email_template_examples=email_template_examples,
+                email_template_notes=email_template_notes,
                 react_max_iterations=settings.react_max_iterations,
                 hunt_id=hunt_id,
                 hunt_round=hunt_round,

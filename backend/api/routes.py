@@ -72,12 +72,16 @@ class HuntRequest(BaseModel):
     target_lead_count: int = Field(default=200, ge=1, le=10000)
     max_rounds: int = Field(default=10, ge=1, le=50)
     enable_email_craft: bool = Field(default=False, description="Whether to generate emails after hunting")
+    email_template_examples: list[str] = Field(default_factory=list, description="Optional historical outreach emails or template samples from the user")
+    email_template_notes: str = Field(default="", description="Optional notes about preferred style, offer, or constraints")
 
 
 class ResumeRequest(BaseModel):
     target_lead_count: int = Field(default=200, ge=1, le=10000)
     max_rounds: int = Field(default=10, ge=1, le=50)
     enable_email_craft: bool = Field(default=False)
+    email_template_examples: list[str] = Field(default_factory=list)
+    email_template_notes: str = ""
 
 
 class HuntResponse(BaseModel):
@@ -186,6 +190,8 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
         "target_lead_count": request.target_lead_count,
         "max_rounds": request.max_rounds,
         "enable_email_craft": request.enable_email_craft,
+        "email_template_examples": list(request.email_template_examples),
+        "email_template_notes": request.email_template_notes,
         "insight": None,
         "keywords": [],
         "used_keywords": [],
@@ -408,6 +414,8 @@ def _slim_state(prior_result: dict, request: ResumeRequest) -> dict:
         "product_keywords": prior_result.get("product_keywords", []),
         "target_regions": prior_result.get("target_regions", []),
         "uploaded_files": prior_result.get("uploaded_files", []),
+        "email_template_examples": list(request.email_template_examples) or prior_result.get("email_template_examples", []),
+        "email_template_notes": request.email_template_notes or prior_result.get("email_template_notes", ""),
         "insight": prior_result.get("insight"),          # skip re-running insight
         "used_keywords": used_keywords,
         "keyword_search_stats": keyword_search_stats,
@@ -622,6 +630,8 @@ async def create_hunt(request: HuntRequest, background_tasks: BackgroundTasks):
         "product_keywords": request.product_keywords,
         "target_customer_profile": request.target_customer_profile,
         "target_regions": request.target_regions,
+        "email_template_examples": request.email_template_examples,
+        "email_template_notes": request.email_template_notes,
     }
     save_hunt(hunt_id, _hunts[hunt_id])
 
@@ -746,7 +756,7 @@ async def resume_hunt(hunt_id: str, request: ResumeRequest, background_tasks: Ba
         raise HTTPException(status_code=422, detail="Hunt has no result state to resume from")
 
     # Inject original hunt metadata into prior_result so _slim_state can access it
-    for field in ("website_url", "product_keywords", "target_customer_profile", "target_regions", "uploaded_files"):
+    for field in ("website_url", "product_keywords", "target_customer_profile", "target_regions", "uploaded_files", "email_template_examples", "email_template_notes"):
         if field not in prior_result:
             prior_result[field] = hunt.get(field, [] if field != "website_url" else "")
 
