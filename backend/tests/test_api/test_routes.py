@@ -227,6 +227,284 @@ class TestHuntResult:
         assert len(data["leads"]) == 1
 
 
+class TestEmailSequenceDecision:
+    @pytest.mark.asyncio
+    async def test_decide_email_sequence_approved(self, client):
+        _hunts["decision-1"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme"},
+                        "locale": "en_US",
+                        "emails": [],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        resp = await client.post(
+            "/api/v1/hunts/decision-1/email-sequences/0/decision",
+            json={"decision": "approved", "notes": "Looks good"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["decision"] == "approved"
+        assert data["auto_send_eligible"] is True
+        assert _hunts["decision-1"]["result"]["email_sequences"][0]["manual_review"]["notes"] == "Looks good"
+
+    @pytest.mark.asyncio
+    async def test_decide_email_sequence_rejected(self, client):
+        _hunts["decision-2"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Beta"},
+                        "locale": "en_US",
+                        "emails": [],
+                        "review_summary": {"status": "approved", "score": 88},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        resp = await client.post(
+            "/api/v1/hunts/decision-2/email-sequences/0/decision",
+            json={"decision": "rejected", "notes": "Too generic"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["decision"] == "rejected"
+        assert data["auto_send_eligible"] is False
+        assert _hunts["decision-2"]["result"]["email_sequences"][0]["manual_review"]["decision"] == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_decide_email_sequence_not_found(self, client):
+        _hunts["decision-3"] = {
+            "status": "completed",
+            "result": {"email_sequences": []},
+            "email_sequences_count": 0,
+        }
+
+        resp = await client.post(
+            "/api/v1/hunts/decision-3/email-sequences/1/decision",
+            json={"decision": "approved"},
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_decide_email_sequence_auto_queues_when_enabled(self, client):
+        _hunts["decision-4"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme"},
+                        "locale": "en_US",
+                        "emails": [{"sequence_number": 1, "subject": "Hello", "body_text": "Body"}],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        fake_settings = MagicMock()
+        fake_settings.email_auto_send_enabled = True
+        with (
+            patch("api.routes.get_settings", return_value=fake_settings),
+            patch("api.routes._schedule_email_send") as mock_schedule,
+        ):
+            resp = await client.post(
+                "/api/v1/hunts/decision-4/email-sequences/0/decision",
+                json={"decision": "approved"},
+            )
+        assert resp.status_code == 200
+        mock_schedule.assert_called_once()
+
+
+class TestSendEmailDraft:
+    @pytest.mark.asyncio
+    async def test_send_email_draft_success(self, client):
+        _hunts["send-1"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [
+                            {
+                                "sequence_number": 1,
+                                "subject": "Hello",
+                                "body_text": "Body",
+                            }
+                        ],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        with patch("api.routes.send_smtp_email", return_value={"status": "sent"}):
+            resp = await client.post(
+                "/api/v1/hunts/send-1/email-sequences/0/send",
+                json={"sequence_number": 1},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "sent"
+        assert data["sent_to"] == "hello@acme.com"
+        assert _hunts["send-1"]["result"]["email_sequences"][0]["emails"][0]["send_status"] == "sent"
+
+    @pytest.mark.asyncio
+    async def test_send_email_draft_requires_approval(self, client):
+        _hunts["send-2"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [{"sequence_number": 1, "subject": "Hello", "body_text": "Body"}],
+                        "review_summary": {"status": "needs_review", "score": 50},
+                        "auto_send_eligible": False,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        resp = await client.post(
+            "/api/v1/hunts/send-2/email-sequences/0/send",
+            json={"sequence_number": 1},
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_send_email_draft_requires_recipient(self, client):
+        _hunts["send-3"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": []},
+                        "locale": "en_US",
+                        "emails": [{"sequence_number": 1, "subject": "Hello", "body_text": "Body"}],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        resp = await client.post(
+            "/api/v1/hunts/send-3/email-sequences/0/send",
+            json={"sequence_number": 1},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_send_email_draft_auto_queues_follow_up_when_enabled(self, client):
+        _hunts["send-4"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [
+                            {"sequence_number": 1, "subject": "Hello", "body_text": "Body"},
+                            {"sequence_number": 2, "subject": "Follow up", "body_text": "Body 2"},
+                        ],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        fake_settings = MagicMock()
+        fake_settings.email_auto_send_enabled = True
+        with (
+            patch("api.routes.get_settings", return_value=fake_settings),
+            patch("api.routes.send_smtp_email", return_value={"status": "sent"}),
+            patch("api.routes._schedule_email_send") as mock_schedule,
+        ):
+            resp = await client.post(
+                "/api/v1/hunts/send-4/email-sequences/0/send",
+                json={"sequence_number": 1},
+            )
+        assert resp.status_code == 200
+        mock_schedule.assert_called_once()
+
+
+class TestDetectReplies:
+    @pytest.mark.asyncio
+    async def test_detect_replies_success(self, client):
+        _hunts["reply-1"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        with patch("api.routes.search_recent_replies", return_value=[
+            {
+                "from_address": "hello@acme.com",
+                "subject": "Re: Hello",
+                "date": "Sat, 05 Apr 2026 10:00:00 +0000",
+                "message_id": "<1@test>",
+            }
+        ]):
+            resp = await client.post("/api/v1/hunts/reply-1/email-sequences/0/detect-replies")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reply_count"] == 1
+        assert _hunts["reply-1"]["result"]["email_sequences"][0]["lead"]["reply_status"] == "replied"
+
+    @pytest.mark.asyncio
+    async def test_detect_replies_requires_recipient(self, client):
+        _hunts["reply-2"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": []},
+                        "locale": "en_US",
+                        "emails": [],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        resp = await client.post("/api/v1/hunts/reply-2/email-sequences/0/detect-replies")
+        assert resp.status_code == 422
+
+
 class TestListHunts:
     @pytest.mark.asyncio
     async def test_list_empty(self, client):

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import router
+from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from config.settings import get_settings
@@ -95,6 +95,8 @@ async def lifespan(app: FastAPI):
         app.state.email_reply_task = asyncio.create_task(_email_reply_loop(settings))
         logger.info("[EmailReply] background loop started")
 
+    start_background_workers()
+
     try:
         yield
     finally:
@@ -110,6 +112,8 @@ async def lifespan(app: FastAPI):
             with suppress(asyncio.CancelledError):
                 await reply_task
             logger.info("[EmailReply] background loop stopped")
+
+    await stop_background_workers()
 
 
 def create_app() -> FastAPI:

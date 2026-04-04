@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { api } from "@/api/client";
+import { api, EmailDraft, EmailSequence } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,13 +21,23 @@ function ResumeDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirm: (targetLeadCount: number, maxRounds: number, minNewLeadsThreshold: number) => void;
+  onConfirm: (
+    targetLeadCount: number,
+    maxRounds: number,
+    minNewLeadsThreshold: number,
+    enableEmailCraft: boolean,
+    emailTemplateExamples: string[],
+    emailTemplateNotes: string,
+  ) => void;
   isLoading: boolean;
   currentLeads: number;
 }) {
   const [targetLeadCount, setTargetLeadCount] = useState(Math.max(currentLeads + 100, 200));
   const [maxRounds, setMaxRounds] = useState(10);
   const [minNewLeadsThreshold, setMinNewLeadsThreshold] = useState(5);
+  const [enableEmailCraft, setEnableEmailCraft] = useState(false);
+  const [emailTemplateExamplesText, setEmailTemplateExamplesText] = useState("");
+  const [emailTemplateNotes, setEmailTemplateNotes] = useState("");
 
   // Sync default when dialog opens
   useEffect(() => {
@@ -35,6 +45,10 @@ function ResumeDialog({
       setTargetLeadCount(Math.max(currentLeads + 100, 200));
       setMaxRounds(10);
       setMinNewLeadsThreshold(5);
+      setMinNewLeadsThreshold(5);
+      setEnableEmailCraft(false);
+      setEmailTemplateExamplesText("");
+      setEmailTemplateNotes("");
     }
   }, [open, currentLeads]);
 
@@ -94,20 +108,54 @@ function ResumeDialog({
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-dashed p-3 opacity-70">
+          <div className="flex items-center justify-between rounded-md border p-3">
             <div>
-              <p className="text-sm font-medium">邮件能力待开发</p>
-              <p className="text-xs text-muted-foreground">继续挖掘时暂不生成邮件序列。</p>
+              <p className="text-sm font-medium">生成邮件序列</p>
+              <p className="text-xs text-muted-foreground">继续挖掘时可为新增线索生成个性化邮件。</p>
             </div>
-            <Badge variant="outline">暂不可用</Badge>
+            <button
+              onClick={() => setEnableEmailCraft((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                enableEmailCraft ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                enableEmailCraft ? "translate-x-6" : "translate-x-1"
+              }`} />
+            </button>
           </div>
+
+          {enableEmailCraft && (
+            <div className="space-y-4 rounded-md border p-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">历史邮件样例 / 模板样例</label>
+                <textarea
+                  className="min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={"可选。粘贴你过去发过的英文邮件，多封之间用空行隔开。\n\nExample 1:\nSubject: Quick intro\nHello ...\n\nExample 2:\nSubject: Potential fit\nHi ..."}
+                  value={emailTemplateExamplesText}
+                  onChange={(e) => setEmailTemplateExamplesText(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">系统会先抽取你的模板风格，再结合新线索内容生成邮件。</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">模板备注</label>
+                <textarea
+                  className="min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="例如：保持简洁直接；避免夸张表述；CTA 不要太强；优先突出渠道合作。"
+                  value={emailTemplateNotes}
+                  onChange={(e) => setEmailTemplateNotes(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-md bg-muted/50 border p-3 text-xs text-muted-foreground space-y-1">
           <p className="font-medium text-foreground">将保留的数据：</p>
           <p>✓ 已有线索 ({currentLeads} 条) &nbsp;✓ 公司洞察 &nbsp;✓ 关键词历史 &nbsp;✓ 搜索统计</p>
           <p className="font-medium text-foreground mt-1">将重置的数据：</p>
-          <p>↺ 轮次计数 &nbsp;↺ 搜索结果缓存（保留去重记录）</p>
+          <p>↺ 轮次计数 &nbsp;↺ 搜索结果缓存（保留去重记录）&nbsp;↺ 邮件序列</p>
         </div>
 
         <div className="flex gap-3 pt-1">
@@ -116,7 +164,17 @@ function ResumeDialog({
           </Button>
           <Button
             className="flex-1"
-            onClick={() => onConfirm(targetLeadCount, maxRounds, minNewLeadsThreshold)}
+            onClick={() => onConfirm(
+              targetLeadCount,
+              maxRounds,
+              minNewLeadsThreshold,
+              enableEmailCraft,
+              emailTemplateExamplesText
+                .split(/\n\s*\n/)
+                .map((item) => item.trim())
+                .filter(Boolean),
+              emailTemplateNotes.trim(),
+            )}
             disabled={isLoading}
           >
             {isLoading ? (
@@ -221,6 +279,59 @@ function getLeadKey(lead: Lead): string {
   const emails = getLeadEmails(lead);
   if (emails.length > 0) return `e:${emails[0].trim().toLowerCase()}`;
   return `raw:${JSON.stringify(lead)}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")) : [];
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function formatTemplateSource(source: string): string {
+  return source === "user_examples" ? "历史模板" : "自动模板";
+}
+
+function formatReviewStatus(status: string): string {
+  return status === "approved" ? "可自动发送" : "需人工复核";
+}
+
+function formatEmailType(emailType: string): string {
+  const labels: Record<string, string> = {
+    company_intro: "首封介绍",
+    product_showcase: "产品介绍",
+    partnership_proposal: "合作提案",
+  };
+  return labels[emailType] || emailType;
+}
+
+function buildSequencePreviewText(sequence: EmailSequence): string {
+  const companyName = String(asRecord(sequence.lead).company_name || "Unknown company");
+  const locale = sequence.locale || "en_US";
+  const blocks = sequence.emails.map((email) => (
+    [
+      `#${email.sequence_number} ${formatEmailType(email.email_type)}`,
+      `Subject: ${email.subject}`,
+      `Send day: ${email.suggested_send_day}`,
+      "",
+      email.body_text,
+    ].join("\n")
+  ));
+  return [`Company: ${companyName}`, `Locale: ${locale}`, "", ...blocks].join("\n\n");
+}
+
+function formatSendStatus(status: string): string {
+  const labels: Record<string, string> = {
+    queued: "队列中",
+    sent: "已发送",
+    failed: "发送失败",
+  };
+  return labels[status] || "未发送";
 }
 
 function compareLeads(a: Lead, b: Lead): number {
@@ -617,6 +728,213 @@ function LeadDetailSheet({ lead, open, onClose }: { lead: Lead | null; open: boo
   );
 }
 
+function EmailSequencePreviewSheet({
+  sequence,
+  open,
+  onClose,
+  onApprove,
+  onReject,
+  onSendDraft,
+  onDetectReplies,
+  isUpdating,
+  isSending,
+  isCheckingReplies,
+}: {
+  sequence: EmailSequence | null;
+  open: boolean;
+  onClose: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onSendDraft: (sequenceNumber: number) => void;
+  onDetectReplies: () => void;
+  isUpdating: boolean;
+  isSending: boolean;
+  isCheckingReplies: boolean;
+}) {
+  if (!sequence) return null;
+
+  const lead = asRecord(sequence.lead);
+  const reviewSummary = asRecord(sequence.review_summary);
+  const templateProfile = asRecord(sequence.template_profile);
+  const templatePlan = asRecord(sequence.template_plan);
+  const proofPoints = asStringArray(templatePlan.proof_points);
+  const issues = asStringArray(reviewSummary.issues);
+  const manualReview = asRecord(sequence.manual_review);
+  const replyDetection = asRecord(sequence.reply_detection);
+  const replies = Array.isArray(replyDetection.replies) ? replyDetection.replies as Array<Record<string, string>> : [];
+
+  return (
+    <Sheet open={open} onClose={onClose} className="max-w-3xl">
+      <SheetHeader>
+        <div className="flex items-start gap-3 pr-8">
+          <div className="p-2.5 rounded-lg bg-primary/10">
+            <Mail className="h-6 w-6 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold truncate">{String(lead.company_name || "邮件预览")}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{sequence.locale || "en_US"}</Badge>
+              <Badge className={sequence.auto_send_eligible ? "bg-emerald-600 hover:bg-emerald-600" : "bg-amber-600 hover:bg-amber-600"}>
+                {sequence.auto_send_eligible ? "允许自动发送" : "需人工复核"}
+              </Badge>
+              <Badge variant="outline">Score {String(reviewSummary.score || 0)}</Badge>
+              <Badge variant="outline">{formatTemplateSource(String(templateProfile.source || "auto_generated"))}</Badge>
+              {manualReview.decision && (
+                <Badge variant="outline">
+                  人工决策: {String(manualReview.decision) === "approved" ? "已批准" : "已拦截"}
+                </Badge>
+              )}
+            </div>
+          </div>
+          <CopyButton text={buildSequencePreviewText(sequence)} />
+        </div>
+      </SheetHeader>
+
+      <SheetBody className="space-y-6">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Tone</p>
+            <p className="mt-1 text-sm font-medium">{String(templateProfile.tone || "n/a")}</p>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Opening</p>
+            <p className="mt-1 text-sm font-medium">{String(templatePlan.opening_strategy || "n/a")}</p>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">CTA</p>
+            <p className="mt-1 text-sm font-medium">{String(templatePlan.cta_strategy || "n/a")}</p>
+          </div>
+        </div>
+
+        {proofPoints.length > 0 && (
+          <div>
+            <p className="mb-2 text-sm font-semibold">Proof Points</p>
+            <div className="flex flex-wrap gap-2">
+              {proofPoints.map((item) => (
+                <Badge key={item} variant="secondary">{item}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {issues.length > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+            <p className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-300">Review Issues</p>
+            <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-400">
+              {issues.map((issue) => <li key={issue}>• {issue}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={onApprove} disabled={isUpdating}>
+            {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            批准自动发送
+          </Button>
+          <Button type="button" variant="outline" onClick={onReject} disabled={isUpdating}>
+            拦截并保留草稿
+          </Button>
+          <Button type="button" variant="outline" onClick={onDetectReplies} disabled={isCheckingReplies}>
+            {isCheckingReplies ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            检查回信
+          </Button>
+        </div>
+
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">回信状态</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {replyDetection.checked_at
+              ? `最近检查时间 ${String(replyDetection.checked_at)}，发现 ${String(replyDetection.reply_count || 0)} 封回信`
+              : "尚未检查回信"}
+          </p>
+          {replies.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {replies.map((reply, index) => (
+                <div key={`${reply.message_id || reply.subject || index}`} className="rounded-md bg-muted p-3 text-sm">
+                  <p className="font-medium">{String(reply.subject || "(无主题)")}</p>
+                  <p className="text-xs text-muted-foreground">{String(reply.date || "")}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          {sequence.emails.map((email: EmailDraft) => (
+            <div key={`${email.sequence_number}-${email.subject}`} className="rounded-lg border p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">#{email.sequence_number}</Badge>
+                    <Badge variant="outline">{formatEmailType(email.email_type)}</Badge>
+                    <Badge variant="outline">Day {email.suggested_send_day}</Badge>
+                    {email.send_status === "queued" && (
+                      <Badge variant="outline">队列中</Badge>
+                    )}
+                    {email.send_status === "sent" && (
+                      <Badge className="bg-emerald-600 hover:bg-emerald-600">已发送</Badge>
+                    )}
+                    {email.send_status === "failed" && (
+                      <Badge variant="destructive">发送失败</Badge>
+                    )}
+                  </div>
+                  <p className="mt-2 text-base font-semibold">{email.subject}</p>
+                </div>
+                <CopyButton text={`Subject: ${email.subject}\n\n${email.body_text}`} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onSendDraft(email.sequence_number)}
+                  disabled={isSending || !sequence.auto_send_eligible}
+                >
+                  {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  发送这封
+                </Button>
+                {email.sent_to && (
+                  <p className="text-xs text-muted-foreground">
+                    已发送到 {email.sent_to}{email.sent_at ? ` · ${email.sent_at}` : ""}
+                  </p>
+                )}
+                {email.send_status === "queued" && (
+                  <p className="text-xs text-muted-foreground">已进入自动发送队列，等待限频窗口放行。</p>
+                )}
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-muted-foreground">{email.body_text}</p>
+              {((email.personalization_points || []).length > 0 || (email.cultural_adaptations || []).length > 0) && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {(email.personalization_points || []).length > 0 && (
+                    <div>
+                      <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Personalization</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(email.personalization_points || []).map((point) => (
+                          <Badge key={point} variant="secondary">{point}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(email.cultural_adaptations || []).length > 0 && (
+                    <div>
+                      <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Locale Notes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(email.cultural_adaptations || []).map((item) => (
+                          <Badge key={item} variant="outline">{item}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </SheetBody>
+    </Sheet>
+  );
+}
+
 interface SSEState {
   stage: string | null;
   huntRound: number;
@@ -876,17 +1194,27 @@ export function HuntDetailPage() {
   const [stageData, setStageData] = useState<StageDataMap>({});
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "leads">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "leads" | "email-log">("overview");
   const [realtimeLeads, setRealtimeLeads] = useState<Lead[]>([]);
+  const [emailFilter, setEmailFilter] = useState<"all" | "approved" | "needs_review">("all");
+  const [previewSequence, setPreviewSequence] = useState<EmailSequence | null>(null);
+  const [previewSequenceIndex, setPreviewSequenceIndex] = useState<number | null>(null);
 
   const resumeMutation = useMutation({
-    mutationFn: ({ targetLeadCount, maxRounds, minNewLeadsThreshold }: {
-      targetLeadCount: number; maxRounds: number; minNewLeadsThreshold: number;
+    mutationFn: ({ targetLeadCount, maxRounds, enableEmailCraft, emailTemplateExamples, emailTemplateNotes }: {
+      targetLeadCount: number;
+      maxRounds: number;
+      minNewLeadsThreshold: number;
+      enableEmailCraft: boolean;
+      emailTemplateExamples: string[];
+      emailTemplateNotes: string;
     }) => api.resumeHunt(huntId, {
       target_lead_count: targetLeadCount,
       max_rounds: maxRounds,
       min_new_leads_threshold: minNewLeadsThreshold,
-      enable_email_craft: false,
+      enable_email_craft: enableEmailCraft,
+      email_template_examples: emailTemplateExamples,
+      email_template_notes: emailTemplateNotes,
     }),
     onSuccess: () => {
       setShowResumeDialog(false);
@@ -899,6 +1227,27 @@ export function HuntDetailPage() {
       setSelectedStage(null);
       setRealtimeLeads([]);
       queryClient.removeQueries({ queryKey: ["hunt-result", huntId] });
+    },
+  });
+  const emailDecisionMutation = useMutation({
+    mutationFn: ({ sequenceIndex, decision }: { sequenceIndex: number; decision: "approved" | "rejected" }) =>
+      api.decideEmailSequence(huntId, sequenceIndex, { decision }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["hunt-result", huntId] });
+    },
+  });
+  const sendDraftMutation = useMutation({
+    mutationFn: ({ sequenceIndex, sequenceNumber }: { sequenceIndex: number; sequenceNumber: number }) =>
+      api.sendEmailDraft(huntId, sequenceIndex, { sequence_number: sequenceNumber }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["hunt-result", huntId] });
+    },
+  });
+  const detectRepliesMutation = useMutation({
+    mutationFn: ({ sequenceIndex }: { sequenceIndex: number }) =>
+      api.detectReplies(huntId, sequenceIndex),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["hunt-result", huntId] });
     },
   });
 
@@ -930,6 +1279,54 @@ export function HuntDetailPage() {
   const leadsTabCount = displayLeads.length || sse.leadsCount;
   const keywordCount = result?.used_keywords?.length ?? 0;
   const roundCount = result?.hunt_round ?? sse.huntRound;
+  const emailSequences = useMemo(
+    () => result?.email_sequences || [],
+    [result?.email_sequences],
+  );
+  const emailCount = emailSequences.length;
+  const approvedEmailCount = useMemo(
+    () => emailSequences.filter((seq) => asRecord(seq.review_summary).status === "approved").length,
+    [emailSequences],
+  );
+  const reviewNeededCount = emailCount - approvedEmailCount;
+  const filteredEmailSequences = useMemo(() => {
+    if (emailFilter === "approved") {
+      return emailSequences
+        .map((seq, index) => ({ seq, index }))
+        .filter(({ seq }) => asRecord(seq.review_summary).status === "approved");
+    }
+    if (emailFilter === "needs_review") {
+      return emailSequences
+        .map((seq, index) => ({ seq, index }))
+        .filter(({ seq }) => asRecord(seq.review_summary).status !== "approved");
+    }
+    return emailSequences.map((seq, index) => ({ seq, index }));
+  }, [emailFilter, emailSequences]);
+  const emailLogRows = useMemo(() => {
+    return emailSequences.flatMap((seq, sequenceIndex) => {
+      const lead = asRecord(seq.lead);
+      const replyDetection = asRecord(seq.reply_detection);
+      const replyCount = Number(replyDetection.reply_count || 0);
+      return (seq.emails || []).map((email) => ({
+        sequenceIndex,
+        companyName: String(lead.company_name || "Unknown"),
+        locale: seq.locale || "en_US",
+        sequenceNumber: Number(email.sequence_number || 0),
+        emailType: formatEmailType(String(email.email_type || "")),
+        subject: String(email.subject || ""),
+        sendStatus: String(email.send_status || ""),
+        sentAt: String(email.sent_at || ""),
+        sentTo: String(email.sent_to || ""),
+        queueReason: String((email as Record<string, unknown>).queue_reason || ""),
+        replyCount,
+        replyStatus: replyCount > 0 ? "已回复" : "未回复",
+      }));
+    });
+  }, [emailSequences]);
+  const sentLogCount = emailLogRows.filter((row) => row.sendStatus === "sent").length;
+  const queuedLogCount = emailLogRows.filter((row) => row.sendStatus === "queued").length;
+  const failedLogCount = emailLogRows.filter((row) => row.sendStatus === "failed").length;
+  const repliedLogCount = emailLogRows.filter((row) => row.replyCount > 0).length;
 
   const { data: costData } = useQuery({
     queryKey: ["hunt-cost", huntId],
@@ -1298,8 +1695,15 @@ export function HuntDetailPage() {
       <ResumeDialog
         open={showResumeDialog}
         onClose={() => setShowResumeDialog(false)}
-        onConfirm={(targetLeadCount, maxRounds, minNewLeadsThreshold) =>
-          resumeMutation.mutate({ targetLeadCount, maxRounds, minNewLeadsThreshold })
+        onConfirm={(targetLeadCount, maxRounds, minNewLeadsThreshold, enableEmailCraft, emailTemplateExamples, emailTemplateNotes) =>
+          resumeMutation.mutate({
+            targetLeadCount,
+            maxRounds,
+            minNewLeadsThreshold,
+            enableEmailCraft,
+            emailTemplateExamples,
+            emailTemplateNotes,
+          })
         }
         isLoading={resumeMutation.isPending}
         currentLeads={sse.leadsCount || (result?.leads?.length ?? 0)}
@@ -1307,7 +1711,7 @@ export function HuntDetailPage() {
 
       {/* Tab switcher */}
       <div className="flex gap-1 border-b">
-        {(["overview", "leads"] as const).map((tab) => (
+        {(["overview", "leads", "email-log"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1317,7 +1721,11 @@ export function HuntDetailPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab === "overview" ? "总览" : `线索${leadsTabCount > 0 ? ` (${leadsTabCount})` : ""}`}
+            {tab === "overview"
+              ? "总览"
+              : tab === "leads"
+                ? `线索${leadsTabCount > 0 ? ` (${leadsTabCount})` : ""}`
+                : `邮件日志${emailLogRows.length > 0 ? ` (${emailLogRows.length})` : ""}`}
           </button>
         ))}
       </div>
@@ -1763,11 +2171,332 @@ export function HuntDetailPage() {
             onClose={() => setSelectedLead(null)}
           />
 
-          <Card className="border-dashed">
+          <EmailSequencePreviewSheet
+            sequence={previewSequence}
+            open={previewSequence !== null}
+            onClose={() => {
+              setPreviewSequence(null);
+              setPreviewSequenceIndex(null);
+            }}
+            onApprove={() => {
+              if (previewSequenceIndex === null) return;
+              emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "approved" });
+            }}
+            onReject={() => {
+              if (previewSequenceIndex === null) return;
+              emailDecisionMutation.mutate({ sequenceIndex: previewSequenceIndex, decision: "rejected" });
+            }}
+            onSendDraft={(sequenceNumber) => {
+              if (previewSequenceIndex === null) return;
+              sendDraftMutation.mutate({ sequenceIndex: previewSequenceIndex, sequenceNumber });
+            }}
+            onDetectReplies={() => {
+              if (previewSequenceIndex === null) return;
+              detectRepliesMutation.mutate({ sequenceIndex: previewSequenceIndex });
+            }}
+            isUpdating={emailDecisionMutation.isPending}
+            isSending={sendDraftMutation.isPending}
+            isCheckingReplies={detectRepliesMutation.isPending}
+          />
+
+          {/* Email Sequences */}
+          {emailCount > 0 && result && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">邮件序列</CardTitle>
+                <CardDescription>已生成 {result.email_sequences.length} 组个性化邮件序列</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ["all", `全部 (${emailCount})`],
+                    ["approved", `可自动发送 (${approvedEmailCount})`],
+                    ["needs_review", `需复核 (${reviewNeededCount})`],
+                  ] as const).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      variant={emailFilter === value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setEmailFilter(value)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">邮件总数</p>
+                    <p className="mt-1 text-2xl font-semibold">{emailCount}</p>
+                    <p className="text-xs text-muted-foreground">每组包含 3 封邮件</p>
+                  </div>
+                  <div className="rounded-md border bg-emerald-50 p-3 dark:bg-emerald-950/20">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">自动发送候选</p>
+                    <p className="mt-1 text-2xl font-semibold text-emerald-700 dark:text-emerald-400">{approvedEmailCount}</p>
+                    <p className="text-xs text-muted-foreground">reviewer gate 已通过</p>
+                  </div>
+                  <div className="rounded-md border bg-amber-50 p-3 dark:bg-amber-950/20">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">需人工复核</p>
+                    <p className="mt-1 text-2xl font-semibold text-amber-700 dark:text-amber-400">{reviewNeededCount}</p>
+                    <p className="text-xs text-muted-foreground">建议预览后再进入发送链路</p>
+                  </div>
+                </div>
+
+                {filteredEmailSequences.map(({ seq, index }) => {
+                  const lead = asRecord(seq.lead);
+                  const emails = seq.emails || [];
+                  const reviewSummary = asRecord(seq.review_summary);
+                  const templateProfile = asRecord(seq.template_profile);
+                  const templatePlan = asRecord(seq.template_plan);
+                  const reviewStatus = String(reviewSummary.status || "needs_review");
+                  const reviewIssues = asStringArray(reviewSummary.issues);
+                  const reviewSuggestions = asStringArray(reviewSummary.suggestions);
+                  const proofPoints = asStringArray(templatePlan.proof_points);
+                  const forbiddenClaims = asStringArray(templatePlan.forbidden_claims);
+                  const autoSendEligible = Boolean(seq.auto_send_eligible);
+                  const manualReview = asRecord(seq.manual_review);
+                  return (
+                    <details key={index} className="rounded-md border p-4">
+                      <summary className="cursor-pointer font-medium flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        {String(lead.company_name || `序列 ${index + 1}`)}
+                        <div className="ml-auto flex items-center gap-2 pr-6">
+                          <Badge variant="outline">{String(seq.locale || "en")}</Badge>
+                          <Badge className={reviewStatus === "approved" ? "bg-emerald-600 hover:bg-emerald-600" : "bg-amber-600 hover:bg-amber-600"}>
+                            {formatReviewStatus(reviewStatus)}
+                          </Badge>
+                          {manualReview.decision && (
+                            <Badge variant="outline">
+                              {String(manualReview.decision) === "approved" ? "人工已批准" : "人工已拦截"}
+                            </Badge>
+                          )}
+                        </div>
+                      </summary>
+                      <div className="mt-4 space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setPreviewSequence(seq);
+                              setPreviewSequenceIndex(index);
+                            }}
+                          >
+                            预览序列
+                          </Button>
+                          <div
+                            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <CopyButton text={buildSequencePreviewText(seq)} />
+                            <span>复制整组</span>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-4">
+                          <div className="rounded-md border bg-muted/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Reviewer Score</p>
+                            <p className="mt-1 text-xl font-semibold">{String(reviewSummary.score || "0")}</p>
+                          </div>
+                          <div className="rounded-md border bg-muted/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Blocking Issues</p>
+                            <p className="mt-1 text-xl font-semibold">{String(reviewSummary.blocking_issue_count || 0)}</p>
+                          </div>
+                          <div className="rounded-md border bg-muted/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">模板来源</p>
+                            <p className="mt-1 text-sm font-semibold">{formatTemplateSource(String(templateProfile.source || "auto_generated"))}</p>
+                          </div>
+                          <div className="rounded-md border bg-muted/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">发送资格</p>
+                            <p className={`mt-1 text-sm font-semibold ${autoSendEligible ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                              {autoSendEligible ? "允许自动发送" : "仅草稿/待确认"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-md border p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-sm font-medium">模板策略</p>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Tone:</span> {String(templateProfile.tone || "n/a")}</p>
+                              <p><span className="text-muted-foreground">Opening:</span> {String(templatePlan.opening_strategy || "n/a")}</p>
+                              <p><span className="text-muted-foreground">Value Prop:</span> {String(templatePlan.value_angle || "n/a")}</p>
+                              <p><span className="text-muted-foreground">CTA:</span> {String(templatePlan.cta_strategy || "n/a")}</p>
+                            </div>
+                            {proofPoints.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Proof Points</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {proofPoints.map((item) => (
+                                    <Badge key={item} variant="secondary">{item}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {forbiddenClaims.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Avoid</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {forbiddenClaims.map((item) => (
+                                    <Badge key={item} variant="outline">{item}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="rounded-md border p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-sm font-medium">Review Summary</p>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              最低通过分 {String(reviewSummary.min_score_required || "75")}，当前状态为 {formatReviewStatus(reviewStatus)}。
+                            </p>
+                            {reviewIssues.length > 0 ? (
+                              <div className="space-y-2">
+                                <div>
+                                  <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Issues</p>
+                                  <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-400">
+                                    {reviewIssues.map((issue) => <li key={issue}>• {issue}</li>)}
+                                  </ul>
+                                </div>
+                                {reviewSuggestions.length > 0 && (
+                                  <div>
+                                    <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Suggestions</p>
+                                    <ul className="space-y-1 text-sm text-muted-foreground">
+                                      {reviewSuggestions.map((item) => <li key={item}>• {item}</li>)}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-emerald-700 dark:text-emerald-400">当前没有阻断性问题。</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {emails.map((email, j) => (
+                          <div key={j} className="rounded-md bg-muted p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant="secondary">#{Number(email.sequence_number)}</Badge>
+                              <span className="text-sm font-medium">{String(email.subject)}</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{String(email.body_text)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {activeTab === "email-log" && (
+        <>
+          <Card>
             <CardHeader>
-              <CardTitle className="text-lg">邮件能力</CardTitle>
-              <CardDescription>该模块已临时下线，当前详情页不展示邮件生成、发送和回复数据。</CardDescription>
+              <CardTitle className="text-lg">邮件发送与回信日志</CardTitle>
+              <CardDescription>汇总当前任务中所有邮件的发送状态、排队状态和回信情况。</CardDescription>
             </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">已发送</p>
+                  <p className="mt-1 text-2xl font-semibold">{sentLogCount}</p>
+                </div>
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">排队中</p>
+                  <p className="mt-1 text-2xl font-semibold">{queuedLogCount}</p>
+                </div>
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">发送失败</p>
+                  <p className="mt-1 text-2xl font-semibold">{failedLogCount}</p>
+                </div>
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">已回复</p>
+                  <p className="mt-1 text-2xl font-semibold">{repliedLogCount}</p>
+                </div>
+              </div>
+
+              {emailLogRows.length === 0 ? (
+                <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  当前还没有邮件日志数据。
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left font-medium">公司</th>
+                        <th className="p-3 text-left font-medium">邮件</th>
+                        <th className="p-3 text-left font-medium">状态</th>
+                        <th className="p-3 text-left font-medium">发送对象</th>
+                        <th className="p-3 text-left font-medium">发送时间</th>
+                        <th className="p-3 text-left font-medium">回信</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emailLogRows.map((row) => (
+                        <tr key={`${row.sequenceIndex}-${row.sequenceNumber}-${row.subject}`} className="border-b last:border-0">
+                          <td className="p-3">
+                            <div>
+                              <p className="font-medium">{row.companyName}</p>
+                              <p className="text-xs text-muted-foreground">{row.locale}</p>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div>
+                              <p className="font-medium">{row.subject || "（无主题）"}</p>
+                              <p className="text-xs text-muted-foreground">
+                                #{row.sequenceNumber} · {row.emailType}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex flex-wrap gap-2">
+                              <Badge
+                                variant={
+                                  row.sendStatus === "sent"
+                                    ? "success"
+                                    : row.sendStatus === "failed"
+                                      ? "destructive"
+                                      : row.sendStatus === "queued"
+                                        ? "outline"
+                                        : "secondary"
+                                }
+                              >
+                                {formatSendStatus(row.sendStatus)}
+                              </Badge>
+                              {row.queueReason && <Badge variant="outline">{row.queueReason}</Badge>}
+                            </div>
+                          </td>
+                          <td className="p-3 text-muted-foreground">{row.sentTo || "—"}</td>
+                          <td className="p-3 text-muted-foreground">{row.sentAt || "—"}</td>
+                          <td className="p-3">
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant={row.replyCount > 0 ? "success" : "secondary"}>
+                                {row.replyStatus}
+                              </Badge>
+                              {row.replyCount > 0 && (
+                                <Badge variant="outline">{row.replyCount} 封</Badge>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
           </Card>
         </>
       )}
