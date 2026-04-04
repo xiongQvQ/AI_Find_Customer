@@ -559,9 +559,11 @@ function FieldGroup({
 function EmailDeliveryPanel({
   values,
   onChange,
+  onPersist,
 }: {
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
+  onPersist: (payload: Record<string, string>) => Promise<void>;
 }) {
   const [selectedPresetId, setSelectedPresetId] = useState("manual");
   const smtpConfigured = Boolean(
@@ -585,13 +587,19 @@ function EmailDeliveryPanel({
   const imapStatus = !imapConfigured ? "unconfigured" : imapVerified ? "verified" : "pending";
 
   const smtpTestMutation = useMutation({
-    mutationFn: () => api.testEmailSettings(),
+    mutationFn: async () => {
+      await onPersist(values);
+      return api.testEmailSettings();
+    },
     onSuccess: () => {
       onChange("email_smtp_last_test_at", new Date().toISOString());
     },
   });
   const imapTestMutation = useMutation({
-    mutationFn: () => api.testImapSettings(),
+    mutationFn: async () => {
+      await onPersist(values);
+      return api.testImapSettings();
+    },
     onSuccess: () => {
       onChange("email_imap_last_test_at", new Date().toISOString());
     },
@@ -654,7 +662,7 @@ function EmailDeliveryPanel({
           <CardTitle className="text-base">SMTP 发信配置</CardTitle>
         </div>
         <CardDescription>
-          配置企业邮箱 SMTP，用于测试连接和手动发送已批准邮件。推荐先保存，再点击测试连接。
+          配置企业邮箱 SMTP，用于测试连接和手动发送已批准邮件。点击测试连接时，系统会先自动保存当前表单。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1013,6 +1021,11 @@ export function SettingsPage() {
     saveMutation.mutate(values);
   };
 
+  const persistSettings = async (payload: Record<string, string>) => {
+    await saveSettings(payload);
+    await queryClient.invalidateQueries({ queryKey: ["app-settings"] });
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
@@ -1051,7 +1064,7 @@ export function SettingsPage() {
         onChange={handleChange}
       />
 
-      <EmailDeliveryPanel values={values} onChange={handleChange} />
+      <EmailDeliveryPanel values={values} onChange={handleChange} onPersist={persistSettings} />
 
       {/* Concurrency */}
       <FieldGroup

@@ -53,7 +53,7 @@ class TestSettingsDefaults:
         assert s.api_host == "0.0.0.0"
         assert s.api_port == 8000
         assert "http://localhost:3000" in s.cors_origins
-        assert s.settings_api_enabled is False
+        assert s.settings_api_enabled is True
 
     def test_langfuse_defaults(self):
         s = Settings(_env_file=None)

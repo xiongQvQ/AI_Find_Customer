@@ -298,12 +298,6 @@ async def stop_background_workers() -> None:
             pass
         _reply_detection_task = None
 
-    for task in list(_email_send_tasks):
-        task.cancel()
-    if _email_send_tasks:
-        await asyncio.gather(*list(_email_send_tasks), return_exceptions=True)
-    _email_send_tasks.clear()
-
 
 def _broadcast_stage_data(hunt_id: str, completed_stage: str, state: dict) -> None:
     """Broadcast detail data for a stage that just completed."""

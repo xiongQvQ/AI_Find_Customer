@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from api.app import create_app
-from api.routes import _hunts
+from api.routes import _hunts, stop_background_workers
 
 # Patch save_hunt globally so tests never write to disk
 pytestmark = pytest.mark.usefixtures("_mock_save_hunt")
@@ -42,6 +42,12 @@ class TestHealthCheck:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["service"] == "ai-hunter"
+
+
+class TestBackgroundWorkers:
+    @pytest.mark.asyncio
+    async def test_stop_background_workers_without_email_send_queue(self):
+        await stop_background_workers()
 
 
 class TestCreateHunt:

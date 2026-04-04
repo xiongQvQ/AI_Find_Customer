@@ -184,7 +184,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
     api_access_token: str = ""
-    settings_api_enabled: bool = False
+    settings_api_enabled: bool = True
 
     # --- Database (checkpointer) ---
     # In packaged mode, redirected to ~/Library/Application Support/AIHunter/
