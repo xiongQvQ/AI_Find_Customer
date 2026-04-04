@@ -24,6 +24,9 @@ export function NewHuntPage() {
   const [targetLeadCount, setTargetLeadCount] = useState(200);
   const [maxRounds, setMaxRounds] = useState(10);
   const [minNewLeadsThreshold, setMinNewLeadsThreshold] = useState(5);
+  const [enableEmailCraft, setEnableEmailCraft] = useState(false);
+  const [emailTemplateExamplesText, setEmailTemplateExamplesText] = useState("");
+  const [emailTemplateNotes, setEmailTemplateNotes] = useState("");
 
   const createHunt = useMutation({
     mutationFn: api.createHunt,
@@ -95,7 +98,12 @@ export function NewHuntPage() {
       target_lead_count: targetLeadCount,
       max_rounds: maxRounds,
       min_new_leads_threshold: minNewLeadsThreshold,
-      enable_email_craft: false,
+      enable_email_craft: enableEmailCraft,
+      email_template_examples: emailTemplateExamplesText
+        .split(/\n\s*\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+      email_template_notes: emailTemplateNotes.trim(),
     });
   };
 
@@ -329,20 +337,60 @@ export function NewHuntPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <CardTitle className="text-lg">AI 邮件生成</CardTitle>
-              <Badge variant="secondary">待开发</Badge>
             </div>
-            <CardDescription>该能力暂未开放，当前版本不会生成邮件序列。</CardDescription>
+            <CardDescription>基于 ICP 和官网洞察生成 3 步英文开发邮件，也支持从你的历史邮件中提取模板风格。</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between rounded-lg border border-dashed p-4 opacity-70">
-              <div className="flex items-center gap-3">
-                <Mail className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">邮件生成功能开发中</p>
-                  <p className="text-xs text-muted-foreground">创建任务时暂不支持启用邮件草拟、序列生成和发送编排。</p>
+            <div className="rounded-lg border border-dashed p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Mail className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">生成 AI 邮件序列</p>
+                    <p className="text-xs text-muted-foreground">启用后会为线索生成邮件模板计划、3 封开发邮件和发送审核信息。</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enableEmailCraft}
+                  onClick={() => setEnableEmailCraft(!enableEmailCraft)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    enableEmailCraft ? "bg-primary" : "bg-input"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                      enableEmailCraft ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
               </div>
-              <Badge variant="outline">暂不可用</Badge>
+              {enableEmailCraft && (
+                <div className="mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">历史邮件样例 / 模板样例 <span className="text-muted-foreground font-normal">（可选）</span></label>
+                    <textarea
+                      className="min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      placeholder={"把你以前发过的英文开发邮件贴进来。支持多封邮件，用空行隔开。\n\nExample 1:\nSubject: Quick intro\nHello ...\n\nExample 2:\nSubject: Potential fit\nHi ..."}
+                      value={emailTemplateExamplesText}
+                      onChange={(e) => setEmailTemplateExamplesText(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      如果你提供历史邮件，系统会先提取你的写作风格和模板结构，再结合 ICP/官网洞察生成邮件。
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">邮件模板备注 <span className="text-muted-foreground font-normal">（可选）</span></label>
+                    <textarea
+                      className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      placeholder="例如：保持简洁直接；避免夸张表述；优先强调渠道合作；默认使用英文；CTA 不要太强。"
+                      value={emailTemplateNotes}
+                      onChange={(e) => setEmailTemplateNotes(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -353,6 +353,8 @@ class TestCraftForLead:
             mock_settings.return_value.email_language_mode = "auto_by_region"
             mock_settings.return_value.email_default_language = "en"
             mock_settings.return_value.email_fallback_language = "en"
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
             result = await _craft_for_lead(lead, insight, llm, sem)
 
         assert result is not None
@@ -360,6 +362,8 @@ class TestCraftForLead:
         assert len(result["emails"]) == 3
         assert result["lead"]["company_name"] == "EnergieDist"
         assert result["target"]["target_email"] == "info@energiedist.de"
+        assert result["review_summary"]["status"] in {"approved", "needs_review"}
+        assert "auto_send_eligible" in result
 
     @pytest.mark.asyncio
     async def test_react_loop_failure_returns_none(self):
@@ -793,7 +797,10 @@ class TestCraftForLead:
         lead = {"company_name": "Acme", "country_code": "us", "emails": []}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
-        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
+             patch("agents.email_craft_agent.get_settings") as mock_settings:
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
             await _craft_for_lead(
                 lead,
                 insight,
@@ -822,7 +829,10 @@ class TestCraftForLead:
         lead = {"company_name": "Acme", "country_code": "us", "emails": []}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
-        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
+             patch("agents.email_craft_agent.get_settings") as mock_settings:
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
             result = await _craft_for_lead(lead, insight, llm, sem)
 
         assert result is not None
@@ -870,7 +880,10 @@ class TestCraftForLead:
         lead = {"company_name": "Acme", "country_code": "us", "emails": []}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
-        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
+             patch("agents.email_craft_agent.get_settings") as mock_settings:
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
             warm_result = await _craft_for_lead(
                 lead,
                 insight,
@@ -897,6 +910,33 @@ class TestCraftForLead:
         assert '"tone": "direct"' in direct_prompt
         assert "Use softer CTA" in warm_prompt
         assert "Use direct CTA" in direct_prompt
+
+    @pytest.mark.asyncio
+    async def test_review_gate_blocks_low_quality_sequence(self):
+        sem = asyncio.Semaphore(3)
+        llm = AsyncMock()
+        llm.generate = AsyncMock()
+        low_quality = json.dumps({
+            "locale": "en_US",
+            "emails": [
+                {"sequence_number": 1, "email_type": "company_intro", "subject": "", "body_text": "short", "suggested_send_day": 0},
+                {"sequence_number": 2, "email_type": "product_showcase", "subject": "Same", "body_text": "short", "suggested_send_day": 2},
+                {"sequence_number": 3, "email_type": "partnership_proposal", "subject": "Same", "body_text": "short", "suggested_send_day": 7},
+            ],
+        })
+        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        insight = {"company_name": "MyCompany", "products": ["switch"]}
+
+        with patch("agents.email_craft_agent.react_loop", return_value=low_quality), \
+             patch("agents.email_craft_agent.get_settings") as mock_settings:
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
+            result = await _craft_for_lead(lead, insight, llm, sem)
+
+        assert result is not None
+        assert result["review_summary"]["status"] == "needs_review"
+        assert result["auto_send_eligible"] is False
+        assert result["review_summary"]["issues"]
 
 
 class TestEmailCraftNode:

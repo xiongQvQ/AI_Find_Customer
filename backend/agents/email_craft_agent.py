@@ -934,8 +934,87 @@ async def _synthesise_email_brief(
     except Exception as exc:
         logger.debug("[EmailCraft] Brief synthesis failed for %s: %s", lead.get("company_name"), exc)
     return fallback_brief
+def _review_email_sequence(
+    lead: dict[str, Any],
+    *,
+    locale: str,
+    emails: list[dict[str, Any]],
+    template_profile: dict[str, Any],
+    template_plan: dict[str, Any],
+    min_score: int,
+    max_blocking_issues: int,
+) -> dict[str, Any]:
+    score = 100
+    issues: list[str] = []
+    suggestions: list[str] = []
 
+    if len(emails) != 3:
+        score -= 40
+        issues.append("Expected exactly 3 emails in the sequence.")
+        suggestions.append("Regenerate the full 3-step sequence before sending.")
 
+    required_days = [0, 3, 7]
+    previous_subject = ""
+    for index, email in enumerate(emails[:3]):
+        subject = str(email.get("subject", "") or "").strip()
+        body = str(email.get("body_text", "") or "").strip()
+        wc = len(body.split())
+        if not subject:
+            score -= 15
+            issues.append(f"Email {index + 1} is missing a subject.")
+        if wc < 50:
+            score -= 20
+            issues.append(f"Email {index + 1} body is too short ({wc} words).")
+            suggestions.append(f"Expand Email {index + 1} to at least 50 words.")
+        elif wc > 260:
+            score -= 10
+            issues.append(f"Email {index + 1} body is too long ({wc} words).")
+            suggestions.append(f"Tighten Email {index + 1} for faster readability.")
+
+        expected_day = required_days[index] if index < len(required_days) else None
+        if expected_day is not None and email.get("suggested_send_day") != expected_day:
+            score -= 5
+            issues.append(f"Email {index + 1} send day should be {expected_day}.")
+
+        lowered_subject = subject.lower()
+        if previous_subject and lowered_subject == previous_subject:
+            score -= 8
+            issues.append(f"Email {index + 1} repeats the previous subject line.")
+        previous_subject = lowered_subject
+
+    if not str(template_plan.get("cta_strategy", "") or "").strip():
+        score -= 8
+        issues.append("Template plan is missing a CTA strategy.")
+    if not str(template_profile.get("tone", "") or "").strip():
+        score -= 5
+        issues.append("Template profile is missing tone guidance.")
+
+    company_name = str(lead.get("company_name", "") or "").strip()
+    if company_name:
+        personalization_hits = sum(
+            1 for email in emails
+            if company_name.lower() in str(email.get("body_text", "") or "").lower()
+            or company_name.lower() in str(email.get("subject", "") or "").lower()
+        )
+        if personalization_hits == 0:
+            score -= 10
+            issues.append("Sequence does not mention the target company at all.")
+            suggestions.append("Add at least one company-specific relevance reference.")
+
+    status = "approved"
+    if score < min_score or len(issues) > max_blocking_issues:
+        status = "needs_review"
+
+    return {
+        "status": status,
+        "score": max(score, 0),
+        "issues": issues,
+        "suggestions": suggestions,
+        "min_score_required": min_score,
+        "max_blocking_issues": max_blocking_issues,
+        "blocking_issue_count": len(issues),
+        "locale": locale,
+    }
 def _build_email_tools(llm: LLMTool, locale: str) -> list[ToolDef]:
     """Build the ReAct tool definitions for email validation."""
     rules = _get_locale_rules(locale)
@@ -1207,6 +1286,15 @@ async def _craft_for_lead(
             return None
 
         emails = validated["emails"]
+        review_summary = _review_email_sequence(
+            lead,
+            locale=locale,
+            emails=emails,
+            template_profile=template_profile,
+            template_plan=template_plan,
+            min_score=int(settings.email_review_min_score or 75),
+            max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
+        )
         logger.info("[EmailCraft] %s → %d emails in %s", lead.get("company_name"), len(emails), locale)
 
         return {
@@ -1220,6 +1308,8 @@ async def _craft_for_lead(
             "emails": emails,
             "template_profile": template_profile,
             "template_plan": template_plan,
+            "review_summary": review_summary,
+            "auto_send_eligible": review_summary["status"] == "approved",
         }
 
 

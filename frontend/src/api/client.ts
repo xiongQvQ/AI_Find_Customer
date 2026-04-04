@@ -22,6 +22,8 @@ export interface HuntRequest {
   max_rounds: number;
   min_new_leads_threshold: number;
   enable_email_craft: boolean;
+  email_template_examples: string[];
+  email_template_notes: string;
 }
 
 export interface UploadedFile {
@@ -89,6 +91,8 @@ export interface ResumeRequest {
   max_rounds: number;
   min_new_leads_threshold: number;
   enable_email_craft: boolean;
+  email_template_examples?: string[];
+  email_template_notes?: string;
 }
 
 export interface HuntListItem {

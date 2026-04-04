@@ -154,6 +154,8 @@ class Settings(BaseSettings):
     email_template_max_send_count: int = 100
     email_template_underperforming_min_assigned: int = 10
     email_template_underperforming_min_reply_rate: float = 1.0
+    email_review_min_score: int = 75
+    email_review_max_blocking_issues: int = 0
 
     # --- Langfuse (observability) ---
     langfuse_public_key: str = ""
