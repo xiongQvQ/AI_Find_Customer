@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os as _os
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -41,10 +42,12 @@ class SettingsPayload(BaseModel):
     email_smtp_port: str = ""
     email_smtp_username: str = ""
     email_smtp_password: str = ""
+    email_smtp_last_test_at: str = ""
     email_imap_host: str = ""
     email_imap_port: str = ""
     email_imap_username: str = ""
     email_imap_password: str = ""
+    email_imap_last_test_at: str = ""
     email_use_tls: str = ""
     email_sequence_enabled: str = ""
     email_auto_send_enabled: str = ""
@@ -118,6 +121,10 @@ class ImapTestResponse(BaseModel):
     username: str
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 # ── Settings routes ───────────────────────────────────────────────────────────
 @router.get("", response_model=SettingsResponse)
 async def get_settings_api():
@@ -159,10 +166,12 @@ async def save_settings(payload: SettingsPayload):
         "email_smtp_port": "EMAIL_SMTP_PORT",
         "email_smtp_username": "EMAIL_SMTP_USERNAME",
         "email_smtp_password": "EMAIL_SMTP_PASSWORD",
+        "email_smtp_last_test_at": "EMAIL_SMTP_LAST_TEST_AT",
         "email_imap_host": "EMAIL_IMAP_HOST",
         "email_imap_port": "EMAIL_IMAP_PORT",
         "email_imap_username": "EMAIL_IMAP_USERNAME",
         "email_imap_password": "EMAIL_IMAP_PASSWORD",
+        "email_imap_last_test_at": "EMAIL_IMAP_LAST_TEST_AT",
         "email_use_tls": "EMAIL_USE_TLS",
         "email_sequence_enabled": "EMAIL_SEQUENCE_ENABLED",
         "email_auto_send_enabled": "EMAIL_AUTO_SEND_ENABLED",
@@ -194,10 +203,21 @@ async def save_settings(payload: SettingsPayload):
     }
 
     updates: dict[str, str] = {}
+    smtp_fields_changed = False
+    imap_fields_changed = False
     for field, env_key in field_map.items():
         value = getattr(payload, field, "")
         if value and not _is_masked(value):
             updates[env_key] = value
+            if field in {"email_from_address", "email_smtp_host", "email_smtp_port", "email_smtp_username", "email_smtp_password", "email_use_tls"}:
+                smtp_fields_changed = True
+            if field in {"email_imap_host", "email_imap_port", "email_imap_username", "email_imap_password"}:
+                imap_fields_changed = True
+
+    if smtp_fields_changed:
+        updates["EMAIL_SMTP_LAST_TEST_AT"] = ""
+    if imap_fields_changed:
+        updates["EMAIL_IMAP_LAST_TEST_AT"] = ""
 
     if updates:
         update_settings(updates)
@@ -216,6 +236,10 @@ async def test_email_settings():
         result = await asyncio.to_thread(test_smtp_connection, settings)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    tested_at = _now_iso()
+    update_settings({"EMAIL_SMTP_LAST_TEST_AT": tested_at})
+    _os.environ["EMAIL_SMTP_LAST_TEST_AT"] = tested_at
+    get_settings.cache_clear()
     return SmtpTestResponse(
         status="ok",
         message="SMTP connection successful",
@@ -233,6 +257,10 @@ async def test_email_imap_settings():
         result = await asyncio.to_thread(test_imap_connection, settings)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    tested_at = _now_iso()
+    update_settings({"EMAIL_IMAP_LAST_TEST_AT": tested_at})
+    _os.environ["EMAIL_IMAP_LAST_TEST_AT"] = tested_at
+    get_settings.cache_clear()
     return ImapTestResponse(
         status="ok",
         message="IMAP connection successful",

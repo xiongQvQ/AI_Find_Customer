@@ -365,7 +365,17 @@ class TestSendEmailDraft:
             "email_sequences_count": 1,
         }
 
-        with patch("api.routes.send_smtp_email", return_value={"status": "sent"}):
+        fake_settings = MagicMock()
+        fake_settings.email_from_address = "sales@example.com"
+        fake_settings.email_smtp_host = "smtp.example.com"
+        fake_settings.email_smtp_port = 587
+        fake_settings.email_smtp_username = "sales@example.com"
+        fake_settings.email_smtp_password = "secret"
+        fake_settings.email_auto_send_enabled = False
+        with (
+            patch("api.routes.get_settings", return_value=fake_settings),
+            patch("api.routes.send_smtp_email", return_value={"status": "sent"}),
+        ):
             resp = await client.post(
                 "/api/v1/hunts/send-1/email-sequences/0/send",
                 json={"sequence_number": 1},
@@ -459,6 +469,38 @@ class TestSendEmailDraft:
         assert resp.status_code == 200
         mock_schedule.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_send_email_draft_requires_smtp_configuration(self, client):
+        _hunts["send-5"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [{"sequence_number": 1, "subject": "Hello", "body_text": "Body"}],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        fake_settings = MagicMock()
+        fake_settings.email_from_address = ""
+        fake_settings.email_smtp_host = ""
+        fake_settings.email_smtp_port = 0
+        fake_settings.email_smtp_username = ""
+        fake_settings.email_smtp_password = ""
+        with patch("api.routes.get_settings", return_value=fake_settings):
+            resp = await client.post(
+                "/api/v1/hunts/send-5/email-sequences/0/send",
+                json={"sequence_number": 1},
+            )
+        assert resp.status_code == 409
+        assert "SMTP is not configured" in resp.json()["detail"]
+
 
 class TestDetectReplies:
     @pytest.mark.asyncio
@@ -479,14 +521,22 @@ class TestDetectReplies:
             "email_sequences_count": 1,
         }
 
-        with patch("api.routes.search_recent_replies", return_value=[
-            {
-                "from_address": "hello@acme.com",
-                "subject": "Re: Hello",
-                "date": "Sat, 05 Apr 2026 10:00:00 +0000",
-                "message_id": "<1@test>",
-            }
-        ]):
+        fake_settings = MagicMock()
+        fake_settings.email_imap_host = "imap.example.com"
+        fake_settings.email_imap_port = 993
+        fake_settings.email_imap_username = "sales@example.com"
+        fake_settings.email_imap_password = "secret"
+        with (
+            patch("api.routes.get_settings", return_value=fake_settings),
+            patch("api.routes.search_recent_replies", return_value=[
+                {
+                    "from_address": "hello@acme.com",
+                    "subject": "Re: Hello",
+                    "date": "Sat, 05 Apr 2026 10:00:00 +0000",
+                    "message_id": "<1@test>",
+                }
+            ]),
+        ):
             resp = await client.post("/api/v1/hunts/reply-1/email-sequences/0/detect-replies")
         assert resp.status_code == 200
         data = resp.json()
@@ -513,6 +563,34 @@ class TestDetectReplies:
 
         resp = await client.post("/api/v1/hunts/reply-2/email-sequences/0/detect-replies")
         assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_detect_replies_requires_imap_configuration(self, client):
+        _hunts["reply-3"] = {
+            "status": "completed",
+            "result": {
+                "email_sequences": [
+                    {
+                        "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "locale": "en_US",
+                        "emails": [],
+                        "review_summary": {"status": "approved", "score": 91},
+                        "auto_send_eligible": True,
+                    }
+                ],
+            },
+            "email_sequences_count": 1,
+        }
+
+        fake_settings = MagicMock()
+        fake_settings.email_imap_host = ""
+        fake_settings.email_imap_port = 0
+        fake_settings.email_imap_username = ""
+        fake_settings.email_imap_password = ""
+        with patch("api.routes.get_settings", return_value=fake_settings):
+            resp = await client.post("/api/v1/hunts/reply-3/email-sequences/0/detect-replies")
+        assert resp.status_code == 409
+        assert "IMAP is not configured" in resp.json()["detail"]
 
 
 class TestListHunts:

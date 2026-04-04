@@ -161,6 +161,22 @@ class TestSaveSettings:
         assert call_args["EMAIL_SMTP_USERNAME"] == "sales@example.com"
         assert call_args["EMAIL_SMTP_PASSWORD"] == "secret"
         assert call_args["EMAIL_USE_TLS"] == "true"
+        assert call_args["EMAIL_SMTP_LAST_TEST_AT"] == ""
+
+    @pytest.mark.asyncio
+    async def test_changing_imap_fields_clears_imap_test_timestamp(self, client):
+        with (
+            patch("api.settings_routes.update_settings") as mock_update,
+            patch("api.settings_routes.get_settings") as mock_gs,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            resp = await client.post("/api/settings", json={
+                "email_imap_host": "imap.example.com",
+                "email_imap_port": "993",
+            })
+        assert resp.status_code == 204
+        call_args = mock_update.call_args[0][0]
+        assert call_args["EMAIL_IMAP_LAST_TEST_AT"] == ""
 
 
 class TestEmailSettings:
@@ -172,6 +188,7 @@ class TestEmailSettings:
                 "host": "smtp.example.com",
                 "username": "sales@example.com",
             }),
+            patch("api.settings_routes.update_settings") as mock_update,
         ):
             mock_gs.cache_clear = MagicMock()
             mock_gs.return_value = MagicMock()
@@ -180,6 +197,7 @@ class TestEmailSettings:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["host"] == "smtp.example.com"
+        assert "EMAIL_SMTP_LAST_TEST_AT" in mock_update.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_smtp_test_failure(self, client):
@@ -200,6 +218,7 @@ class TestEmailSettings:
                 "host": "imap.example.com",
                 "username": "sales@example.com",
             }),
+            patch("api.settings_routes.update_settings") as mock_update,
         ):
             mock_gs.cache_clear = MagicMock()
             mock_gs.return_value = MagicMock()
@@ -208,6 +227,7 @@ class TestEmailSettings:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["host"] == "imap.example.com"
+        assert "EMAIL_IMAP_LAST_TEST_AT" in mock_update.call_args[0][0]
 
 
 class TestLicenseCompatibility:

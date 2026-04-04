@@ -124,10 +124,12 @@ class Settings(BaseSettings):
     email_smtp_port: int = 587
     email_smtp_username: str = ""
     email_smtp_password: str = ""
+    email_smtp_last_test_at: str = ""
     email_imap_host: str = ""
     email_imap_port: int = 993
     email_imap_username: str = ""
     email_imap_password: str = ""
+    email_imap_last_test_at: str = ""
     email_use_tls: bool = True
     email_sequence_enabled: bool = False
     email_auto_send_enabled: bool = False

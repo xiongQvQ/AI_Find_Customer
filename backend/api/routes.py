@@ -22,6 +22,7 @@ from agents.lead_extract_agent import lead_extract_node, set_progress_callback
 from agents.email_craft_agent import email_craft_node
 from config.settings import get_settings
 from emailing.imap_client import search_recent_replies
+from emailing.readiness import ensure_imap_ready, ensure_imap_tested, ensure_smtp_ready, ensure_smtp_tested
 from emailing.smtp_client import send_smtp_email
 from api.hunt_store import load_all_hunts, save_hunt, now_iso
 from api.security import require_api_access
@@ -265,6 +266,11 @@ async def _process_email_send_job(job: dict[str, Any]) -> None:
         return
 
     settings = get_settings()
+    try:
+        ensure_smtp_tested(settings)
+    except ValueError as exc:
+        logger.debug("[AutoSend] Skipping auto send because SMTP is not verified: %s", exc)
+        return
     if _count_sent_emails(timedelta(hours=1)) >= int(settings.email_hourly_send_limit or 0):
         _schedule_email_send(job, delay_seconds=60)
         return
@@ -346,6 +352,11 @@ def _schedule_email_send(job: dict[str, Any] | None, *, delay_seconds: int = 0) 
 async def _scan_hunt_replies() -> None:
     settings = get_settings()
     if not bool(settings.email_reply_detection_enabled):
+        return
+    try:
+        ensure_imap_tested(settings)
+    except ValueError as exc:
+        logger.debug("[ReplyDetection] Skipping automated reply scan because IMAP is not verified: %s", exc)
         return
 
     for hunt_id, hunt in list(_hunts.items()):
@@ -1126,6 +1137,10 @@ async def send_email_sequence_draft(
 
     settings = get_settings()
     try:
+        ensure_smtp_ready(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
         send_result = await asyncio.to_thread(
             send_smtp_email,
             settings,
@@ -1188,6 +1203,10 @@ async def detect_email_sequence_replies(
         raise HTTPException(status_code=422, detail="No recipient email found on this lead")
 
     settings = get_settings()
+    try:
+        ensure_imap_ready(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         replies = await asyncio.to_thread(search_recent_replies, settings, from_address=recipient)
     except Exception as exc:

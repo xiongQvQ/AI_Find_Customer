@@ -286,6 +286,11 @@ export interface ImapTestResponse {
   username: string;
 }
 
+export interface SettingsApiResponse {
+  settings: Record<string, string>;
+  is_configured: boolean;
+}
+
 export interface SendEmailDraftRequest {
   sequence_number: number;
 }
@@ -383,6 +388,9 @@ export const api = {
     requestSettings<SmtpTestResponse>("/email/test", {
       method: "POST",
     }),
+
+  getSettings: () =>
+    requestSettings<SettingsApiResponse>(""),
 
   testImapSettings: () =>
     requestSettings<ImapTestResponse>("/email/imap-test", {

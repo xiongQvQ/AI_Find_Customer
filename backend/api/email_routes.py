@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from api.hunt_store import load_hunt, save_hunt, now_iso
 from api.security import require_api_access
 from config.settings import get_settings
+from emailing.readiness import ensure_imap_tested, ensure_smtp_ready, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
 from emailing.scheduler import run_scheduler_once
 from emailing.store import EmailStore
@@ -140,11 +141,16 @@ async def create_email_campaign(hunt_id: str, payload: CreateCampaignRequest):
     if not isinstance(sequences, list) or not sequences:
         raise HTTPException(status_code=400, detail="No generated email sequences found for this hunt")
 
+    settings = get_settings()
+    try:
+        ensure_smtp_ready(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     store = _store()
     account = _default_account(store)
     campaign_id = str(uuid.uuid4())
     created = now_iso()
-    settings = get_settings()
     store.create_campaign({
         "id": campaign_id,
         "hunt_id": hunt_id,
@@ -243,6 +249,13 @@ async def start_email_campaign(campaign_id: str):
     campaign = store.get_campaign(campaign_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    settings = get_settings()
+    try:
+        ensure_smtp_tested(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if str(campaign.get("email_account_id", "")) == "default":
+        _default_account(store)
     updated = now_iso()
     store.update_campaign_status(campaign_id, "active", updated_at=updated)
     _write_summary_to_hunt(store, str(campaign["hunt_id"]), campaign_id)
@@ -275,11 +288,20 @@ async def get_email_sequence(sequence_id: str):
 @router.post("/email-scheduler/run", dependencies=[Depends(require_api_access)])
 async def run_email_scheduler():
     store = _store()
+    try:
+        ensure_smtp_tested(get_settings())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return await run_scheduler_once(store)
 
 
 @router.post("/email-replies/check", dependencies=[Depends(require_api_access)])
 async def run_email_reply_check():
     store = _store()
+    settings = get_settings()
+    try:
+        ensure_imap_tested(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     account = _default_account(store)
     return await run_reply_detection_once(store, account)

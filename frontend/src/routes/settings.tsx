@@ -480,12 +480,56 @@ function EmailDeliveryPanel({
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
 }) {
+  const smtpConfigured = Boolean(
+    values.email_from_address &&
+    values.email_smtp_host &&
+    values.email_smtp_port &&
+    values.email_smtp_username &&
+    values.email_smtp_password
+  );
+  const imapConfigured = Boolean(
+    values.email_imap_host &&
+    values.email_imap_port &&
+    values.email_imap_username &&
+    values.email_imap_password
+  );
+  const smtpVerified = Boolean(values.email_smtp_last_test_at);
+  const imapVerified = Boolean(values.email_imap_last_test_at);
+  const canEnableAutoSend = smtpConfigured && smtpVerified;
+  const canEnableReplyDetection = imapConfigured && imapVerified;
+  const smtpStatus = !smtpConfigured ? "unconfigured" : smtpVerified ? "verified" : "pending";
+  const imapStatus = !imapConfigured ? "unconfigured" : imapVerified ? "verified" : "pending";
+
   const smtpTestMutation = useMutation({
     mutationFn: () => api.testEmailSettings(),
+    onSuccess: () => {
+      onChange("email_smtp_last_test_at", new Date().toISOString());
+    },
   });
   const imapTestMutation = useMutation({
     mutationFn: () => api.testImapSettings(),
+    onSuccess: () => {
+      onChange("email_imap_last_test_at", new Date().toISOString());
+    },
   });
+
+  const statusMeta = {
+    unconfigured: {
+      label: "未配置",
+      className: "border-slate-200 bg-slate-50 text-slate-900",
+      description: "还缺少必要参数，当前不能进入对应自动化链路。",
+    },
+    pending: {
+      label: "已配置未验证",
+      className: "border-amber-200 bg-amber-50 text-amber-900",
+      description: "参数已填写，但还需要点击测试连接并成功一次。",
+    },
+    verified: {
+      label: "已验证",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+      description: "最近一次连接测试成功，可以进入对应自动化链路。",
+    },
+  } as const;
 
   return (
     <Card>
@@ -499,6 +543,31 @@ function EmailDeliveryPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className={`rounded-md border px-3 py-3 ${statusMeta[smtpStatus].className}`}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold">SMTP 状态</p>
+              <span className="rounded-full border border-current/20 px-2 py-0.5 text-xs font-medium">
+                {statusMeta[smtpStatus].label}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-current/80">
+              {statusMeta[smtpStatus].description}
+            </p>
+          </div>
+          <div className={`rounded-md border px-3 py-3 ${statusMeta[imapStatus].className}`}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold">IMAP 状态</p>
+              <span className="rounded-full border border-current/20 px-2 py-0.5 text-xs font-medium">
+                {statusMeta[imapStatus].label}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-current/80">
+              {statusMeta[imapStatus].description}
+            </p>
+          </div>
+        </div>
+
         {EMAIL_DELIVERY_FIELDS.map((f) => (
           <div key={f.key} className="space-y-1.5">
             <Label htmlFor={f.key}>{f.label}</Label>
@@ -554,17 +623,30 @@ function EmailDeliveryPanel({
               <button
                 key={value}
                 type="button"
-                onClick={() => onChange("email_auto_send_enabled", value)}
+                onClick={() => {
+                  if (value === "true" && !canEnableAutoSend) return;
+                  onChange("email_auto_send_enabled", value);
+                }}
+                disabled={value === "true" && !canEnableAutoSend}
                 className={`rounded-md border px-3 py-2 text-sm ${
                   (values.email_auto_send_enabled ?? "false") === value
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
+                } ${
+                  value === "true" && !canEnableAutoSend
+                    ? "cursor-not-allowed opacity-50"
+                    : ""
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+          {!canEnableAutoSend && (
+            <p className="text-xs text-amber-700">
+              需要先完整填写 SMTP 参数并测试成功，才能开启自动发送。
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -577,17 +659,30 @@ function EmailDeliveryPanel({
               <button
                 key={value}
                 type="button"
-                onClick={() => onChange("email_reply_detection_enabled", value)}
+                onClick={() => {
+                  if (value === "true" && !canEnableReplyDetection) return;
+                  onChange("email_reply_detection_enabled", value);
+                }}
+                disabled={value === "true" && !canEnableReplyDetection}
                 className={`rounded-md border px-3 py-2 text-sm ${
                   (values.email_reply_detection_enabled ?? "false") === value
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground"
+                } ${
+                  value === "true" && !canEnableReplyDetection
+                    ? "cursor-not-allowed opacity-50"
+                    : ""
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+          {!canEnableReplyDetection && (
+            <p className="text-xs text-amber-700">
+              需要先完整填写 IMAP 参数并测试成功，才能开启回信自动检测。
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -623,6 +718,11 @@ function EmailDeliveryPanel({
             <p className="text-sm text-destructive">{smtpTestMutation.error.message}</p>
           )}
         </div>
+        {values.email_smtp_last_test_at && (
+          <p className="text-xs text-muted-foreground">
+            最近一次 SMTP 测试成功：{values.email_smtp_last_test_at}
+          </p>
+        )}
 
         <div className="flex items-center gap-3">
           <Button
@@ -646,6 +746,11 @@ function EmailDeliveryPanel({
             <p className="text-sm text-destructive">{imapTestMutation.error.message}</p>
           )}
         </div>
+        {values.email_imap_last_test_at && (
+          <p className="text-xs text-muted-foreground">
+            最近一次 IMAP 测试成功：{values.email_imap_last_test_at}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -689,10 +794,12 @@ export function SettingsPage() {
         EMAIL_SMTP_PORT: "email_smtp_port",
         EMAIL_SMTP_USERNAME: "email_smtp_username",
         EMAIL_SMTP_PASSWORD: "email_smtp_password",
+        EMAIL_SMTP_LAST_TEST_AT: "email_smtp_last_test_at",
         EMAIL_IMAP_HOST: "email_imap_host",
         EMAIL_IMAP_PORT: "email_imap_port",
         EMAIL_IMAP_USERNAME: "email_imap_username",
         EMAIL_IMAP_PASSWORD: "email_imap_password",
+        EMAIL_IMAP_LAST_TEST_AT: "email_imap_last_test_at",
         EMAIL_USE_TLS: "email_use_tls",
         EMAIL_AUTO_SEND_ENABLED: "email_auto_send_enabled",
         EMAIL_REPLY_DETECTION_ENABLED: "email_reply_detection_enabled",
@@ -719,7 +826,16 @@ export function SettingsPage() {
   });
 
   const handleChange = (key: string, value: string) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    setValues((prev) => {
+      const next = { ...prev, [key]: value };
+      if (["email_from_address", "email_smtp_host", "email_smtp_port", "email_smtp_username", "email_smtp_password", "email_use_tls"].includes(key)) {
+        next.email_smtp_last_test_at = "";
+      }
+      if (["email_imap_host", "email_imap_port", "email_imap_username", "email_imap_password"].includes(key)) {
+        next.email_imap_last_test_at = "";
+      }
+      return next;
+    });
   };
 
   const handleSave = () => {
