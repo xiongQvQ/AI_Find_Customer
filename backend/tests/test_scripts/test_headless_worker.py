@@ -94,6 +94,7 @@ def test_run_cycle_creates_hunt_then_campaign(monkeypatch):
 
     monkeypatch.setattr("scripts.headless_worker._request_json", fake_request_json)
     monkeypatch.setattr("scripts.headless_worker.time.sleep", lambda _: None)
+    monkeypatch.setattr("scripts.headless_worker._notify_feishu", lambda text: None)
 
     result = run_cycle(Args())
 
@@ -130,6 +131,7 @@ def test_run_cycle_skips_campaign_when_disabled(monkeypatch):
         return responses.pop(0)
 
     monkeypatch.setattr("scripts.headless_worker._request_json", fake_request_json)
+    monkeypatch.setattr("scripts.headless_worker._notify_feishu", lambda text: None)
 
     result = run_cycle(Args())
 

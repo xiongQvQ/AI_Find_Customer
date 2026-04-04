@@ -301,6 +301,13 @@ EMAIL_MINIMAX_API_KEY=
 
 设置后，邮件链路会优先使用这些专用 Key；留空时才回退到主链路的 Key。
 
+邮件发送与模板轮换的当前行为：
+
+- 如果没有配置 `EMAIL_*` 专用模型、RPM、API Key，邮件链路会自动回退到主链路配置
+- campaign 入队时会把同一企业下发现的多个唯一企业邮箱都展开成独立发送序列，而不是只保留一个 `target_email`
+- 真正的频控仍由 `EmailScheduler` 统一执行，受 `EMAIL_DAILY_SEND_LIMIT` 和 `EMAIL_HOURLY_SEND_LIMIT` 约束
+- 同一模板分组默认每发送满 `100` 个收件目标就自动起下一版模板种子，避免一套文案长时间不变
+
 ## 支持的输入与上传限制
 
 支持输入：
@@ -396,6 +403,13 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 7. `EmailScheduler` 后台循环每 60 秒扫描一次 `email_messages` 里的 `pending` 记录
 8. 到时间的邮件会被发送，发送后更新状态为 `sent / failed`
 9. `EmailReply` 后台循环按配置间隔扫描 IMAP 回信，命中后会停掉后续跟进
+
+几个关键实现细节：
+
+- `lead_extract` 会先按官网域名去重，再做深度抓取，避免同一家公司被多个官网 URL 重复送进 LLM
+- `email_messages` 是真正的持久化发送队列，适合 producer / consumer 长期运行
+- 如果一个 lead 抽到了多个企业邮箱，campaign 会为每个唯一邮箱建立独立 sequence 和 message 队列项
+- 模板不会无限复用同一个 seed；超过模板发送上限后会自动生成新版本继续跑
 
 也就是说，现在已经是两层持久化队列：
 
@@ -557,11 +571,12 @@ AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10
 
 飞书汇总消息会包含：
 
-- 最近窗口完成的 hunt job 数
-- 新增企业数
-- 生成邮件序列数
+- 最近窗口任务队列完成 / 失败 / 排队 / 运行数
+- 新增企业数与生成邮件序列数
+- 当前运行中的官网与阶段进度
+- 最近完成的网站、抓到的企业数、生成的邮件序列数
 - 待发送 / 已发送 / 失败 / 回复数
-- 最近失败示例
+- 失败原因 Top 与最近失败示例
 
 如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
 

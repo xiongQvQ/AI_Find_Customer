@@ -71,6 +71,7 @@ async def parse_description_node(state: HuntState) -> dict:
         return {"current_stage": "parse_description"}
 
     logger.info("[ParseDescription] Parsing: %r", description[:100])
+    updates: dict = {"current_stage": "parse_description"}
 
     llm = LLMTool(
         hunt_id=state.get("hunt_id", ""),
@@ -92,8 +93,6 @@ async def parse_description_node(state: HuntState) -> dict:
         if not parsed or not isinstance(parsed, dict):
             logger.warning("[ParseDescription] Failed to parse LLM output, using description as-is")
             return {"current_stage": "parse_description"}
-
-        updates: dict = {"current_stage": "parse_description"}
 
         # ── Merge target_regions (description supplements user input) ────
         extracted_regions = parsed.get("target_regions") or []

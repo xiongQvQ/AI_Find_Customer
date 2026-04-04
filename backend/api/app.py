@@ -104,7 +104,9 @@ async def _automation_notify_loop() -> None:
             if bool(settings.automation_summary_enabled):
                 interval = max(300, int(settings.automation_summary_interval_seconds or 7200))
                 if now_monotonic - last_summary_at >= interval:
+                    status = collect_automation_status()
                     metrics = collect_automation_metrics(hours=max(1, interval // 3600))
+                    metrics["status_snapshot"] = status
                     text = render_summary_text(metrics)
                     await asyncio.to_thread(send_feishu_text, webhook_url, text)
                     last_summary_at = now_monotonic

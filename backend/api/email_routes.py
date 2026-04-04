@@ -15,6 +15,7 @@ from config.settings import get_settings
 from emailing.readiness import ensure_imap_tested, ensure_smtp_ready, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
 from emailing.scheduler import run_scheduler_once
+from emailing.policy import expand_email_targets
 from emailing.store import EmailStore
 
 router = APIRouter(prefix="/api/v1", tags=["email"])
@@ -185,66 +186,82 @@ async def create_email_campaign(hunt_id: str, payload: CreateCampaignRequest):
     base_time = datetime.now(timezone.utc)
     for seq in sequences:
         lead = seq.get("lead") or {}
-        target = seq.get("target") or {}
+        primary_target = seq.get("target") or {}
+        raw_targets = []
+        if isinstance(primary_target, dict):
+            raw_targets.append(primary_target)
+        raw_targets.extend(seq.get("targets") or [])
+        raw_targets.extend(expand_email_targets(lead) or [])
+        seen_target_emails: set[str] = set()
+        targets = []
+        for target in raw_targets:
+            if not isinstance(target, dict):
+                continue
+            target_email = str(target.get("target_email", "") or "").strip().lower()
+            if not target_email or target_email in seen_target_emails:
+                continue
+            seen_target_emails.add(target_email)
+            targets.append(target)
         emails = seq.get("emails") or []
         template_perf = seq.get("template_performance") or {}
         template_status = str(template_perf.get("status", "") or "")
-        if not target.get("target_email") or not emails:
+        if not targets or not emails:
             continue
         if not _sequence_is_campaign_ready(seq):
             continue
         if template_status in {"underperforming", "exhausted"}:
             continue
-        sequence_id = str(uuid.uuid4())
-        store.create_sequence({
-            "id": sequence_id,
-            "campaign_id": campaign_id,
-            "hunt_id": hunt_id,
-            "lead_key": str((lead.get("website") or lead.get("company_name") or sequence_id)).lower(),
-            "lead_email": str(target.get("target_email") or ""),
-            "lead_name": str(lead.get("company_name") or ""),
-            "decision_maker_name": str(target.get("target_name") or ""),
-            "decision_maker_title": str(target.get("target_title") or ""),
-            "locale": str(seq.get("locale") or "en_US"),
-            "generation_mode": str(seq.get("generation_mode") or "personalized"),
-            "template_id": str(seq.get("template_id") or ""),
-            "template_group": str(seq.get("template_group") or ""),
-            "template_usage_index": int(seq.get("template_usage_index", 0) or 0),
-            "template_max_send_count": int(seq.get("template_max_send_count", 0) or 0),
-            "status": "scheduled",
-            "current_step": 0,
-            "stop_reason": "",
-            "replied_at": "",
-            "last_sent_at": "",
-            "next_scheduled_at": "",
-            "created_at": created,
-            "updated_at": created,
-        })
-        next_scheduled = ""
-        for email in emails:
-            step_number = int(email.get("sequence_number", 1) or 1)
-            delay_days = int(email.get("suggested_send_day", 0) or 0)
-            scheduled_at = (base_time + timedelta(days=delay_days)).isoformat()
-            if step_number == 1:
-                next_scheduled = scheduled_at
-            store.create_message({
-                "id": str(uuid.uuid4()),
-                "sequence_id": sequence_id,
-                "step_number": step_number,
-                "goal": str(email.get("email_type", "") or ""),
+        for target in targets:
+            sequence_id = str(uuid.uuid4())
+            store.create_sequence({
+                "id": sequence_id,
+                "campaign_id": campaign_id,
+                "hunt_id": hunt_id,
+                "lead_key": str((lead.get("website") or lead.get("company_name") or sequence_id)).lower() + "|" + str(target.get("target_email") or "").lower(),
+                "lead_email": str(target.get("target_email") or ""),
+                "lead_name": str(lead.get("company_name") or ""),
+                "decision_maker_name": str(target.get("target_name") or ""),
+                "decision_maker_title": str(target.get("target_title") or ""),
                 "locale": str(seq.get("locale") or "en_US"),
-                "subject": str(email.get("subject", "") or ""),
-                "body_text": str(email.get("body_text", "") or ""),
-                "status": "pending",
-                "scheduled_at": scheduled_at,
-                "sent_at": "",
-                "provider_message_id": "",
-                "thread_key": "",
-                "failure_reason": "",
+                "generation_mode": str(seq.get("generation_mode") or "personalized"),
+                "template_id": str(seq.get("template_id") or ""),
+                "template_group": str(seq.get("template_group") or ""),
+                "template_usage_index": int(seq.get("template_usage_index", 0) or 0),
+                "template_max_send_count": int(seq.get("template_max_send_count", 0) or 0),
+                "status": "scheduled",
+                "current_step": 0,
+                "stop_reason": "",
+                "replied_at": "",
+                "last_sent_at": "",
+                "next_scheduled_at": "",
                 "created_at": created,
                 "updated_at": created,
             })
-        store.update_sequence_status(sequence_id, status="scheduled", updated_at=created, next_scheduled_at=next_scheduled)
+            next_scheduled = ""
+            for email in emails:
+                step_number = int(email.get("sequence_number", 1) or 1)
+                delay_days = int(email.get("suggested_send_day", 0) or 0)
+                scheduled_at = (base_time + timedelta(days=delay_days)).isoformat()
+                if step_number == 1:
+                    next_scheduled = scheduled_at
+                store.create_message({
+                    "id": str(uuid.uuid4()),
+                    "sequence_id": sequence_id,
+                    "step_number": step_number,
+                    "goal": str(email.get("email_type", "") or ""),
+                    "locale": str(seq.get("locale") or "en_US"),
+                    "subject": str(email.get("subject", "") or ""),
+                    "body_text": str(email.get("body_text", "") or ""),
+                    "status": "pending",
+                    "scheduled_at": scheduled_at,
+                    "sent_at": "",
+                    "provider_message_id": "",
+                    "thread_key": "",
+                    "failure_reason": "",
+                    "created_at": created,
+                    "updated_at": created,
+                })
+            store.update_sequence_status(sequence_id, status="scheduled", updated_at=created, next_scheduled_at=next_scheduled)
 
     _write_summary_to_hunt(store, hunt_id, campaign_id)
     summary = _campaign_summary(store, campaign_id)

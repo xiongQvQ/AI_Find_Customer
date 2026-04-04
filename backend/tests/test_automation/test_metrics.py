@@ -129,9 +129,11 @@ def test_collect_automation_status_and_metrics(monkeypatch, tmp_path):
 
     assert status["hunt_jobs"]["queued"] >= 0
     assert status["email_queue"]["sent"] == 1
+    assert status["email_queue"]["active_campaigns"] == 1
     assert metrics["hunts"]["new_leads"] == 2
     assert metrics["emails"]["sent"] == 1
     assert metrics["emails"]["failed"] == 1
     assert metrics["emails"]["replied"] == 1
     assert metrics["recent_failures"][0]["failure_reason"] == "smtp_timeout"
-
+    assert metrics["top_failure_reasons"][0]["failure_reason"] == "smtp_timeout"
+    assert metrics["recent_completed_hunts"][0]["lead_count"] == 2

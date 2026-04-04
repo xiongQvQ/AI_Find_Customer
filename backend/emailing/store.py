@@ -326,6 +326,28 @@ class EmailStore:
             ).fetchone()
         return int(row[0]) if row else 0
 
+    def count_sequences_by_status(self, *statuses: str) -> int:
+        if not statuses:
+            return 0
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM lead_email_sequences WHERE status IN ({placeholders})",
+                list(statuses),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_campaigns_by_status(self, *statuses: str) -> int:
+        if not statuses:
+            return 0
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM email_campaigns WHERE status IN ({placeholders})",
+                list(statuses),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def count_messages_since(self, status: str, *, since_iso: str, time_field: str = "updated_at") -> int:
         if time_field not in {"created_at", "updated_at", "scheduled_at", "sent_at"}:
             raise ValueError("Unsupported time field")
@@ -388,6 +410,21 @@ class EmailStore:
                 JOIN lead_email_sequences s ON s.id = m.sequence_id
                 WHERE m.status = 'failed' AND m.updated_at >= ?
                 ORDER BY m.updated_at DESC
+                LIMIT ?
+                """,
+                (since_iso, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_message_failure_reasons(self, *, since_iso: str, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT failure_reason, COUNT(*) AS count
+                FROM email_messages
+                WHERE status = 'failed' AND updated_at >= ?
+                GROUP BY failure_reason
+                ORDER BY count DESC, failure_reason ASC
                 LIMIT ?
                 """,
                 (since_iso, limit),

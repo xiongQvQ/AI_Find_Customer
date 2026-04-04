@@ -1295,6 +1295,7 @@ class TestEmailCraftNode:
 
             mock_settings.return_value.email_gen_concurrency = 3
             mock_settings.return_value.react_max_iterations = 3
+            mock_settings.return_value.email_template_max_send_count = 100
 
             llm_inst = AsyncMock()
             llm_inst.close = AsyncMock()
@@ -1370,6 +1371,64 @@ class TestEmailCraftNode:
         assert result["email_sequences"][0]["template_assigned_count"] == 2
         assert result["email_sequences"][1]["template_remaining_capacity"] == 40
         assert result["email_sequences"][0]["template_performance"]["status"] == "warming_up"
+
+    @pytest.mark.asyncio
+    async def test_template_rotates_after_max_send_count(self):
+        leads = [
+            {
+                "company_name": "Lead A",
+                "country_code": "us",
+                "industry": "Industrial Supply",
+                "website": "https://a.example.com",
+                "emails": ["buyer@a.example.com", "sales@a.example.com"],
+            },
+            {
+                "company_name": "Lead B",
+                "country_code": "us",
+                "industry": "Industrial Supply",
+                "website": "https://b.example.com",
+                "emails": ["buyer@b.example.com"],
+            },
+        ]
+        state = _base_state(leads=leads)
+        react_call_count = {"n": 0}
+
+        async def count_calls(**kwargs):
+            react_call_count["n"] += 1
+            return FAKE_EMAIL_RESPONSE
+
+        with patch("agents.email_craft_agent.LLMTool") as MockLLM, \
+             patch("agents.email_craft_agent.get_settings") as mock_settings, \
+             patch("agents.email_craft_agent.react_loop", side_effect=count_calls):
+
+            mock_settings.return_value.email_gen_concurrency = 1
+            mock_settings.return_value.react_max_iterations = 3
+            mock_settings.return_value.email_template_max_send_count = 1
+
+            llm_inst = AsyncMock()
+            llm_inst.generate = AsyncMock(return_value=json.dumps({
+                "passed": True,
+                "grammar_ok": True,
+                "spelling_ok": True,
+                "language_correct": True,
+                "formality_correct": True,
+                "salutation_correct": True,
+                "business_etiquette_ok": True,
+                "local_naturalness_ok": True,
+                "commercial_quality": True,
+                "sequence_progression": True,
+                "issues": [],
+                "suggestions": [],
+            }))
+            llm_inst.close = AsyncMock()
+            MockLLM.return_value = llm_inst
+
+            result = await email_craft_node(state)
+
+        assert react_call_count["n"] == 2
+        assert len(result["email_sequences"]) == 2
+        assert result["email_sequences"][0]["template_id"] != result["email_sequences"][1]["template_id"]
+        assert {item["target_email"] for item in result["email_sequences"][0]["targets"]} >= {"buyer@a.example.com", "sales@a.example.com"}
 
     @pytest.mark.asyncio
     async def test_reused_template_can_be_personalized_per_lead(self):

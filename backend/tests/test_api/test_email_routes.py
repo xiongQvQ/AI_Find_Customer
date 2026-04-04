@@ -27,6 +27,20 @@ def test_create_and_start_email_campaign(monkeypatch, tmp_path):
                         "target_title": "Purchasing Manager",
                         "target_type": "decision_maker_verified",
                     },
+                    "targets": [
+                        {
+                            "target_email": "buyer@acme.com",
+                            "target_name": "Jane",
+                            "target_title": "Purchasing Manager",
+                            "target_type": "decision_maker_verified",
+                        },
+                        {
+                            "target_email": "sales@acme.com",
+                            "target_name": "",
+                            "target_title": "",
+                            "target_type": "generic_company_email",
+                        },
+                    ],
                     "emails": [
                         {"sequence_number": 1, "email_type": "company_intro", "subject": "Hi", "body_text": "A", "suggested_send_day": 0},
                         {"sequence_number": 2, "email_type": "product_showcase", "subject": "Hi2", "body_text": "B", "suggested_send_day": 3},
@@ -72,6 +86,7 @@ def test_create_and_start_email_campaign(monkeypatch, tmp_path):
     res = client.post("/api/v1/hunts/hunt_1/email-campaigns", json={"name": "Test Campaign"})
     assert res.status_code == 200
     campaign_id = res.json()["campaign_id"]
+    assert res.json()["sequence_count"] == 2
 
     res = client.post(f"/api/v1/email-campaigns/{campaign_id}/start")
     assert res.status_code == 200

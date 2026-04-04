@@ -17,7 +17,7 @@ from typing import Any
 
 from config.settings import get_settings
 from emailing.body_format import format_email_sequence_bodies, format_plaintext_email_body
-from emailing.policy import choose_email_target
+from emailing.policy import choose_email_target, expand_email_targets
 from emailing.template_pipeline import compose_template_plan, extract_template_profile
 from graph.state import HuntState
 from tools.llm_client import LLMTool
@@ -461,6 +461,10 @@ def _derive_template_group(
 def _template_id_for_group(group_key: str) -> str:
     digest = hashlib.sha1(group_key.encode("utf-8")).hexdigest()[:12]
     return f"tpl_{digest}"
+
+
+def _template_version_group(group_key: str, version_index: int) -> str:
+    return f"{group_key}|v{max(1, int(version_index or 1))}"
 
 
 def _replace_template_tokens(
@@ -1612,7 +1616,7 @@ async def email_craft_node(state: HuntState) -> dict:
             target=target,
             locale=_get_locale(lead.get("country_code", "")),
         )
-        grouped_leads.setdefault(template_group, []).append((lead, target))
+        grouped_leads.setdefault(template_group, []).append((lead, target, expand_email_targets(lead)))
 
     async def _generate_group_seed(group_key: str, seed_lead: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
         result = await _craft_for_lead(
@@ -1629,30 +1633,38 @@ async def email_craft_node(state: HuntState) -> dict:
         return group_key, result
 
     try:
-        seed_tasks = [
-            _generate_group_seed(group_key, members[0][0])
-            for group_key, members in grouped_leads.items()
-        ]
+        template_max_send_count = int(getattr(settings, "email_template_max_send_count", _DEFAULT_TEMPLATE_MAX_SEND_COUNT) or _DEFAULT_TEMPLATE_MAX_SEND_COUNT)
+        seed_tasks = []
+        batch_members: dict[str, list[tuple[dict[str, Any], dict[str, str], list[dict[str, str]]]]] = {}
+        for group_key, members in grouped_leads.items():
+            batch_size = max(1, template_max_send_count)
+            for batch_index, start in enumerate(range(0, len(members), batch_size), start=1):
+                version_group = _template_version_group(group_key, batch_index)
+                current_batch = members[start:start + batch_size]
+                batch_members[version_group] = current_batch
+                seed_tasks.append(_generate_group_seed(version_group, current_batch[0][0]))
         seed_results = await asyncio.gather(*seed_tasks)
 
         template_results = {group_key: result for group_key, result in seed_results if result is not None}
         email_sequences: list[dict[str, Any]] = []
-        template_max_send_count = int(getattr(settings, "email_template_max_send_count", _DEFAULT_TEMPLATE_MAX_SEND_COUNT) or _DEFAULT_TEMPLATE_MAX_SEND_COUNT)
-        for group_key, members in grouped_leads.items():
-            template_result = template_results.get(group_key)
+        for version_group, members in batch_members.items():
+            template_result = template_results.get(version_group)
             if template_result is None:
                 continue
+            base_group = version_group.rsplit("|v", 1)[0]
             template_assigned_count = len(members)
-            for index, (lead, target) in enumerate(members, start=1):
+            for index, (lead, target, targets) in enumerate(members, start=1):
                 applied = _apply_template_to_lead(
                     template_result,
                     lead=lead,
                     target=target,
-                    template_group=group_key,
+                    template_group=version_group,
                     template_index=index,
                     template_assigned_count=template_assigned_count,
                     template_max_send_count=template_max_send_count,
                 )
+                applied["template_group_base"] = base_group
+                applied["targets"] = targets
                 if index > 1:
                     personalized = await _personalize_template_sequence(
                         llm,

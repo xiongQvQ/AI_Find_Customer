@@ -51,6 +51,18 @@ logger = logging.getLogger(__name__)
 _progress_callback: Callable[[dict], None] | None = None
 
 
+def _candidate_budget(target_lead_count: int, scrape_concurrency: int) -> int:
+    """Return a bounded candidate budget for deep extraction.
+
+    Search often returns far more URLs than a hunt round actually needs. A
+    modest multiple of the requested lead count keeps recall acceptable while
+    avoiding LLM bursts that can trip provider rate limits.
+    """
+    target = max(1, int(target_lead_count or 0))
+    concurrency = max(1, int(scrape_concurrency or 0))
+    return max(12, target * 4, concurrency * 4)
+
+
 def set_progress_callback(cb: Callable[[dict], None] | None) -> None:
     """Set the module-level progress callback (called from routes._run_hunt)."""
     global _progress_callback
@@ -1198,6 +1210,7 @@ async def lead_extract_node(state: HuntState) -> dict:
         if d
     }
     to_process = []
+    seen_candidate_domains: set[str] = set(existing_domains)
     for r in search_results:
         link = r.get("link", "")
         maps_title = (r.get("title") or (r.get("maps_data") or {}).get("title") or "").strip()
@@ -1206,6 +1219,10 @@ async def lead_extract_node(state: HuntState) -> dict:
         link_official_domain = _official_website_domain(link)
         if link_official_domain and link_official_domain in existing_domains:
             continue
+        if link_official_domain and link_official_domain in seen_candidate_domains:
+            continue
+        if link_official_domain:
+            seen_candidate_domains.add(link_official_domain)
         to_process.append(r)
 
     # Filter out truly irrelevant URLs (search engines, entertainment)
@@ -1223,6 +1240,19 @@ async def lead_extract_node(state: HuntState) -> dict:
         logger.info("[LeadExtractAgent] No processable URLs, skipping")
         return {"current_stage": "lead_extract"}
 
+    candidate_budget = _candidate_budget(
+        state.get("target_lead_count", 0),
+        settings.scrape_concurrency,
+    )
+    if len(processable) > candidate_budget:
+        logger.info(
+            "[LeadExtractAgent] Trimming candidates from %d to %d based on target_lead_count=%s",
+            len(processable),
+            candidate_budget,
+            state.get("target_lead_count", 0),
+        )
+        processable = processable[:candidate_budget]
+
     semaphore = asyncio.Semaphore(settings.scrape_concurrency)
     jina = JinaReaderTool()
     hunt_id = state.get("hunt_id", "")
@@ -1237,12 +1267,13 @@ async def lead_extract_node(state: HuntState) -> dict:
     try:
         # ── Quick Gate: low-cost pre-filter before deep ReAct ───────────
         async def _run_gate(r: dict) -> tuple[dict, bool, dict]:
-            try:
-                passed, gate = await _quick_gate_candidate(r, llm, insight)
-                return r, passed, gate
-            except Exception as e:
-                logger.warning("[LeadExtract][QuickGate] gate failed, fallback keep: %s", e)
-                return r, True, {"reason": "gate_error_fallback_keep", "risk_flags": ["insufficient_data"], "confidence": 0.0}
+            async with semaphore:
+                try:
+                    passed, gate = await _quick_gate_candidate(r, llm, insight)
+                    return r, passed, gate
+                except Exception as e:
+                    logger.warning("[LeadExtract][QuickGate] gate failed, fallback keep: %s", e)
+                    return r, True, {"reason": "gate_error_fallback_keep", "risk_flags": ["insufficient_data"], "confidence": 0.0}
 
         gated_candidates: list[dict] = []
         filtered_count = 0

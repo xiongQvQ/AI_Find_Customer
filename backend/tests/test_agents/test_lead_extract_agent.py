@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from agents.lead_extract_agent import lead_extract_node, _scrape_and_extract, _verify_lead_emails, _apply_evidence_to_scores, _quick_gate_candidate, _has_concrete_customs_data, _normalize_decision_maker_emails, _is_generic_mailbox
+from agents.lead_extract_agent import lead_extract_node, _scrape_and_extract, _verify_lead_emails, _apply_evidence_to_scores, _quick_gate_candidate, _has_concrete_customs_data, _normalize_decision_maker_emails, _is_generic_mailbox, _candidate_budget
 import asyncio
 
 
@@ -209,6 +209,14 @@ class TestScrapeAndExtract:
 
         assert result is not None
         assert result["match_score"] == 1.0
+
+
+class TestCandidateBudget:
+    def test_candidate_budget_scales_with_target(self):
+        assert _candidate_budget(5, 5) == 20
+
+    def test_candidate_budget_has_floor(self):
+        assert _candidate_budget(0, 1) == 12
 
     @pytest.mark.asyncio
     async def test_url_type_hint_in_prompt(self):

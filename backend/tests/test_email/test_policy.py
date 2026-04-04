@@ -1,4 +1,4 @@
-from emailing.policy import choose_email_target
+from emailing.policy import choose_email_target, expand_email_targets
 
 
 def test_choose_verified_decision_maker_first():
@@ -40,3 +40,20 @@ def test_returns_none_when_no_email_available():
     target = choose_email_target({"decision_makers": [], "emails": []})
     assert target["target_type"] == "none"
     assert target["target_email"] == ""
+
+
+def test_expand_email_targets_keeps_all_unique_business_emails():
+    lead = {
+        "decision_makers": [
+            {"name": "Buyer", "title": "Purchasing Manager", "email": "buyer@acme.com"},
+            {"name": "Owner", "title": "Owner", "email": "owner@acme.com"},
+        ],
+        "emails": ["info@acme.com", "sales@acme.com", "buyer@acme.com"],
+    }
+    targets = expand_email_targets(lead)
+    assert [item["target_email"] for item in targets] == [
+        "buyer@acme.com",
+        "owner@acme.com",
+        "info@acme.com",
+        "sales@acme.com",
+    ]

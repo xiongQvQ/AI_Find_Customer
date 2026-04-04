@@ -22,6 +22,12 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from config.settings import get_settings
+from automation.notifier import (
+    render_hunt_completed_text,
+    render_hunt_failed_text,
+    render_hunt_started_text,
+    send_feishu_text,
+)
 
 
 logger = logging.getLogger("headless_worker")
@@ -29,6 +35,14 @@ logger = logging.getLogger("headless_worker")
 
 class ApiError(RuntimeError):
     """Raised when the local API returns a non-success response."""
+
+
+def _notify_feishu(text: str) -> None:
+    settings = get_settings()
+    webhook_url = str(settings.automation_feishu_webhook_url or "").strip()
+    if not webhook_url:
+        return
+    send_feishu_text(webhook_url, text)
 
 
 def _default_api_base_url() -> str:
@@ -178,64 +192,81 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
         payload.get("target_lead_count"),
         payload.get("enable_email_craft"),
     )
+    try:
+        _notify_feishu(render_hunt_started_text(payload, hunt_id=hunt_id))
+    except Exception as exc:
+        logger.warning("failed to send start notification for hunt=%s: %s", hunt_id[:8], exc)
 
-    status = _wait_for_hunt(
-        base_url=args.api_base_url,
-        api_token=args.api_token,
-        hunt_id=hunt_id,
-        poll_seconds=args.status_poll_seconds,
-    )
-    if str(status.get("status", "")) != "completed":
-        raise ApiError(f"hunt {hunt_id} failed: {status.get('error', 'unknown error')}")
-
-    result = _request_json(
-        method="GET",
-        base_url=args.api_base_url,
-        path=f"/api/v1/hunts/{hunt_id}/result",
-        api_token=args.api_token,
-        timeout_seconds=args.request_timeout_seconds,
-    )
-    leads = result.get("leads") or []
-    sequences = result.get("email_sequences") or []
-    logger.info(
-        "completed hunt=%s leads=%s email_sequences=%s",
-        hunt_id[:8],
-        len(leads) if isinstance(leads, list) else 0,
-        len(sequences) if isinstance(sequences, list) else 0,
-    )
-
-    campaign_summary: dict[str, Any] | None = None
-    if args.auto_start_campaign and payload.get("enable_email_craft"):
-        created_campaign = _request_json(
-            method="POST",
+    try:
+        status = _wait_for_hunt(
             base_url=args.api_base_url,
-            path=f"/api/v1/hunts/{hunt_id}/email-campaigns",
             api_token=args.api_token,
-            payload={"name": _campaign_name(args.campaign_name_prefix, hunt_id)},
+            hunt_id=hunt_id,
+            poll_seconds=args.status_poll_seconds,
+        )
+        if str(status.get("status", "")) != "completed":
+            raise ApiError(f"hunt {hunt_id} failed: {status.get('error', 'unknown error')}")
+
+        result = _request_json(
+            method="GET",
+            base_url=args.api_base_url,
+            path=f"/api/v1/hunts/{hunt_id}/result",
+            api_token=args.api_token,
             timeout_seconds=args.request_timeout_seconds,
         )
-        campaign_id = str(created_campaign["campaign_id"])
-        sequence_count = int(created_campaign.get("sequence_count", 0) or 0)
-        logger.info("campaign=%s created sequence_count=%s", campaign_id[:8], sequence_count)
-        if sequence_count > 0:
-            campaign_summary = _request_json(
+        leads = result.get("leads") or []
+        sequences = result.get("email_sequences") or []
+        logger.info(
+            "completed hunt=%s leads=%s email_sequences=%s",
+            hunt_id[:8],
+            len(leads) if isinstance(leads, list) else 0,
+            len(sequences) if isinstance(sequences, list) else 0,
+        )
+
+        campaign_summary: dict[str, Any] | None = None
+        if args.auto_start_campaign and payload.get("enable_email_craft"):
+            created_campaign = _request_json(
                 method="POST",
                 base_url=args.api_base_url,
-                path=f"/api/v1/email-campaigns/{campaign_id}/start",
+                path=f"/api/v1/hunts/{hunt_id}/email-campaigns",
                 api_token=args.api_token,
+                payload={"name": _campaign_name(args.campaign_name_prefix, hunt_id)},
                 timeout_seconds=args.request_timeout_seconds,
             )
-            logger.info("campaign=%s started", campaign_id[:8])
-        else:
-            campaign_summary = {"campaign_id": campaign_id, "status": "draft", "sequence_count": 0}
-            logger.warning("campaign=%s has no send-ready sequences", campaign_id[:8])
+            campaign_id = str(created_campaign["campaign_id"])
+            sequence_count = int(created_campaign.get("sequence_count", 0) or 0)
+            logger.info("campaign=%s created sequence_count=%s", campaign_id[:8], sequence_count)
+            if sequence_count > 0:
+                campaign_summary = _request_json(
+                    method="POST",
+                    base_url=args.api_base_url,
+                    path=f"/api/v1/email-campaigns/{campaign_id}/start",
+                    api_token=args.api_token,
+                    timeout_seconds=args.request_timeout_seconds,
+                )
+                logger.info("campaign=%s started", campaign_id[:8])
+            else:
+                campaign_summary = {"campaign_id": campaign_id, "status": "draft", "sequence_count": 0}
+                logger.warning("campaign=%s has no send-ready sequences", campaign_id[:8])
 
-    return {
-        "hunt_id": hunt_id,
-        "lead_count": len(leads) if isinstance(leads, list) else 0,
-        "email_sequence_count": len(sequences) if isinstance(sequences, list) else 0,
-        "campaign": campaign_summary,
-    }
+        final_result = {
+            "hunt_id": hunt_id,
+            "website_url": str(payload.get("website_url", "") or ""),
+            "lead_count": len(leads) if isinstance(leads, list) else 0,
+            "email_sequence_count": len(sequences) if isinstance(sequences, list) else 0,
+            "campaign": campaign_summary,
+        }
+        try:
+            _notify_feishu(render_hunt_completed_text(final_result))
+        except Exception as exc:
+            logger.warning("failed to send completion notification for hunt=%s: %s", hunt_id[:8], exc)
+        return final_result
+    except Exception as exc:
+        try:
+            _notify_feishu(render_hunt_failed_text(payload, error_message=str(exc)))
+        except Exception as notify_exc:
+            logger.warning("failed to send failure notification for hunt=%s: %s", hunt_id[:8], notify_exc)
+        raise
 
 
 def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
