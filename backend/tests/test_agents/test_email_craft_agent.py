@@ -9,6 +9,7 @@ from agents.email_craft_agent import (
     email_craft_node, _craft_for_lead, _get_locale,
     _get_locale_rules, _build_email_tools, _rule_validate_emails_payload,
 )
+from emailing.template_pipeline import build_fallback_template_profile
 import asyncio
 
 
@@ -112,6 +113,8 @@ def _base_state(**overrides):
             },
         ],
         "email_sequences": [],
+        "email_template_examples": [],
+        "email_template_notes": "",
         "hunt_round": 3,
         "prev_round_lead_count": 2,
         "round_feedback": None,
@@ -301,6 +304,15 @@ class TestValidateEmailsTool:
 
 
 class TestCraftForLead:
+    def test_build_fallback_template_profile_prefers_examples(self):
+        profile = build_fallback_template_profile(
+            examples=["Subject: Quick intro\nHello, we noticed your industrial sourcing footprint."],
+            lead={"company_name": "Acme", "industry": "Industrial Supply"},
+            insight={"products": ["switch", "sensor"]},
+        )
+        assert profile["source"] == "user_examples"
+        assert profile["example_signals"]
+
     @pytest.mark.asyncio
     async def test_generates_email_sequence_via_react(self):
         sem = asyncio.Semaphore(3)
@@ -768,6 +780,124 @@ class TestCraftForLead:
         assert result["review_status"] == "needs_review"
         assert result["validation_summary"]["status"] == "needs_review"
 
+    @pytest.mark.asyncio
+    async def test_user_examples_are_injected_into_prompt(self):
+        sem = asyncio.Semaphore(3)
+        llm = AsyncMock()
+        captured = {}
+
+        async def capture(**kwargs):
+            captured.update(kwargs)
+            return FAKE_EMAIL_RESPONSE
+
+        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        insight = {"company_name": "MyCompany", "products": ["switch"]}
+
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+            await _craft_for_lead(
+                lead,
+                insight,
+                llm,
+                sem,
+                email_template_examples=["Subject: Quick intro\nWe noticed your sourcing footprint."],
+                email_template_notes="Keep it short and direct.",
+            )
+
+        prompt = captured.get("user_prompt", "")
+        assert "Template source: user_examples" in prompt
+        assert "Keep it short and direct." in prompt
+        assert "Template profile:" in prompt
+        assert "Template plan:" in prompt
+
+    @pytest.mark.asyncio
+    async def test_auto_template_mode_without_examples(self):
+        sem = asyncio.Semaphore(3)
+        llm = AsyncMock()
+        captured = {}
+
+        async def capture(**kwargs):
+            captured.update(kwargs)
+            return FAKE_EMAIL_RESPONSE
+
+        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        insight = {"company_name": "MyCompany", "products": ["switch"]}
+
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+            result = await _craft_for_lead(lead, insight, llm, sem)
+
+        assert result is not None
+        assert result["template_profile"]["source"] == "auto_generated"
+        assert "Template source: auto_generated" in captured.get("user_prompt", "")
+
+    @pytest.mark.asyncio
+    async def test_distinct_example_styles_produce_distinct_template_outputs(self):
+        sem = asyncio.Semaphore(3)
+        captured = {}
+
+        class StubLLM:
+            async def generate(self, prompt, **kwargs):
+                system = kwargs.get("system", "")
+                if "extract a reusable style/template profile" in system.lower():
+                    if "warm relationship-first" in prompt.lower():
+                        return json.dumps({
+                            "tone": "warm",
+                            "subject_style": "soft and relationship-first",
+                            "cta_style": "invite a friendly exploratory reply",
+                        })
+                    return json.dumps({
+                        "tone": "direct",
+                        "subject_style": "short and commercially direct",
+                        "cta_style": "ask a sharp qualification question",
+                    })
+                if "design a reusable outbound email template plan" in system.lower():
+                    if '"tone": "warm"' in prompt:
+                        return json.dumps({
+                            "recipient_profile": "Relationship-driven distributor",
+                            "cta_strategy": "Invite a brief exploratory conversation.",
+                            "template_instructions": ["Lead with rapport", "Use softer CTA"],
+                        })
+                    return json.dumps({
+                        "recipient_profile": "Commercially driven buyer",
+                        "cta_strategy": "Ask whether they own this category.",
+                        "template_instructions": ["Lead with concrete fit", "Use direct CTA"],
+                    })
+                raise AssertionError(f"Unexpected system prompt: {system}")
+
+        async def capture(**kwargs):
+            captured.update(kwargs)
+            return FAKE_EMAIL_RESPONSE
+
+        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        insight = {"company_name": "MyCompany", "products": ["switch"]}
+
+        with patch("agents.email_craft_agent.react_loop", side_effect=capture):
+            warm_result = await _craft_for_lead(
+                lead,
+                insight,
+                StubLLM(),
+                sem,
+                email_template_examples=["Warm relationship-first note with softer opener."],
+            )
+            warm_prompt = captured["user_prompt"]
+            captured.clear()
+            direct_result = await _craft_for_lead(
+                lead,
+                insight,
+                StubLLM(),
+                sem,
+                email_template_examples=["Direct commercial note with fast qualification CTA."],
+            )
+            direct_prompt = captured["user_prompt"]
+
+        assert warm_result["template_profile"]["tone"] == "warm"
+        assert direct_result["template_profile"]["tone"] == "direct"
+        assert warm_result["template_plan"]["cta_strategy"] == "Invite a brief exploratory conversation."
+        assert direct_result["template_plan"]["cta_strategy"] == "Ask whether they own this category."
+        assert '"tone": "warm"' in warm_prompt
+        assert '"tone": "direct"' in direct_prompt
+        assert "Use softer CTA" in warm_prompt
+        assert "Use direct CTA" in direct_prompt
+
 
 class TestEmailCraftNode:
     @pytest.mark.asyncio
@@ -790,6 +920,35 @@ class TestEmailCraftNode:
 
         assert result["current_stage"] == "email_craft"
         assert len(result["email_sequences"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_state_level_template_examples_are_forwarded(self):
+        state = _base_state(
+            email_template_examples=["Subject: Fit for your product line\nHi there, we noticed your market coverage."],
+            email_template_notes="Use concise English.",
+        )
+        captured = {}
+
+        async def capture(**kwargs):
+            captured.update(kwargs)
+            return FAKE_EMAIL_RESPONSE
+
+        with patch("agents.email_craft_agent.LLMTool") as MockLLM, \
+             patch("agents.email_craft_agent.get_settings") as mock_settings, \
+             patch("agents.email_craft_agent.react_loop", side_effect=capture):
+
+            mock_settings.return_value.email_gen_concurrency = 1
+            mock_settings.return_value.react_max_iterations = 3
+
+            llm_inst = AsyncMock()
+            llm_inst.generate = AsyncMock()
+            llm_inst.close = AsyncMock()
+            MockLLM.return_value = llm_inst
+
+            await email_craft_node(state)
+
+        assert "Template source: user_examples" in captured.get("user_prompt", "")
+        assert "Use concise English." in captured.get("user_prompt", "")
 
     @pytest.mark.asyncio
     async def test_empty_leads_returns_empty(self):
