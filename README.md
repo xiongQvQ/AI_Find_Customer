@@ -441,11 +441,32 @@ cd backend
 cp automation_job.example.json automation_job.json
 ```
 
-然后编辑 `automation_job.json`。如果你希望“每次挖到 100 个就发邮件”，把：
+然后编辑 `automation_job.json`。如果你希望系统长期持续运行，而不是只跑一轮，推荐把单轮任务限制在“尽量挖满一批，但仍然有边界”，例如：
 
 ```json
-"target_lead_count": 100
+{
+  "website_url": "https://www.gdushun.com/",
+  "description": "Find electrical distributors, importers and wholesalers who may buy micro switches, rotary switches and anti-dumping switches.",
+  "product_keywords": ["micro switch", "rotary switch", "anti-dumping switch"],
+  "target_customer_profile": "Electrical distributors, importers and wholesalers",
+  "target_regions": ["United States"],
+  "target_lead_count": 100,
+  "max_rounds": 20,
+  "min_new_leads_threshold": 1,
+  "enable_email_craft": true,
+  "email_template_examples": ["<your sample outreach email>"],
+  "email_template_notes": "Keep the tone professional, concise, and suitable for foreign trade cold outreach."
+}
 ```
+
+这组参数的真实语义是：
+
+- 单个 hunt 以 `100` 个 lead 为目标
+- 最多跑 `20` 轮
+- 只要单轮还能新增 `1` 个 lead，就继续
+- 但整个系统通过 producer / consumer 持续入队和消费，所以整体不会停
+
+不建议把“单个 hunt”做成无限执行；更合理的是“单个 hunt 有边界，但队列系统 7x24 持续运行”。
 
 ### 启动 API
 
@@ -554,6 +575,10 @@ GET /api/v1/automation/health
 
 ```env
 AUTOMATION_FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+AUTOMATION_EVENT_NOTIFICATIONS_ENABLED=true
+AUTOMATION_DISCOVERY_BATCH_SIZE=5
+AUTOMATION_SEND_BATCH_SIZE=10
+AUTOMATION_EVENT_FLUSH_INTERVAL_SECONDS=600
 AUTOMATION_SUMMARY_ENABLED=true
 AUTOMATION_SUMMARY_INTERVAL_SECONDS=7200
 AUTOMATION_ALERTS_ENABLED=true
@@ -564,6 +589,14 @@ AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10
 
 含义：
 
+- `AUTOMATION_EVENT_NOTIFICATIONS_ENABLED=true`
+  开启正常业务事件通知
+- `AUTOMATION_DISCOVERY_BATCH_SIZE=5`
+  默认每累计 5 家新企业推送一条飞书消息
+- `AUTOMATION_SEND_BATCH_SIZE=10`
+  默认每累计 10 封已发送邮件推送一条飞书消息
+- `AUTOMATION_EVENT_FLUSH_INTERVAL_SECONDS=600`
+  如果批量阈值一直没凑满，最多每 10 分钟也会冲刷一次事件通知
 - `AUTOMATION_SUMMARY_ENABLED=true`
   每隔一段时间推一次汇总
 - `AUTOMATION_SUMMARY_INTERVAL_SECONDS=7200`
@@ -575,14 +608,38 @@ AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10
 - `AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10`
   当最近窗口失败邮件数超过 10 时告警
 
-飞书汇总消息会包含：
+当前飞书通知分成 4 类：
 
-- 最近窗口任务队列完成 / 失败 / 排队 / 运行数
+- `任务失败`
+  立即推送；包括创建 hunt 失败、hunt 执行失败、consumer 重试前失败
+- `新增企业`
+  按批推送；默认累计 5 家推一次
+- `邮件已发送`
+  按批推送；默认累计 10 封推一次
+- `周期汇总`
+  定时推送整体运行情况
+
+周期汇总消息会包含：
+
+- Hunt 已创建 / 成功完成 / Hunt 失败数量
+- 队列重试中 / 当前排队 / 当前运行 / 队列永久失败数量
 - 新增企业数与生成邮件序列数
 - 当前运行中的官网与阶段进度
+- 最近失败 Hunt 的网站、阶段、错误、是否在重试
 - 最近完成的网站、抓到的企业数、生成的邮件序列数
 - 待发送 / 已发送 / 失败 / 回复数
+- “为什么没发邮件”的直接解释
 - 失败原因 Top 与最近失败示例
+
+测试阶段如果你想更快看到飞书消息，可以把这几个值调小：
+
+```env
+AUTOMATION_DISCOVERY_BATCH_SIZE=1
+AUTOMATION_SEND_BATCH_SIZE=1
+AUTOMATION_EVENT_FLUSH_INTERVAL_SECONDS=60
+AUTOMATION_SUMMARY_ENABLED=false
+AUTOMATION_ALERTS_ENABLED=false
+```
 
 如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
 
