@@ -1041,6 +1041,125 @@ class TestCraftForLead:
         assert optimization["improved"] is True
         assert "Acme" in optimized["emails"][0]["body_text"]
 
+    @pytest.mark.asyncio
+    async def test_review_gate_auto_fix_revalidates_after_rewrite(self):
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value=json.dumps({
+            "locale": "en_US",
+            "emails": [
+                {
+                    "sequence_number": 1,
+                    "email_type": "company_intro",
+                    "subject": "Acme partnership idea",
+                    "body_text": "This rewritten email now includes enough buyer-specific context for Acme and keeps a clear professional tone for review.",
+                    "suggested_send_day": 0,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 2,
+                    "email_type": "product_showcase",
+                    "subject": "Acme sourcing fit",
+                    "body_text": "This rewritten follow-up explains product fit for Acme in clearer commercial language and keeps the progression intact.",
+                    "suggested_send_day": 3,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 3,
+                    "email_type": "partnership_proposal",
+                    "subject": "Should I send a shortlist?",
+                    "body_text": "This rewritten final note keeps the CTA light while staying specific enough for Acme and preserving the three-step sequence.",
+                    "suggested_send_day": 7,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+            ],
+        }))
+        current_sequence = {
+            "locale": "en_US",
+            "emails": [
+                {"sequence_number": 1, "email_type": "company_intro", "subject": "Same", "body_text": "short text only", "suggested_send_day": 0},
+                {"sequence_number": 2, "email_type": "product_showcase", "subject": "Same", "body_text": "short text only", "suggested_send_day": 3},
+                {"sequence_number": 3, "email_type": "partnership_proposal", "subject": "Same", "body_text": "short text only", "suggested_send_day": 7},
+            ],
+        }
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
+        template_profile = {"tone": "professional", "source": "auto_generated"}
+        template_plan = {
+            "cta_strategy": "Ask a low-friction qualification question",
+            "opening_strategy": "Lead with buyer relevance",
+            "value_angle": "Relevant product fit",
+        }
+        validated_sequence = {
+            "locale": "en_US",
+            "emails": [
+                {
+                    "sequence_number": 1,
+                    "email_type": "company_intro",
+                    "subject": "Acme partnership idea",
+                    "body_text": (
+                        "This validated email includes enough buyer-specific context for Acme and keeps a clear professional "
+                        "tone for review. It explains why the category may be relevant, keeps the language specific rather "
+                        "than generic, and preserves a low-friction next step suitable for a first outbound touch."
+                    ),
+                    "suggested_send_day": 0,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 2,
+                    "email_type": "product_showcase",
+                    "subject": "Acme sourcing fit",
+                    "body_text": (
+                        "This validated follow-up explains product fit for Acme in clearer commercial language and keeps the "
+                        "progression intact. It adds enough sourcing detail to make the second touch meaningfully different "
+                        "from the opener while staying concise and commercially grounded."
+                    ),
+                    "suggested_send_day": 3,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 3,
+                    "email_type": "partnership_proposal",
+                    "subject": "Should I send a shortlist?",
+                    "body_text": (
+                        "This validated final note keeps the CTA light while staying specific enough for Acme and preserving "
+                        "the three-step sequence. It closes politely, avoids pressure, and still gives the recipient a clear "
+                        "reason to respond if the category is relevant."
+                    ),
+                    "suggested_send_day": 7,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+            ],
+        }
+
+        with patch(
+            "agents.email_craft_agent._validate_and_revise_sequence",
+            AsyncMock(return_value=(validated_sequence, {"passed": True, "status": "approved", "issues": [], "suggestions": []})),
+        ) as mock_validate:
+            optimized, review_summary, optimization = await _auto_improve_reviewed_sequence(
+                llm,
+                locale="en_US",
+                rules=_get_locale_rules("en_US"),
+                user_prompt="Write a concise outbound sequence for Acme.",
+                current_sequence=current_sequence,
+                lead=lead,
+                template_profile=template_profile,
+                template_plan=template_plan,
+                min_score=75,
+                max_blocking_issues=0,
+                validation_max_revisions=1,
+                max_rounds=1,
+        )
+
+        assert mock_validate.await_count == 1
+        assert optimization["last_validation_status"] == "approved"
+        assert review_summary["status"] in {"approved", "needs_review"}
+        assert "validated" in optimized["emails"][0]["body_text"]
+
 
 class TestEmailCraftNode:
     @pytest.mark.asyncio

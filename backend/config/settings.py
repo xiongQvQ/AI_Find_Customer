@@ -158,6 +158,8 @@ class Settings(BaseSettings):
     email_template_underperforming_min_reply_rate: float = 1.0
     email_review_min_score: int = 75
     email_review_max_blocking_issues: int = 0
+    email_validation_max_revisions: int = 2
+    email_review_auto_fix_rounds: int = 2
 
     # --- Langfuse (observability) ---
     langfuse_public_key: str = ""

@@ -368,6 +368,10 @@ Your task is to revise the sequence so it:
 - preserves factual accuracy
 - remains natural for the local business culture
 - keeps the 3-email progression distinct
+- changes only the minimum text necessary to fix the listed issues
+- preserves any part of the sequence that already works
+- does not invent claims, certifications, customers, or performance statements
+- keeps valid personalization, CTA intent, and send-day progression unless a listed issue requires changing them
 
 Return JSON only in the same schema as the original sequence."""
 
@@ -722,7 +726,14 @@ async def _rewrite_email_sequence(
         f"<context>\n{user_prompt}\n</context>\n\n"
         f"<current_sequence>\n{json.dumps(current_sequence, ensure_ascii=False)}\n</current_sequence>\n\n"
         f"<issues>\n{json.dumps(issues, ensure_ascii=False)}\n</issues>\n\n"
-        f"<rewrite_instructions>\n{json.dumps(suggestions, ensure_ascii=False)}\n</rewrite_instructions>"
+        f"<rewrite_instructions>\n{json.dumps(suggestions, ensure_ascii=False)}\n</rewrite_instructions>\n\n"
+        f"<hard_constraints>\n"
+        f"- Keep exactly 3 emails.\n"
+        f"- Preserve sequence_number, email_type, and suggested_send_day unless an issue explicitly requires changing them.\n"
+        f"- Keep correct personalization that is already present.\n"
+        f"- Make the minimum necessary edits instead of rewriting everything.\n"
+        f"- Keep each email commercially specific and natural in {rules['language']}.\n"
+        f"</hard_constraints>"
     )
     try:
         raw = await llm.generate(
@@ -784,6 +795,7 @@ async def _auto_improve_reviewed_sequence(
     template_plan: dict[str, Any],
     min_score: int,
     max_blocking_issues: int,
+    validation_max_revisions: int = 1,
     max_rounds: int = 2,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     current = copy.deepcopy(current_sequence)
@@ -832,6 +844,19 @@ async def _auto_improve_reviewed_sequence(
         )
         if revised is None:
             improvement_summary["stopped_reason"] = "rewrite_failed"
+            return current, last_review, improvement_summary
+
+        revised, validation_summary = await _validate_and_revise_sequence(
+            llm,
+            locale=locale,
+            rules=rules,
+            user_prompt=user_prompt,
+            parsed_sequence=revised,
+            max_revisions=validation_max_revisions,
+        )
+        improvement_summary["last_validation_status"] = validation_summary.get("status", "needs_review")
+        if revised is None:
+            improvement_summary["stopped_reason"] = "validation_failed_after_rewrite"
             return current, last_review, improvement_summary
 
         validated = validate_dict(
@@ -1464,7 +1489,7 @@ async def _craft_for_lead(
             rules=rules,
             user_prompt=user_prompt,
             parsed_sequence=parsed,
-            max_revisions=2,
+            max_revisions=max(0, int(getattr(settings, "email_validation_max_revisions", 2) or 2)),
         )
         if revised is None:
             logger.warning("[EmailCraft] Validation/revision produced no usable emails for %s", lead.get("company_name"))
@@ -1497,7 +1522,8 @@ async def _craft_for_lead(
             template_plan=template_plan,
             min_score=int(settings.email_review_min_score or 75),
             max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
-            max_rounds=2,
+            validation_max_revisions=max(0, int(getattr(settings, "email_validation_max_revisions", 2) or 2)),
+            max_rounds=max(0, int(getattr(settings, "email_review_auto_fix_rounds", 2) or 2)),
         )
         emails = list(optimized_sequence.get("emails", []) or emails)
         logger.info("[EmailCraft] %s → %d emails in %s", lead.get("company_name"), len(emails), locale)
@@ -1646,7 +1672,8 @@ async def email_craft_node(state: HuntState) -> dict:
                                 template_plan=applied.get("template_plan", {}) or {},
                                 min_score=int(settings.email_review_min_score or 75),
                                 max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
-                                max_rounds=2,
+                                validation_max_revisions=max(0, int(getattr(settings, "email_validation_max_revisions", 2) or 2)),
+                                max_rounds=max(0, int(getattr(settings, "email_review_auto_fix_rounds", 2) or 2)),
                             )
                             applied["emails"] = list(optimized_sequence.get("emails", []) or validated["emails"])
                             applied["review_summary"] = review_summary
