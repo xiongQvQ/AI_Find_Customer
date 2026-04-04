@@ -504,6 +504,65 @@ python scripts/hunt_queue.py consumer \
 
 如果你要更强的挖掘吞吐，可以起多个 consumer 进程；它们会竞争领取 `hunt_jobs` 队列里的任务。
 
+### 状态监控与飞书通知
+
+无界面模式下，建议把监控拆成三层：
+
+- 实时状态接口
+- 周期汇总
+- 异常告警
+
+当前版本已经新增这些接口：
+
+```bash
+GET /api/v1/automation/status
+GET /api/v1/automation/metrics?hours=24
+GET /api/v1/automation/health
+```
+
+它们会返回：
+
+- `hunt_jobs` 队列积压
+- 当前运行中的 hunt 数
+- `email_messages` 待发送 / 已发送 / 失败数量
+- 最近窗口新增企业数
+- 生成邮件序列数
+- 发送成功 / 失败 / 回复数
+- 最近失败示例
+
+如果你想接飞书机器人，新增这些配置：
+
+```env
+AUTOMATION_FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+AUTOMATION_SUMMARY_ENABLED=true
+AUTOMATION_SUMMARY_INTERVAL_SECONDS=7200
+AUTOMATION_ALERTS_ENABLED=true
+AUTOMATION_ALERT_INTERVAL_SECONDS=1800
+AUTOMATION_ALERT_BACKLOG_THRESHOLD=20
+AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10
+```
+
+含义：
+
+- `AUTOMATION_SUMMARY_ENABLED=true`
+  每隔一段时间推一次汇总
+- `AUTOMATION_SUMMARY_INTERVAL_SECONDS=7200`
+  默认 2 小时推一次
+- `AUTOMATION_ALERTS_ENABLED=true`
+  开启基础告警
+- `AUTOMATION_ALERT_BACKLOG_THRESHOLD=20`
+  当 hunt 队列或邮件待发积压超过 20 时告警
+- `AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD=10`
+  当最近窗口失败邮件数超过 10 时告警
+
+飞书汇总消息会包含：
+
+- 最近窗口完成的 hunt job 数
+- 新增企业数
+- 生成邮件序列数
+- 待发送 / 已发送 / 失败 / 回复数
+- 最近失败示例
+
 如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
 
 ```env
@@ -533,6 +592,9 @@ sudo systemctl enable --now ai-hunter-worker
 
 ```bash
 pytest backend/tests/test_automation/test_job_queue.py \
+  backend/tests/test_automation/test_metrics.py \
+  backend/tests/test_automation/test_notifier.py \
+  backend/tests/test_api/test_automation_routes.py \
   backend/tests/test_scripts/test_hunt_queue.py \
 pytest backend/tests/test_scripts/test_headless_worker.py \
   backend/tests/test_api/test_email_routes.py \
@@ -542,6 +604,8 @@ pytest backend/tests/test_scripts/test_headless_worker.py \
 这组测试覆盖了：
 
 - `hunt_jobs` 队列的入队、领取、完成、重试
+- automation status / metrics / health 接口
+- 飞书汇总与告警文案
 - producer 往 hunt 队列持续入任务
 - consumer 从 hunt 队列取任务并执行
 - worker 创建 hunt

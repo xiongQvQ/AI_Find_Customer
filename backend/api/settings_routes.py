@@ -86,6 +86,13 @@ class SettingsPayload(BaseModel):
     email_template_max_send_count: str = ""
     email_template_underperforming_min_assigned: str = ""
     email_template_underperforming_min_reply_rate: str = ""
+    automation_feishu_webhook_url: str = ""
+    automation_summary_enabled: str = ""
+    automation_summary_interval_seconds: str = ""
+    automation_alerts_enabled: str = ""
+    automation_alert_interval_seconds: str = ""
+    automation_alert_backlog_threshold: str = ""
+    automation_alert_failed_messages_threshold: str = ""
     search_concurrency: str = ""
     scrape_concurrency: str = ""
 
@@ -223,6 +230,13 @@ async def save_settings(payload: SettingsPayload):
         "email_template_max_send_count": "EMAIL_TEMPLATE_MAX_SEND_COUNT",
         "email_template_underperforming_min_assigned": "EMAIL_TEMPLATE_UNDERPERFORMING_MIN_ASSIGNED",
         "email_template_underperforming_min_reply_rate": "EMAIL_TEMPLATE_UNDERPERFORMING_MIN_REPLY_RATE",
+        "automation_feishu_webhook_url": "AUTOMATION_FEISHU_WEBHOOK_URL",
+        "automation_summary_enabled": "AUTOMATION_SUMMARY_ENABLED",
+        "automation_summary_interval_seconds": "AUTOMATION_SUMMARY_INTERVAL_SECONDS",
+        "automation_alerts_enabled": "AUTOMATION_ALERTS_ENABLED",
+        "automation_alert_interval_seconds": "AUTOMATION_ALERT_INTERVAL_SECONDS",
+        "automation_alert_backlog_threshold": "AUTOMATION_ALERT_BACKLOG_THRESHOLD",
+        "automation_alert_failed_messages_threshold": "AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD",
         "search_concurrency": "SEARCH_CONCURRENCY",
         "scrape_concurrency": "SCRAPE_CONCURRENCY",
     }

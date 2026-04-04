@@ -203,6 +203,13 @@ class Settings(BaseSettings):
     checkpoint_db_path: str = _resolve_file("hunt_sessions.db")
     email_db_path: str = _resolve_file("email_automation.db")
     automation_queue_db_path: str = _resolve_file("automation_queue.db")
+    automation_feishu_webhook_url: str = ""
+    automation_summary_enabled: bool = False
+    automation_summary_interval_seconds: int = 7200
+    automation_alerts_enabled: bool = False
+    automation_alert_interval_seconds: int = 1800
+    automation_alert_backlog_threshold: int = 20
+    automation_alert_failed_messages_threshold: int = 10
 
     # --- Hunt persistence ---
     hunts_dir: str = _resolve_dir("data/hunts")  # directory for JSON hunt files

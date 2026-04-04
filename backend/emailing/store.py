@@ -318,6 +318,24 @@ class EmailStore:
             row = conn.execute(query, params).fetchone()
         return int(row[0]) if row else 0
 
+    def count_messages_by_status(self, status: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM email_messages WHERE status = ?",
+                (status,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_messages_since(self, status: str, *, since_iso: str, time_field: str = "updated_at") -> int:
+        if time_field not in {"created_at", "updated_at", "scheduled_at", "sent_at"}:
+            raise ValueError("Unsupported time field")
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM email_messages WHERE status = ? AND {time_field} >= ?",
+                (status, since_iso),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def find_sent_message_by_lead_email_and_subject(self, lead_email: str, subject: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -350,6 +368,29 @@ class EmailStore:
             rows = conn.execute(
                 "SELECT * FROM email_reply_events WHERE sequence_id = ? ORDER BY received_at DESC",
                 (sequence_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_reply_events_since(self, since_iso: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM email_reply_events WHERE received_at >= ?",
+                (since_iso,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def list_recent_message_failures(self, *, since_iso: str, limit: int = 10) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.subject, m.failure_reason, m.updated_at, s.lead_email
+                FROM email_messages m
+                JOIN lead_email_sequences s ON s.id = m.sequence_id
+                WHERE m.status = 'failed' AND m.updated_at >= ?
+                ORDER BY m.updated_at DESC
+                LIMIT ?
+                """,
+                (since_iso, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 

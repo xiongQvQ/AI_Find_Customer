@@ -73,6 +73,14 @@ class HuntJobQueue:
             ).fetchone()
         return int(row[0]) if row else 0
 
+    def count_finished_since(self, status: str, since_iso: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM hunt_jobs WHERE status = ? AND finished_at >= ?",
+                (status, since_iso),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def claim_next(self, *, worker_id: str, now_iso: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             conn.isolation_level = None
@@ -158,4 +166,3 @@ class HuntJobQueue:
                 """,
                 (available_at, updated_at, error_message[:2000], job_id),
             )
-

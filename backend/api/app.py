@@ -9,10 +9,13 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.automation_routes import router as automation_router
 from api.email_routes import router as email_router
 from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
+from automation.metrics import collect_automation_metrics, collect_automation_status
+from automation.notifier import render_alert_text, render_summary_text, send_feishu_text
 from config.settings import get_settings
 from emailing.readiness import ensure_imap_tested, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
@@ -85,6 +88,50 @@ async def _email_reply_loop() -> None:
         await asyncio.sleep(max(30, int(settings.email_reply_check_interval_seconds)))
 
 
+async def _automation_notify_loop() -> None:
+    last_summary_at = 0.0
+    last_alert_at = 0.0
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            settings = get_settings()
+            webhook_url = str(settings.automation_feishu_webhook_url or "").strip()
+            if not webhook_url:
+                await asyncio.sleep(60)
+                continue
+
+            now_monotonic = loop.time()
+            if bool(settings.automation_summary_enabled):
+                interval = max(300, int(settings.automation_summary_interval_seconds or 7200))
+                if now_monotonic - last_summary_at >= interval:
+                    metrics = collect_automation_metrics(hours=max(1, interval // 3600))
+                    text = render_summary_text(metrics)
+                    await asyncio.to_thread(send_feishu_text, webhook_url, text)
+                    last_summary_at = now_monotonic
+                    logger.info("[AutomationNotify] summary sent")
+
+            if bool(settings.automation_alerts_enabled):
+                alert_interval = max(300, int(settings.automation_alert_interval_seconds or 1800))
+                if now_monotonic - last_alert_at >= alert_interval:
+                    status = collect_automation_status()
+                    metrics = collect_automation_metrics(hours=2)
+                    should_alert = (
+                        status["hunt_jobs"]["queued"] >= int(settings.automation_alert_backlog_threshold or 20)
+                        or status["email_queue"]["pending"] >= int(settings.automation_alert_backlog_threshold or 20)
+                        or metrics["emails"]["failed"] >= int(settings.automation_alert_failed_messages_threshold or 10)
+                    )
+                    if should_alert:
+                        text = render_alert_text(status, metrics)
+                        await asyncio.to_thread(send_feishu_text, webhook_url, text)
+                        logger.warning("[AutomationNotify] alert sent")
+                    last_alert_at = now_monotonic
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("[AutomationNotify] loop failed")
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown hooks."""
@@ -92,6 +139,7 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.email_scheduler_task = None
     app.state.email_reply_task = None
+    app.state.automation_notify_task = None
 
     # Enable Langfuse tracing if configured
     from observability.setup import setup_observability
@@ -101,6 +149,8 @@ async def lifespan(app: FastAPI):
     logger.info("[EmailScheduler] background loop started")
     app.state.email_reply_task = asyncio.create_task(_email_reply_loop())
     logger.info("[EmailReply] background loop started")
+    app.state.automation_notify_task = asyncio.create_task(_automation_notify_loop())
+    logger.info("[AutomationNotify] background loop started")
 
     start_background_workers()
 
@@ -119,6 +169,12 @@ async def lifespan(app: FastAPI):
             with suppress(asyncio.CancelledError):
                 await reply_task
             logger.info("[EmailReply] background loop stopped")
+        notify_task = getattr(app.state, "automation_notify_task", None)
+        if notify_task:
+            notify_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await notify_task
+            logger.info("[AutomationNotify] background loop stopped")
 
     await stop_background_workers()
 
@@ -143,6 +199,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router, prefix="/api/v1")
+    app.include_router(automation_router)
     app.include_router(email_router)
     app.include_router(sse_router, prefix="/api/v1")
     if settings.settings_api_enabled:
