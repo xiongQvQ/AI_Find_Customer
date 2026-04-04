@@ -568,6 +568,17 @@ function EmailDeliveryPanel({
           </div>
         </div>
 
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-950">
+          <p className="font-semibold">如何准备邮箱授权码</p>
+          <div className="mt-2 space-y-2 text-xs leading-5 text-blue-900/90">
+            <p>1. 先确认你要用哪个发件邮箱。通常需要这个邮箱地址、SMTP/IMAP 服务器地址、端口，以及该邮箱的登录账号。</p>
+            <p>2. 很多企业邮箱、Gmail、Outlook 之类服务不建议直接填登录密码，而是需要在邮箱后台开启 SMTP / IMAP，并生成“应用专用密码”或“客户端授权码”。</p>
+            <p>3. 一般去邮箱服务商的安全设置里找：`IMAP/SMTP 开启`、`第三方客户端`、`应用密码`、`授权码` 这些选项。</p>
+            <p>4. `SMTP 授权码 / 密码` 用于发信；`IMAP 授权码 / 密码` 用于收取回信。部分服务两者可以相同，部分服务需要分别确认。</p>
+            <p>5. 填完后先点“测试 SMTP 连接”和“测试 IMAP 连接”。测试成功后，系统才会允许开启自动发送和回信自动检测。</p>
+          </div>
+        </div>
+
         {EMAIL_DELIVERY_FIELDS.map((f) => (
           <div key={f.key} className="space-y-1.5">
             <Label htmlFor={f.key}>{f.label}</Label>
