@@ -309,7 +309,7 @@ class TestEmailSequenceDecision:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_decide_email_sequence_auto_queues_when_enabled(self, client):
+    async def test_decide_email_sequence_only_updates_manual_review_state(self, client):
         _hunts["decision-4"] = {
             "status": "completed",
             "result": {
@@ -326,18 +326,12 @@ class TestEmailSequenceDecision:
             "email_sequences_count": 1,
         }
 
-        fake_settings = MagicMock()
-        fake_settings.email_auto_send_enabled = True
-        with (
-            patch("api.routes.get_settings", return_value=fake_settings),
-            patch("api.routes._schedule_email_send") as mock_schedule,
-        ):
-            resp = await client.post(
-                "/api/v1/hunts/decision-4/email-sequences/0/decision",
-                json={"decision": "approved"},
-            )
+        resp = await client.post(
+            "/api/v1/hunts/decision-4/email-sequences/0/decision",
+            json={"decision": "approved"},
+        )
         assert resp.status_code == 200
-        mock_schedule.assert_called_once()
+        assert _hunts["decision-4"]["result"]["email_sequences"][0]["manual_review"]["decision"] == "approved"
 
 
 class TestSendEmailDraft:
@@ -349,6 +343,7 @@ class TestSendEmailDraft:
                 "email_sequences": [
                     {
                         "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "target": {"target_email": "buyer@acme.com"},
                         "locale": "en_US",
                         "emails": [
                             {
@@ -383,7 +378,7 @@ class TestSendEmailDraft:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "sent"
-        assert data["sent_to"] == "hello@acme.com"
+        assert data["sent_to"] == "buyer@acme.com"
         assert _hunts["send-1"]["result"]["email_sequences"][0]["emails"][0]["send_status"] == "sent"
 
     @pytest.mark.asyncio
@@ -435,7 +430,7 @@ class TestSendEmailDraft:
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_send_email_draft_auto_queues_follow_up_when_enabled(self, client):
+    async def test_send_email_draft_does_not_auto_queue_follow_up(self, client):
         _hunts["send-4"] = {
             "status": "completed",
             "result": {
@@ -456,18 +451,22 @@ class TestSendEmailDraft:
         }
 
         fake_settings = MagicMock()
-        fake_settings.email_auto_send_enabled = True
+        fake_settings.email_from_address = "sales@example.com"
+        fake_settings.email_smtp_host = "smtp.example.com"
+        fake_settings.email_smtp_port = 587
+        fake_settings.email_smtp_username = "sales@example.com"
+        fake_settings.email_smtp_password = "secret"
         with (
             patch("api.routes.get_settings", return_value=fake_settings),
             patch("api.routes.send_smtp_email", return_value={"status": "sent"}),
-            patch("api.routes._schedule_email_send") as mock_schedule,
         ):
             resp = await client.post(
                 "/api/v1/hunts/send-4/email-sequences/0/send",
                 json={"sequence_number": 1},
             )
         assert resp.status_code == 200
-        mock_schedule.assert_called_once()
+        second_email = _hunts["send-4"]["result"]["email_sequences"][0]["emails"][1]
+        assert second_email.get("send_status", "") == ""
 
     @pytest.mark.asyncio
     async def test_send_email_draft_requires_smtp_configuration(self, client):
@@ -511,6 +510,7 @@ class TestDetectReplies:
                 "email_sequences": [
                     {
                         "lead": {"company_name": "Acme", "emails": ["hello@acme.com"]},
+                        "target": {"target_email": "buyer@acme.com"},
                         "locale": "en_US",
                         "emails": [],
                         "review_summary": {"status": "approved", "score": 91},
@@ -535,13 +535,14 @@ class TestDetectReplies:
                     "date": "Sat, 05 Apr 2026 10:00:00 +0000",
                     "message_id": "<1@test>",
                 }
-            ]),
+            ]) as mock_search,
         ):
             resp = await client.post("/api/v1/hunts/reply-1/email-sequences/0/detect-replies")
         assert resp.status_code == 200
         data = resp.json()
         assert data["reply_count"] == 1
         assert _hunts["reply-1"]["result"]["email_sequences"][0]["lead"]["reply_status"] == "replied"
+        assert mock_search.call_args.kwargs["from_address"] == "buyer@acme.com"
 
     @pytest.mark.asyncio
     async def test_detect_replies_requires_recipient(self, client):

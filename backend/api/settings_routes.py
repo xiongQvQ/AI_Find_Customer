@@ -142,6 +142,7 @@ async def get_settings_api():
 async def save_settings(payload: SettingsPayload):
     """Save settings to the user's .env file. Empty strings are skipped."""
     _ensure_settings_api_enabled()
+    provided_fields = payload.model_dump(exclude_unset=True)
     field_map = {
         "llm_model": "LLM_MODEL",
         "reasoning_model": "REASONING_MODEL",
@@ -206,13 +207,16 @@ async def save_settings(payload: SettingsPayload):
     smtp_fields_changed = False
     imap_fields_changed = False
     for field, env_key in field_map.items():
-        value = getattr(payload, field, "")
-        if value and not _is_masked(value):
-            updates[env_key] = value
-            if field in {"email_from_address", "email_smtp_host", "email_smtp_port", "email_smtp_username", "email_smtp_password", "email_use_tls"}:
-                smtp_fields_changed = True
-            if field in {"email_imap_host", "email_imap_port", "email_imap_username", "email_imap_password"}:
-                imap_fields_changed = True
+        if field not in provided_fields:
+            continue
+        value = provided_fields[field]
+        if isinstance(value, str) and _is_masked(value):
+            continue
+        updates[env_key] = str(value)
+        if field in {"email_from_address", "email_smtp_host", "email_smtp_port", "email_smtp_username", "email_smtp_password", "email_use_tls"}:
+            smtp_fields_changed = True
+        if field in {"email_imap_host", "email_imap_port", "email_imap_username", "email_imap_password"}:
+            imap_fields_changed = True
 
     if smtp_fields_changed:
         updates["EMAIL_SMTP_LAST_TEST_AT"] = ""

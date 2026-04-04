@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import os
@@ -22,11 +22,10 @@ from agents.lead_extract_agent import lead_extract_node, set_progress_callback
 from agents.email_craft_agent import email_craft_node
 from config.settings import get_settings
 from emailing.imap_client import search_recent_replies
-from emailing.readiness import ensure_imap_ready, ensure_imap_tested, ensure_smtp_ready, ensure_smtp_tested
+from emailing.readiness import ensure_imap_ready, ensure_imap_tested, ensure_smtp_ready
 from emailing.smtp_client import send_smtp_email
 from api.hunt_store import load_all_hunts, save_hunt, now_iso
 from api.security import require_api_access
-from config.settings import get_settings
 from graph.builder import build_graph
 from graph.evaluate import evaluate_progress, should_continue_hunting, _build_keyword_performance
 from observability.cost_tracker import get_tracker, remove_tracker
@@ -38,7 +37,6 @@ router = APIRouter()
 _hunts: dict[str, dict] = load_all_hunts()
 # SSE event queues per hunt — subscribers listen here
 _sse_queues: dict[str, list[asyncio.Queue]] = {}
-_email_send_tasks: set[asyncio.Task[Any]] = set()
 _reply_detection_task: asyncio.Task[Any] | None = None
 
 
@@ -197,156 +195,20 @@ def _sequence_is_send_approved(sequence: dict[str, Any]) -> bool:
     return bool(sequence.get("auto_send_eligible"))
 
 
-def _parse_iso_datetime(value: str) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-
-def _count_sent_emails(window: timedelta) -> int:
-    now = datetime.now(timezone.utc)
-    count = 0
-    for hunt in _hunts.values():
-        result = hunt.get("result") or {}
-        for sequence in result.get("email_sequences", []) or []:
-            if not isinstance(sequence, dict):
-                continue
-            for draft in sequence.get("emails", []) or []:
-                if not isinstance(draft, dict):
-                    continue
-                sent_at = _parse_iso_datetime(str(draft.get("sent_at", "") or ""))
-                if sent_at and now - sent_at <= window:
-                    count += 1
-    return count
-
-
-def _queue_next_sequence_email(
-    hunt_id: str,
-    sequence_index: int,
-    *,
-    reason: str,
-) -> dict[str, Any] | None:
-    hunt = _hunts.get(hunt_id)
-    if not hunt:
-        return None
-    result = hunt.get("result") or {}
-    sequences = result.get("email_sequences", [])
-    if not isinstance(sequences, list) or sequence_index >= len(sequences):
-        return None
-    sequence = sequences[sequence_index]
-    if not isinstance(sequence, dict):
-        return None
-
-    for draft in sequence.get("emails", []) or []:
-        if not isinstance(draft, dict):
-            continue
-        if str(draft.get("send_status", "") or "") in {"sent", "queued"}:
-            continue
-        draft["send_status"] = "queued"
-        draft["queued_at"] = now_iso()
-        draft["queue_reason"] = reason
-        save_hunt(hunt_id, hunt)
-        return {
-            "hunt_id": hunt_id,
-            "sequence_index": sequence_index,
-            "sequence_number": int(draft.get("sequence_number", 0) or 0),
-        }
-    return None
-
-
-async def _process_email_send_job(job: dict[str, Any]) -> None:
-    hunt_id = str(job["hunt_id"])
-    sequence_index = int(job["sequence_index"])
-    sequence_number = int(job["sequence_number"])
-    hunt = _hunts.get(hunt_id)
-    if not hunt:
-        return
-
-    settings = get_settings()
-    try:
-        ensure_smtp_tested(settings)
-    except ValueError as exc:
-        logger.debug("[AutoSend] Skipping auto send because SMTP is not verified: %s", exc)
-        return
-    if _count_sent_emails(timedelta(hours=1)) >= int(settings.email_hourly_send_limit or 0):
-        _schedule_email_send(job, delay_seconds=60)
-        return
-    if _count_sent_emails(timedelta(days=1)) >= int(settings.email_daily_send_limit or 0):
-        _schedule_email_send(job, delay_seconds=3600)
-        return
-
-    result = hunt.get("result") or {}
-    sequences = result.get("email_sequences", [])
-    if not isinstance(sequences, list) or sequence_index >= len(sequences):
-        return
-    sequence = sequences[sequence_index]
-    if not isinstance(sequence, dict) or not _sequence_is_send_approved(sequence):
-        return
+def _sequence_recipient(sequence: dict[str, Any]) -> str:
+    target = sequence.get("target") or {}
+    if isinstance(target, dict):
+        target_email = _clean_email(str(target.get("target_email", "") or ""))
+        if target_email:
+            return target_email
 
     lead = sequence.get("lead") or {}
-    recipient = ""
     if isinstance(lead, dict):
         for item in lead.get("emails", []) or []:
             recipient = _clean_email(str(item))
             if recipient:
-                break
-    if not recipient:
-        return
-
-    for draft in sequence.get("emails", []) or []:
-        if not isinstance(draft, dict):
-            continue
-        if int(draft.get("sequence_number", 0) or 0) != sequence_number:
-            continue
-        try:
-            send_result = await asyncio.to_thread(
-                send_smtp_email,
-                settings,
-                to_address=recipient,
-                subject=str(draft.get("subject", "") or ""),
-                body_text=str(draft.get("body_text", "") or ""),
-            )
-            draft["send_status"] = "sent"
-            draft["sent_at"] = now_iso()
-            draft["sent_to"] = recipient
-            draft["queue_reason"] = draft.get("queue_reason", "auto_send")
-            draft.pop("send_error", None)
-            save_hunt(hunt_id, hunt)
-            _broadcast(hunt_id, "email_sent", {
-                "sequence_index": sequence_index,
-                "sequence_number": sequence_number,
-                "sent_to": recipient,
-                "status": send_result["status"],
-            })
-        except Exception as exc:
-            draft["send_status"] = "failed"
-            draft["send_error"] = str(exc)
-            save_hunt(hunt_id, hunt)
-        return
-
-
-async def _delayed_email_send(job: dict[str, Any], delay_seconds: int) -> None:
-    await asyncio.sleep(max(delay_seconds, 1))
-    await _process_email_send_job(job)
-
-
-def _schedule_email_send(job: dict[str, Any] | None, *, delay_seconds: int = 0) -> None:
-    if not job:
-        return
-
-    if delay_seconds > 0:
-        task = asyncio.create_task(_delayed_email_send(job, delay_seconds))
-    else:
-        task = asyncio.create_task(_process_email_send_job(job))
-    _email_send_tasks.add(task)
-
-    def _cleanup(done: asyncio.Task[Any]) -> None:
-        _email_send_tasks.discard(done)
-
-    task.add_done_callback(_cleanup)
+                return recipient
+    return ""
 
 
 async def _scan_hunt_replies() -> None:
@@ -369,11 +231,7 @@ async def _scan_hunt_replies() -> None:
             lead = sequence.get("lead") or {}
             if not isinstance(lead, dict):
                 continue
-            recipient = ""
-            for item in lead.get("emails", []) or []:
-                recipient = _clean_email(str(item))
-                if recipient:
-                    break
+            recipient = _sequence_recipient(sequence)
             if not recipient:
                 continue
             sent_any = any(
@@ -638,11 +496,6 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
         })
         save_hunt(hunt_id, _hunts[hunt_id])
 
-        if bool(get_settings().email_auto_send_enabled):
-            for idx, sequence in enumerate(accumulated.get("email_sequences", []) or []):
-                if isinstance(sequence, dict) and _sequence_is_send_approved(sequence):
-                    _schedule_email_send(_queue_next_sequence_email(hunt_id, idx, reason="auto_send_on_completion"))
-
         logger.info("[Hunt %s] Completed — %d leads, %d email sequences, %d rounds",
                     hunt_id[:8], _unique_leads_count(accumulated.get("leads", [])),
                     len(accumulated.get("email_sequences", [])),
@@ -869,11 +722,6 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
         })
         save_hunt(hunt_id, _hunts[hunt_id])
 
-        if bool(get_settings().email_auto_send_enabled):
-            for idx, sequence in enumerate(accumulated.get("email_sequences", []) or []):
-                if isinstance(sequence, dict) and _sequence_is_send_approved(sequence):
-                    _schedule_email_send(_queue_next_sequence_email(hunt_id, idx, reason="auto_send_on_resume_completion"))
-
         logger.info(
             "[Hunt %s] Resume completed — %d leads, %d rounds",
             hunt_id[:8],
@@ -1076,8 +924,6 @@ async def decide_email_sequence(
     hunt["result"] = result
     hunt["email_sequences_count"] = len(sequences)
     save_hunt(hunt_id, hunt)
-    if request.decision == "approved" and bool(get_settings().email_auto_send_enabled):
-        _schedule_email_send(_queue_next_sequence_email(hunt_id, sequence_index, reason="auto_send_on_approval"))
 
     return EmailSequenceDecisionResponse(
         hunt_id=hunt_id,
@@ -1116,14 +962,7 @@ async def send_email_sequence_draft(
     if not _sequence_is_send_approved(sequence):
         raise HTTPException(status_code=409, detail="Email sequence must be approved before sending")
 
-    lead = sequence.get("lead") or {}
-    emails = lead.get("emails") or []
-    recipient = ""
-    if isinstance(emails, list):
-        for item in emails:
-            recipient = _clean_email(str(item))
-            if recipient:
-                break
+    recipient = _sequence_recipient(sequence)
     if not recipient:
         raise HTTPException(status_code=422, detail="No recipient email found on this lead")
 
@@ -1156,8 +995,6 @@ async def send_email_sequence_draft(
     draft["sent_to"] = recipient
     hunt["result"] = result
     save_hunt(hunt_id, hunt)
-    if bool(settings.email_auto_send_enabled):
-        _schedule_email_send(_queue_next_sequence_email(hunt_id, sequence_index, reason="auto_follow_up"))
 
     return SendEmailDraftResponse(
         hunt_id=hunt_id,
@@ -1193,12 +1030,7 @@ async def detect_email_sequence_replies(
         raise HTTPException(status_code=422, detail="Email sequence payload is invalid")
 
     lead = sequence.get("lead") or {}
-    recipient = ""
-    if isinstance(lead, dict):
-        for item in lead.get("emails", []) or []:
-            recipient = _clean_email(str(item))
-            if recipient:
-                break
+    recipient = _sequence_recipient(sequence)
     if not recipient:
         raise HTTPException(status_code=422, detail="No recipient email found on this lead")
 

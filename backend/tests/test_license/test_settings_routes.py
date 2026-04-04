@@ -86,7 +86,7 @@ class TestSaveSettings:
         assert updates["JINA_API_KEY"] == "jina-live-key"
 
     @pytest.mark.asyncio
-    async def test_skips_empty_and_masked_values(self, client):
+    async def test_skips_masked_values_and_allows_explicit_clears(self, client):
         with (
             patch("api.settings_routes.update_settings") as mock_update,
             patch("api.settings_routes.get_settings") as mock_gs,
@@ -104,7 +104,7 @@ class TestSaveSettings:
         assert resp.status_code == 204
         updates = mock_update.call_args[0][0]
         assert "OPENAI_API_KEY" not in updates
-        assert "SERPER_API_KEY" not in updates
+        assert updates["SERPER_API_KEY"] == ""
         assert updates["TAVILY_API_KEY"] == "tvly-valid"
 
     @pytest.mark.asyncio
@@ -177,6 +177,22 @@ class TestSaveSettings:
         assert resp.status_code == 204
         call_args = mock_update.call_args[0][0]
         assert call_args["EMAIL_IMAP_LAST_TEST_AT"] == ""
+
+    @pytest.mark.asyncio
+    async def test_allows_clearing_smtp_fields(self, client):
+        with (
+            patch("api.settings_routes.update_settings") as mock_update,
+            patch("api.settings_routes.get_settings") as mock_gs,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            resp = await client.post("/api/settings", json={
+                "email_smtp_password": "",
+                "email_from_address": "",
+            })
+        assert resp.status_code == 204
+        call_args = mock_update.call_args[0][0]
+        assert call_args["EMAIL_SMTP_PASSWORD"] == ""
+        assert call_args["EMAIL_FROM_ADDRESS"] == ""
 
 
 class TestEmailSettings:

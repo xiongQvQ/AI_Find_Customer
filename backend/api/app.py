@@ -14,12 +14,10 @@ from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from config.settings import get_settings
+from emailing.readiness import ensure_imap_tested, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
 from emailing.scheduler import run_scheduler_once
 from emailing.store import EmailStore
-
-
-EMAIL_FEATURES_ENABLED = False
 
 # Configure logging for the entire application
 logging.basicConfig(
@@ -43,10 +41,15 @@ litellm.set_verbose = False
 logger = logging.getLogger(__name__)
 
 
-async def _email_scheduler_loop(settings) -> None:
+async def _email_scheduler_loop() -> None:
     """Poll pending email jobs and dispatch due messages."""
     while True:
         try:
+            settings = get_settings()
+            if not bool(settings.email_auto_send_enabled):
+                await asyncio.sleep(60)
+                continue
+            ensure_smtp_tested(settings)
             store = EmailStore(settings.email_db_path)
             store.init_db()
             result = await run_scheduler_once(store)
@@ -59,10 +62,15 @@ async def _email_scheduler_loop(settings) -> None:
         await asyncio.sleep(60)
 
 
-async def _email_reply_loop(settings) -> None:
+async def _email_reply_loop() -> None:
     """Poll inbox for replies and stop follow-up sequences."""
     while True:
         try:
+            settings = get_settings()
+            if not bool(settings.email_reply_detection_enabled):
+                await asyncio.sleep(max(30, int(settings.email_reply_check_interval_seconds)))
+                continue
+            ensure_imap_tested(settings)
             store = EmailStore(settings.email_db_path)
             store.init_db()
             account = store.get_account("default")
@@ -89,11 +97,11 @@ async def lifespan(app: FastAPI):
     from observability.setup import setup_observability
     setup_observability()
 
-    if EMAIL_FEATURES_ENABLED and settings.email_sequence_enabled and settings.email_auto_send_enabled:
-        app.state.email_scheduler_task = asyncio.create_task(_email_scheduler_loop(settings))
+    if settings.email_auto_send_enabled:
+        app.state.email_scheduler_task = asyncio.create_task(_email_scheduler_loop())
         logger.info("[EmailScheduler] background loop started")
-    if EMAIL_FEATURES_ENABLED and settings.email_reply_detection_enabled:
-        app.state.email_reply_task = asyncio.create_task(_email_reply_loop(settings))
+    if settings.email_reply_detection_enabled:
+        app.state.email_reply_task = asyncio.create_task(_email_reply_loop())
         logger.info("[EmailReply] background loop started")
 
     start_background_workers()

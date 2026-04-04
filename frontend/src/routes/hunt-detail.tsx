@@ -294,7 +294,7 @@ function formatTemplateSource(source: string): string {
 }
 
 function formatReviewStatus(status: string): string {
-  return status === "approved" ? "可自动发送" : "需人工复核";
+  return status === "approved" ? "可进入发送流程" : "需人工复核";
 }
 
 function formatEmailType(emailType: string): string {
@@ -802,7 +802,7 @@ function EmailSequencePreviewSheet({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Badge variant="outline">{sequence.locale || "en_US"}</Badge>
               <Badge className={sequence.auto_send_eligible ? "bg-emerald-600 hover:bg-emerald-600" : "bg-amber-600 hover:bg-amber-600"}>
-                {sequence.auto_send_eligible ? "允许自动发送" : "需人工复核"}
+                {sequence.auto_send_eligible ? "可建发送流程" : "需人工复核"}
               </Badge>
               <Badge variant="outline">Score {String(reviewSummary.score || 0)}</Badge>
               <Badge variant="outline">{formatTemplateSource(String(templateProfile.source || "auto_generated"))}</Badge>
@@ -902,7 +902,7 @@ function EmailSequencePreviewSheet({
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={onApprove} disabled={isUpdating}>
             {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            批准自动发送
+            批准草稿
           </Button>
           <Button type="button" variant="outline" onClick={onReject} disabled={isUpdating}>
             拦截并保留草稿
@@ -972,7 +972,7 @@ function EmailSequencePreviewSheet({
                   </p>
                 )}
                 {email.send_status === "queued" && (
-                  <p className="text-xs text-muted-foreground">已进入自动发送队列，等待限频窗口放行。</p>
+                  <p className="text-xs text-muted-foreground">已进入发送队列。</p>
                 )}
               </div>
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">{email.body_text}</p>
@@ -2283,7 +2283,7 @@ export function HuntDetailPage() {
                 <div className="flex flex-wrap gap-2">
                   {([
                     ["all", `全部 (${emailCount})`],
-                    ["approved", `可自动发送 (${approvedEmailCount})`],
+                    ["approved", `可进入发送流程 (${approvedEmailCount})`],
                     ["needs_review", `需复核 (${reviewNeededCount})`],
                   ] as const).map(([value, label]) => (
                     <Button
@@ -2305,9 +2305,9 @@ export function HuntDetailPage() {
                     <p className="text-xs text-muted-foreground">每组包含 3 封邮件</p>
                   </div>
                   <div className="rounded-md border bg-emerald-50 p-3 dark:bg-emerald-950/20">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">自动发送候选</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">发送流程候选</p>
                     <p className="mt-1 text-2xl font-semibold text-emerald-700 dark:text-emerald-400">{approvedEmailCount}</p>
-                    <p className="text-xs text-muted-foreground">reviewer gate 已通过</p>
+                    <p className="text-xs text-muted-foreground">reviewer gate 已通过，可手动发送或创建 campaign</p>
                   </div>
                   <div className="rounded-md border bg-amber-50 p-3 dark:bg-amber-950/20">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">需人工复核</p>
@@ -2386,7 +2386,7 @@ export function HuntDetailPage() {
                           <div className="rounded-md border bg-muted/30 p-3">
                             <p className="text-xs uppercase tracking-wide text-muted-foreground">发送资格</p>
                             <p className={`mt-1 text-sm font-semibold ${autoSendEligible ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                              {autoSendEligible ? "允许自动发送" : "仅草稿/待确认"}
+                              {autoSendEligible ? "可进入发送流程" : "仅草稿/待确认"}
                             </p>
                           </div>
                         </div>
