@@ -13,6 +13,8 @@ from typing import Any
 import litellm
 
 from config.settings import Settings, get_settings
+from tools.llm_errors import format_llm_error
+from tools.llm_rate_limiter import get_llm_rate_limiter
 
 
 # Suppress litellm's verbose logging by default
@@ -131,6 +133,12 @@ class LLMTool:
             return self._settings.reasoning_max_tokens
         return self._settings.llm_max_tokens
 
+    @property
+    def _requests_per_minute(self) -> int:
+        if self._model_type == "reasoning":
+            return self._settings.reasoning_requests_per_minute or self._settings.llm_requests_per_minute
+        return self._settings.llm_requests_per_minute
+
     def _supports_response_format(self) -> bool:
         """Return whether the current provider accepts OpenAI-style response_format."""
         return not self.model.startswith(_RESPONSE_FORMAT_UNSUPPORTED_PREFIXES)
@@ -179,7 +187,11 @@ class LLMTool:
                     self.model,
                 )
 
-        response = await litellm.acompletion(**kwargs)
+        try:
+            await get_llm_rate_limiter(self._model_type, self._requests_per_minute).acquire()
+            response = await litellm.acompletion(**kwargs)
+        except Exception as exc:
+            raise RuntimeError(format_llm_error(exc)) from exc
 
         # Record cost to tracker if hunt_id is set
         if self._hunt_id:

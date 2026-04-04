@@ -21,7 +21,9 @@ from typing import Any, Callable, Awaitable
 import litellm
 
 from config.settings import Settings, get_settings
+from tools.llm_errors import format_llm_error
 from tools.llm_client import _inject_api_keys, normalize_model_name
+from tools.llm_rate_limiter import get_llm_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,17 @@ _MAX_JSON_NUDGES = 2
 
 # Max messages allowed before trimming to prevent token overflow
 _MAX_MESSAGES_BEFORE_TRIM = 30
+
+
+async def _acompletion_with_rpm_limit(
+    settings: Settings,
+    *,
+    scope: str = "reasoning",
+    **kwargs: Any,
+) -> Any:
+    rpm = settings.reasoning_requests_per_minute or settings.llm_requests_per_minute
+    await get_llm_rate_limiter(scope, rpm).acquire()
+    return await litellm.acompletion(**kwargs)
 
 
 def _clean_markdown_fences(text: str) -> str:
@@ -257,7 +270,7 @@ async def react_loop(
             })
 
         try:
-            response = await litellm.acompletion(**kwargs)
+            response = await _acompletion_with_rpm_limit(_settings, **kwargs)
             _record_react_cost(response, hunt_id, agent, model, hunt_round)
         except Exception as e:
             # Fallback for last iteration: some Anthropic-compatible APIs (e.g. MiniMax)
@@ -274,14 +287,16 @@ async def react_loop(
                         "temperature": temperature,
                         "max_tokens": max_tokens,
                     }
-                    response = await litellm.acompletion(**fallback_kwargs)
+                    response = await _acompletion_with_rpm_limit(_settings, **fallback_kwargs)
                     _record_react_cost(response, hunt_id, agent, model, hunt_round)
                 except Exception as e2:
-                    logger.error("[ReAct] Fallback call also failed at iteration %d: %s", iteration, e2)
-                    return json.dumps({"error": f"ReAct LLM call failed: {e2}"})
+                    formatted = format_llm_error(e2)
+                    logger.error("[ReAct] Fallback call also failed at iteration %d: %s", iteration, formatted)
+                    return json.dumps({"error": f"ReAct LLM call failed: {formatted}"})
             else:
-                logger.error("[ReAct] LLM call failed at iteration %d: %s", iteration, e)
-                return json.dumps({"error": f"ReAct LLM call failed: {e}"})
+                formatted = format_llm_error(e)
+                logger.error("[ReAct] LLM call failed at iteration %d: %s", iteration, formatted)
+                return json.dumps({"error": f"ReAct LLM call failed: {formatted}"})
 
         choice = response.choices[0]
         msg = choice.message
@@ -326,7 +341,8 @@ async def react_loop(
             # Use a dedicated nudge sub-loop to avoid consuming main iterations
             for nudge in range(_MAX_JSON_NUDGES):
                 try:
-                    nudge_resp = await litellm.acompletion(
+                    nudge_resp = await _acompletion_with_rpm_limit(
+                        _settings,
                         model=model,
                         messages=nudge_messages,
                         temperature=temperature,
@@ -348,7 +364,7 @@ async def react_loop(
                     })
                     nudge_messages = _trim_messages(nudge_messages)
                 except Exception as e:
-                    logger.warning("[ReAct] Nudge call failed: %s", e)
+                    logger.warning("[ReAct] Nudge call failed: %s", format_llm_error(e))
                     break
             # All nudges failed — return whatever we have
             logger.warning("[ReAct] Could not get JSON after %d nudges, returning raw", _MAX_JSON_NUDGES)
@@ -396,7 +412,8 @@ async def react_loop(
 
     for attempt in range(_MAX_JSON_NUDGES + 1):
         try:
-            response = await litellm.acompletion(
+            response = await _acompletion_with_rpm_limit(
+                _settings,
                 model=model,
                 messages=final_messages,
                 temperature=temperature,
@@ -417,8 +434,9 @@ async def react_loop(
                 })
                 final_messages = _trim_messages(final_messages)
         except Exception as e:
-            logger.error("[ReAct] Final answer call failed: %s", e)
-            return json.dumps({"error": f"ReAct final answer failed: {e}"})
+            formatted = format_llm_error(e)
+            logger.error("[ReAct] Final answer call failed: %s", formatted)
+            return json.dumps({"error": f"ReAct final answer failed: {formatted}"})
 
     logger.warning("[ReAct] Could not get JSON final answer after retries")
     return content

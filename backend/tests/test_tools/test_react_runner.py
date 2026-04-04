@@ -1,10 +1,14 @@
 """Tests for tools/react_runner.py — JSON parsing, field validation, message trimming."""
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from config.settings import Settings
 from tools.react_runner import (
+    _acompletion_with_rpm_limit,
     _clean_markdown_fences,
     _has_required_fields,
     _trim_messages,
@@ -134,3 +138,23 @@ class TestTrimMessages:
 
         result = _trim_messages(msgs, keep_last=10)
         assert len(result) == 12  # No trimming needed
+
+
+class TestRPMControl:
+    @pytest.mark.asyncio
+    async def test_reasoning_calls_apply_rpm_limiter(self):
+        settings = Settings(
+            reasoning_requests_per_minute=9,
+            llm_requests_per_minute=0,
+        )
+        limiter = AsyncMock()
+        mock_resp = SimpleNamespace(choices=[])
+
+        with patch("tools.react_runner.get_llm_rate_limiter", return_value=limiter) as mock_get:
+            with patch("tools.react_runner.litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_call:
+                result = await _acompletion_with_rpm_limit(settings, model="gpt-4o", messages=[])
+
+        assert result is mock_resp
+        mock_get.assert_called_once_with("reasoning", 9)
+        limiter.acquire.assert_awaited_once()
+        mock_call.assert_awaited_once()

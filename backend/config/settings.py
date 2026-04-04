@@ -91,12 +91,14 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096
+    llm_requests_per_minute: int = 0
 
     # Reasoning model — used for ReAct agent decision-making (stronger reasoning)
     #   e.g. "gpt-4o", "anthropic/claude-3-5-sonnet-20241022", "openrouter/deepseek/deepseek-r1"
     reasoning_model: str = "gpt-4o"
     reasoning_temperature: float = 0.2
     reasoning_max_tokens: int = 4096
+    reasoning_requests_per_minute: int = 0
 
     # --- LLM Provider API Keys ---
     openai_api_key: str = ""
