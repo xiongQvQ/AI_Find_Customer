@@ -22,6 +22,7 @@ from graph.state import HuntState
 from tools.llm_client import LLMTool
 from tools.llm_output import parse_json
 from tools.react_runner import ToolDef, react_loop
+from tools.llm_output import validate_dict, EMAIL_SEQUENCE_REQUIRED, EMAIL_SEQUENCE_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +372,24 @@ Your task is to revise the sequence so it:
 Return JSON only in the same schema as the original sequence."""
 
 
+EMAIL_TEMPLATE_PERSONALIZER_SYSTEM = """You adapt a reusable outbound email sequence to a specific target lead.
+
+You will receive:
+- the source lead the template was originally written for
+- the target lead and recipient details
+- the reusable template profile and template plan
+- the current 3-email seed sequence
+
+Your task:
+- keep the overall sequence structure, tone, CTA style, and locale
+- increase buyer-specific relevance for the target lead
+- replace generic or source-lead-specific references with accurate target-lead details
+- preserve factual accuracy and avoid inventing claims
+- keep the 3-step progression distinct
+
+Return JSON only in the same schema as the original sequence."""
+
+
 def _get_locale(country_code: str) -> str:
     """Map country code to locale. Default to en_US."""
     return _COUNTRY_LOCALE_MAP.get(country_code.lower(), "en_US")
@@ -517,6 +536,51 @@ def _apply_template_to_lead(
         "status": "warming_up",
     }
     return cloned
+
+
+async def _personalize_template_sequence(
+    llm: LLMTool,
+    *,
+    base_sequence: dict[str, Any],
+    lead: dict[str, Any],
+    target: dict[str, str],
+    insight: dict[str, Any],
+) -> dict[str, Any] | None:
+    source_lead = base_sequence.get("lead", {}) or {}
+    source_target = base_sequence.get("target", {}) or {}
+    locale = str(base_sequence.get("locale", "en_US") or "en_US")
+    template_profile = base_sequence.get("template_profile", {}) or {}
+    template_plan = base_sequence.get("template_plan", {}) or {}
+    strategy_brief = base_sequence.get("strategy_brief", {}) or {}
+    prompt = (
+        f"<locale>\n{locale}\n</locale>\n\n"
+        f"<seller>\n{json.dumps(insight, ensure_ascii=False)}\n</seller>\n\n"
+        f"<template_profile>\n{json.dumps(template_profile, ensure_ascii=False)}\n</template_profile>\n\n"
+        f"<template_plan>\n{json.dumps(template_plan, ensure_ascii=False)}\n</template_plan>\n\n"
+        f"<strategy_brief>\n{json.dumps(strategy_brief, ensure_ascii=False)}\n</strategy_brief>\n\n"
+        f"<source_lead>\n{json.dumps(source_lead, ensure_ascii=False)}\n</source_lead>\n\n"
+        f"<source_target>\n{json.dumps(source_target, ensure_ascii=False)}\n</source_target>\n\n"
+        f"<target_lead>\n{json.dumps(lead, ensure_ascii=False)}\n</target_lead>\n\n"
+        f"<target_recipient>\n{json.dumps(target, ensure_ascii=False)}\n</target_recipient>\n\n"
+        f"<seed_sequence>\n{json.dumps(base_sequence.get('emails', []), ensure_ascii=False)}\n</seed_sequence>\n\n"
+        f"Adapt the seed sequence for the target lead. Preserve the sequence structure and locale, "
+        f"but make the buyer relevance and personalization specific to the target lead."
+    )
+    try:
+        raw = await llm.generate(
+            prompt,
+            system=EMAIL_TEMPLATE_PERSONALIZER_SYSTEM,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        if not isinstance(raw, str):
+            return None
+        parsed = parse_json(raw, context="email_template_personalizer")
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception as exc:
+        logger.debug("[EmailCraft] Template personalization failed for %s: %s", lead.get("company_name"), exc)
+    return None
 
 
 def _rule_validate_emails_payload(emails_list: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1378,20 +1442,17 @@ async def email_craft_node(state: HuntState) -> dict:
             for group_key, members in grouped_leads.items()
         ]
         seed_results = await asyncio.gather(*seed_tasks)
-    finally:
-        await llm.close()
 
-    template_results = {group_key: result for group_key, result in seed_results if result is not None}
-    email_sequences: list[dict[str, Any]] = []
-    template_max_send_count = int(getattr(settings, "email_template_max_send_count", _DEFAULT_TEMPLATE_MAX_SEND_COUNT) or _DEFAULT_TEMPLATE_MAX_SEND_COUNT)
-    for group_key, members in grouped_leads.items():
-        template_result = template_results.get(group_key)
-        if template_result is None:
-            continue
-        template_assigned_count = len(members)
-        for index, (lead, target) in enumerate(members, start=1):
-            email_sequences.append(
-                _apply_template_to_lead(
+        template_results = {group_key: result for group_key, result in seed_results if result is not None}
+        email_sequences: list[dict[str, Any]] = []
+        template_max_send_count = int(getattr(settings, "email_template_max_send_count", _DEFAULT_TEMPLATE_MAX_SEND_COUNT) or _DEFAULT_TEMPLATE_MAX_SEND_COUNT)
+        for group_key, members in grouped_leads.items():
+            template_result = template_results.get(group_key)
+            if template_result is None:
+                continue
+            template_assigned_count = len(members)
+            for index, (lead, target) in enumerate(members, start=1):
+                applied = _apply_template_to_lead(
                     template_result,
                     lead=lead,
                     target=target,
@@ -1400,7 +1461,45 @@ async def email_craft_node(state: HuntState) -> dict:
                     template_assigned_count=template_assigned_count,
                     template_max_send_count=template_max_send_count,
                 )
-            )
+                if index > 1:
+                    personalized = await _personalize_template_sequence(
+                        llm,
+                        base_sequence=applied,
+                        lead=lead,
+                        target=target,
+                        insight=insight,
+                    )
+                    if isinstance(personalized, dict):
+                        validated = validate_dict(
+                            personalized,
+                            EMAIL_SEQUENCE_REQUIRED,
+                            defaults=EMAIL_SEQUENCE_DEFAULTS,
+                            context="EmailCraftTemplatePersonalizer",
+                        )
+                        if validated is not None and validated.get("emails"):
+                            applied["emails"] = validated["emails"]
+                            review_summary = _review_email_sequence(
+                                lead,
+                                locale=str(applied.get("locale", "en_US") or "en_US"),
+                                emails=validated["emails"],
+                                template_profile=applied.get("template_profile", {}) or {},
+                                template_plan=applied.get("template_plan", {}) or {},
+                                min_score=int(settings.email_review_min_score or 75),
+                                max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
+                            )
+                            applied["review_summary"] = review_summary
+                            applied["validation_summary"] = {
+                                "passed": review_summary["status"] == "approved",
+                                "status": review_summary["status"],
+                                "issues": list(review_summary.get("issues", [])),
+                                "suggestions": list(review_summary.get("suggestions", [])),
+                            }
+                            applied["review_status"] = review_summary["status"]
+                            applied["auto_send_eligible"] = review_summary["status"] == "approved"
+                            applied["generation_mode"] = "template_pool_personalized"
+                email_sequences.append(applied)
+    finally:
+        await llm.close()
 
     logger.info("[EmailCraftAgent] Completed — %d/%d email sequences generated",
                 len(email_sequences), len(leads))

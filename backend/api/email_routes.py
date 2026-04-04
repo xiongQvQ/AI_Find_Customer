@@ -114,6 +114,9 @@ def _write_summary_to_hunt(store: EmailStore, hunt_id: str, campaign_id: str) ->
                     "replied_count": performance.get("replied_count", 0),
                     "reply_rate": performance.get("reply_rate", 0.0),
                     "status": performance.get("status", "warming_up"),
+                    "optimization_needed": bool(performance.get("optimization_needed", False)),
+                    "recommended_action": str(performance.get("recommended_action", "keep_collecting_data") or "keep_collecting_data"),
+                    "reason": str(performance.get("reason", "") or ""),
                 }
     save_hunt(hunt_id, hunt)
 

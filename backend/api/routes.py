@@ -33,8 +33,6 @@ from observability.cost_tracker import get_tracker, remove_tracker
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-EMAIL_FEATURES_ENABLED = False
-
 # ── In-memory hunt store — hydrated from disk on startup ─────────────────
 _hunts: dict[str, dict] = load_all_hunts()
 # SSE event queues per hunt — subscribers listen here
@@ -981,7 +979,7 @@ async def create_hunt(request: HuntRequest, background_tasks: BackgroundTasks):
     request = request.model_copy(
         update={
             "uploaded_file_ids": uploaded_file_ids,
-            "enable_email_craft": EMAIL_FEATURES_ENABLED and request.enable_email_craft,
+            "enable_email_craft": request.enable_email_craft,
         }
     )
     background_tasks.add_task(_run_hunt, hunt_id, request)
@@ -1030,8 +1028,6 @@ async def get_hunt_result(hunt_id: str):
         search_result_count=len(result.get("search_results", [])),
     )
 
-
-@router.get("/hunts", dependencies=[Depends(require_api_access)])
 @router.post(
     "/hunts/{hunt_id}/email-sequences/{sequence_index}/decision",
     response_model=EmailSequenceDecisionResponse,
@@ -1304,7 +1300,7 @@ async def resume_hunt(hunt_id: str, request: ResumeRequest, background_tasks: Ba
     save_hunt(hunt_id, _hunts[hunt_id])
 
     request = request.model_copy(
-        update={"enable_email_craft": EMAIL_FEATURES_ENABLED and request.enable_email_craft}
+        update={"enable_email_craft": request.enable_email_craft}
     )
     background_tasks.add_task(_run_resume_hunt, hunt_id, request, prior_result)
 

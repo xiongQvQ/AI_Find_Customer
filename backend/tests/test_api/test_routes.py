@@ -1,7 +1,7 @@
 """Tests for api/routes.py — FastAPI endpoints with httpx TestClient."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -66,6 +66,16 @@ class TestCreateHunt:
         assert resp.status_code == 200
         data = resp.json()
         assert "hunt_id" in data
+
+    @pytest.mark.asyncio
+    @patch("api.routes._run_hunt", new_callable=AsyncMock)
+    async def test_create_hunt_preserves_email_generation_flag(self, mock_run, client):
+        resp = await client.post("/api/v1/hunts", json={
+            "enable_email_craft": True,
+        })
+        assert resp.status_code == 200
+        request = mock_run.call_args[0][1]
+        assert request.enable_email_craft is True
 
     @pytest.mark.asyncio
     async def test_create_hunt_invalid_lead_count(self, client):
@@ -805,7 +815,6 @@ class TestResumeHunt:
     @pytest.mark.asyncio
     @patch("api.routes._run_resume_hunt", new_callable=AsyncMock)
     async def test_resume_passes_correct_args_to_background(self, mock_resume, client):
-        """Verify resume sanitizes disabled email generation before background execution."""
         self._inject_completed_hunt("hunt-xyz", leads=5)
         await client.post("/api/v1/hunts/hunt-xyz/resume", json={
             "target_lead_count": 300,
@@ -817,7 +826,7 @@ class TestResumeHunt:
         resume_req = args[1]
         assert resume_req.target_lead_count == 300
         assert resume_req.max_rounds == 12
-        assert resume_req.enable_email_craft is False
+        assert resume_req.enable_email_craft is True
         prior = args[2]
         assert len(prior["leads"]) == 5
 

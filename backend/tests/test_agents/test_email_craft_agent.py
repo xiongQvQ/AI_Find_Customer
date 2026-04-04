@@ -527,6 +527,12 @@ class TestCraftForLead:
                 "personalization_hooks": ["Acme"],
             }),
             json.dumps({
+                "recipient_profile": "US distributor",
+                "cta_strategy": "Ask a low-friction qualification question",
+                "opening_strategy": "Lead with buyer relevance",
+                "proof_points": ["Concrete product relevance"],
+            }),
+            json.dumps({
                 "passed": False,
                 "grammar_ok": False,
                 "spelling_ok": True,
@@ -655,6 +661,12 @@ class TestCraftForLead:
                 "cta_strategy": "Ask a low-friction qualification question",
                 "tone_guidance": "Professional and concise",
                 "personalization_hooks": ["Acme"],
+            }),
+            json.dumps({
+                "recipient_profile": "US distributor",
+                "cta_strategy": "Ask a low-friction qualification question",
+                "opening_strategy": "Lead with buyer relevance",
+                "proof_points": ["Concrete product relevance"],
             }),
             json.dumps({
                 "passed": False,
@@ -794,7 +806,7 @@ class TestCraftForLead:
             captured.update(kwargs)
             return FAKE_EMAIL_RESPONSE
 
-        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
         with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
@@ -826,7 +838,7 @@ class TestCraftForLead:
             captured.update(kwargs)
             return FAKE_EMAIL_RESPONSE
 
-        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
         with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
@@ -877,7 +889,7 @@ class TestCraftForLead:
             captured.update(kwargs)
             return FAKE_EMAIL_RESPONSE
 
-        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
         with patch("agents.email_craft_agent.react_loop", side_effect=capture), \
@@ -924,7 +936,7 @@ class TestCraftForLead:
                 {"sequence_number": 3, "email_type": "partnership_proposal", "subject": "Same", "body_text": "short", "suggested_send_day": 7},
             ],
         })
-        lead = {"company_name": "Acme", "country_code": "us", "emails": []}
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
         insight = {"company_name": "MyCompany", "products": ["switch"]}
 
         with patch("agents.email_craft_agent.react_loop", return_value=low_quality), \
@@ -1119,6 +1131,152 @@ class TestEmailCraftNode:
         assert result["email_sequences"][0]["template_assigned_count"] == 2
         assert result["email_sequences"][1]["template_remaining_capacity"] == 40
         assert result["email_sequences"][0]["template_performance"]["status"] == "warming_up"
+
+    @pytest.mark.asyncio
+    async def test_reused_template_can_be_personalized_per_lead(self):
+        leads = [
+            {
+                "company_name": "Lead A",
+                "country_code": "us",
+                "industry": "Industrial Supply",
+                "website": "https://a.example.com",
+                "emails": ["buyer@a.example.com"],
+            },
+            {
+                "company_name": "Lead B",
+                "country_code": "us",
+                "industry": "Industrial Supply",
+                "website": "https://b.example.com",
+                "emails": ["buyer@b.example.com"],
+            },
+        ]
+        state = _base_state(leads=leads)
+
+        with patch("agents.email_craft_agent.LLMTool") as MockLLM, \
+             patch("agents.email_craft_agent.get_settings") as mock_settings, \
+             patch("agents.email_craft_agent._personalize_template_sequence", new_callable=AsyncMock) as mock_personalize, \
+             patch("agents.email_craft_agent.react_loop", return_value=json.dumps({
+                 "locale": "en_US",
+                 "emails": [
+                     {
+                         "sequence_number": 1,
+                         "email_type": "company_intro",
+                         "subject": "Lead A fit for your buyers",
+                         "body_text": "Dear team, " + ("Lead A looks relevant to your sourcing scope. " * 10),
+                         "suggested_send_day": 0,
+                         "personalization_points": ["Lead A"],
+                         "cultural_adaptations": ["Professional English tone"],
+                     },
+                     {
+                         "sequence_number": 2,
+                         "email_type": "product_showcase",
+                         "subject": "Lead A applications worth a look",
+                         "body_text": "Dear team, " + ("Lead A may care about these applications and proof points. " * 10),
+                         "suggested_send_day": 3,
+                         "personalization_points": ["Lead A applications"],
+                         "cultural_adaptations": ["Buyer-oriented wording"],
+                     },
+                     {
+                         "sequence_number": 3,
+                         "email_type": "partnership_proposal",
+                         "subject": "Would Lead A review this category?",
+                         "body_text": "Dear team, " + ("Lead A could confirm category ownership or redirect us internally. " * 10),
+                         "suggested_send_day": 7,
+                         "personalization_points": ["Lead A CTA"],
+                         "cultural_adaptations": ["Low-pressure CTA"],
+                     },
+                 ],
+             })):
+
+            mock_settings.return_value.email_gen_concurrency = 3
+            mock_settings.return_value.react_max_iterations = 3
+            mock_settings.return_value.email_template_max_send_count = 42
+            mock_settings.return_value.email_review_min_score = 75
+            mock_settings.return_value.email_review_max_blocking_issues = 0
+
+            llm_inst = AsyncMock()
+            llm_inst.generate = AsyncMock(side_effect=[
+                json.dumps({
+                    "chosen_language": "en",
+                    "chosen_locale": "en_US",
+                    "confidence": "high",
+                    "reason": "English is safest",
+                    "fallback_used": False,
+                }),
+                json.dumps({
+                    "recipient_profile": "Industrial distributor",
+                    "why_this_company_may_fit": ["Relevant buyer profile"],
+                    "best_value_angles": ["Switch range relevance"],
+                    "product_focus": ["switch"],
+                    "proof_points_to_use": ["Concrete fit"],
+                    "claims_to_avoid": ["Avoid generic claims"],
+                    "cta_strategy": "Ask a light qualification question",
+                    "tone_guidance": "Professional and concise",
+                    "personalization_hooks": ["Lead A"],
+                }),
+                json.dumps({
+                    "recipient_profile": "Industrial distributor",
+                    "cta_strategy": "Ask a light qualification question",
+                    "opening_strategy": "Lead with buyer relevance",
+                    "proof_points": ["Concrete fit"],
+                }),
+                json.dumps({
+                    "passed": True,
+                    "grammar_ok": True,
+                    "spelling_ok": True,
+                    "language_correct": True,
+                    "formality_correct": True,
+                    "salutation_correct": True,
+                    "business_etiquette_ok": True,
+                    "local_naturalness_ok": True,
+                    "commercial_quality": True,
+                    "sequence_progression": True,
+                    "issues": [],
+                    "suggestions": [],
+                }),
+            ])
+            llm_inst.close = AsyncMock()
+            MockLLM.return_value = llm_inst
+            mock_personalize.return_value = {
+                "locale": "en_US",
+                "emails": [
+                    {
+                        "sequence_number": 1,
+                        "email_type": "company_intro",
+                        "subject": "Lead B fit for your buyers",
+                        "body_text": "Dear team, " + ("Lead B looks relevant to your sourcing scope. " * 10),
+                        "suggested_send_day": 0,
+                        "personalization_points": ["Lead B"],
+                        "cultural_adaptations": ["Professional English tone"],
+                    },
+                    {
+                        "sequence_number": 2,
+                        "email_type": "product_showcase",
+                        "subject": "Lead B applications worth a look",
+                        "body_text": "Dear team, " + ("Lead B may care about these applications and proof points. " * 10),
+                        "suggested_send_day": 3,
+                        "personalization_points": ["Lead B applications"],
+                        "cultural_adaptations": ["Buyer-oriented wording"],
+                    },
+                    {
+                        "sequence_number": 3,
+                        "email_type": "partnership_proposal",
+                        "subject": "Would Lead B review this category?",
+                        "body_text": "Dear team, " + ("Lead B could confirm category ownership or redirect us internally. " * 10),
+                        "suggested_send_day": 7,
+                        "personalization_points": ["Lead B CTA"],
+                        "cultural_adaptations": ["Low-pressure CTA"],
+                    },
+                ],
+            }
+
+            result = await email_craft_node(state)
+
+        assert len(result["email_sequences"]) == 2
+        assert result["email_sequences"][0]["generation_mode"] == "template_pool"
+        assert result["email_sequences"][1]["generation_mode"] == "template_pool_personalized"
+        assert "Lead B" in result["email_sequences"][1]["emails"][0]["subject"]
+        assert "Lead B" in result["email_sequences"][1]["emails"][0]["body_text"]
 
     @pytest.mark.asyncio
     async def test_generates_new_template_for_different_groups(self):

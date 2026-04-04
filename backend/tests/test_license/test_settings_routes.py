@@ -210,6 +210,46 @@ class TestEmailSettings:
         assert data["host"] == "imap.example.com"
 
 
+class TestLicenseCompatibility:
+    @pytest.mark.asyncio
+    async def test_license_status_returns_compatibility_response(self, client):
+        resp = await client.get("/api/settings/license/status")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "valid",
+            "message": "License verification has been removed; all features are available.",
+            "plan": "lifetime",
+            "customer_name": "Local User",
+            "expires_at": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_license_activate_is_now_a_noop(self, client):
+        resp = await client.post(
+            "/api/settings/license/activate",
+            json={"license_key": "", "machine_label": "dev-machine"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "valid"
+
+    @pytest.mark.asyncio
+    async def test_license_deactivate_is_now_a_noop(self, client):
+        resp = await client.post("/api/settings/license/deactivate")
+
+        assert resp.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_license_save_token_is_now_a_noop(self, client):
+        resp = await client.post(
+            "/api/settings/license/save-token",
+            json={"token": "fake-token", "expires_at": "2099-12-31T00:00:00Z"},
+        )
+
+        assert resp.status_code == 204
+
+
 class TestMaskHelpers:
     def test_masks_long_value(self):
         from api.settings_routes import _mask

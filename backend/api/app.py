@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.email_routes import router as email_router
 from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router, prefix="/api/v1")
+    app.include_router(email_router)
     app.include_router(sse_router, prefix="/api/v1")
     if settings.settings_api_enabled:
         app.include_router(settings_router)

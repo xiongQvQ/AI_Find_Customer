@@ -383,6 +383,9 @@ class EmailStore:
                         "reply_rate": 0.0,
                         "remaining_capacity": 0,
                         "status": "warming_up",
+                        "optimization_needed": False,
+                        "recommended_action": "keep_collecting_data",
+                        "reason": "Not enough delivery/reply data yet.",
                     },
                 )
                 summary["assigned_count"] += 1
@@ -403,8 +406,20 @@ class EmailStore:
             summary["remaining_capacity"] = max(max_send_count - assigned, 0)
             if max_send_count and assigned >= max_send_count:
                 summary["status"] = "exhausted"
+                summary["optimization_needed"] = True
+                summary["recommended_action"] = "create_new_template_version"
+                summary["reason"] = "Template reached the configured assignment cap."
             elif assigned >= underperforming_min_assigned and summary["reply_rate"] < underperforming_min_reply_rate:
                 summary["status"] = "underperforming"
+                summary["optimization_needed"] = True
+                summary["recommended_action"] = "optimize_template_before_more_sends"
+                summary["reason"] = (
+                    f"Reply rate {summary['reply_rate']}% is below the threshold "
+                    f"{underperforming_min_reply_rate}% after {assigned} assignments."
+                )
             else:
                 summary["status"] = "warming_up"
+                summary["optimization_needed"] = False
+                summary["recommended_action"] = "keep_collecting_data"
+                summary["reason"] = "Continue sending until enough reply data accumulates."
         return template_summary

@@ -1,14 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Settings,
   Search,
   Cpu,
   Mail,
-  Shield,
   CheckCircle2,
-  XCircle,
-  AlertCircle,
   Loader2,
   Eye,
   EyeOff,
@@ -28,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";  // 生产环境: VITE_API_URL=https://license.b2binsights.io
@@ -141,29 +136,6 @@ async function saveSettings(payload: Record<string, string>) {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("保存设置失败");
-}
-
-async function fetchLicenseStatus() {
-  const res = await fetch(`${API_BASE}/api/settings/license/status`);
-  if (!res.ok) throw new Error("检查授权失败");
-  return res.json();
-}
-
-async function activateLicense(data: { license_key: string; machine_label: string }) {
-  const res = await fetch(`${API_BASE}/api/settings/license/activate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail ?? "激活失败");
-  }
-  return res.json();
-}
-
-async function deactivateLicense() {
-  await fetch(`${API_BASE}/api/settings/license/deactivate`, { method: "POST" });
 }
 
 // ── Helpers to detect provider from a model string ───────────────────────────
@@ -291,176 +263,6 @@ function ModelCombobox({
         </p>
       )}
     </div>
-  );
-}
-
-function LicenseStatusBadge({ status }: { status: string }) {
-  if (status === "valid")
-    return (
-      <Badge className="bg-green-500/15 text-green-600 border-green-500/30">
-        <CheckCircle2 className="h-3 w-3 mr-1" /> 已激活
-      </Badge>
-    );
-  if (status === "valid_offline")
-    return (
-      <Badge className="bg-yellow-500/15 text-yellow-600 border-yellow-500/30">
-        <AlertCircle className="h-3 w-3 mr-1" /> 离线模式
-      </Badge>
-    );
-  if (status === "not_activated")
-    return (
-      <Badge variant="outline">
-        <XCircle className="h-3 w-3 mr-1" /> 未激活
-      </Badge>
-    );
-  return (
-    <Badge variant="destructive">
-      <XCircle className="h-3 w-3 mr-1" /> {status}
-    </Badge>
-  );
-}
-
-// ── License Panel ─────────────────────────────────────────────────────────────
-
-function LicensePanel() {
-  const queryClient = useQueryClient();
-  const [licenseKey, setLicenseKey] = useState("");
-  const [machineLabel, setMachineLabel] = useState("");
-  const [activateError, setActivateError] = useState("");
-
-  const { data: licStatus, isLoading } = useQuery({
-    queryKey: ["license-status"],
-    queryFn: fetchLicenseStatus,
-    retry: false,
-  });
-
-  const activateMutation = useMutation({
-    mutationFn: activateLicense,
-    onSuccess: () => {
-      setLicenseKey("");
-      setActivateError("");
-      queryClient.invalidateQueries({ queryKey: ["license-status"] });
-    },
-    onError: (e: Error) => setActivateError(e.message),
-  });
-
-  const deactivateMutation = useMutation({
-    mutationFn: deactivateLicense,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["license-status"] }),
-  });
-
-  const isActivated = licStatus?.status === "valid" || licStatus?.status === "valid_offline";
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            <CardTitle>授权信息</CardTitle>
-          </div>
-          {licStatus && <LicenseStatusBadge status={licStatus.status} />}
-        </div>
-        <CardDescription>
-          激活 B2Binsights 授权后可解锁全部功能。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading && (
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" /> 正在检查授权…
-          </div>
-        )}
-        {isActivated && licStatus && (
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
-            {licStatus.customer_name && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">客户</span>
-                <span className="font-medium">{licStatus.customer_name}</span>
-              </div>
-            )}
-            {licStatus.plan && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">套餐</span>
-                <span className="font-medium capitalize">{licStatus.plan}</span>
-              </div>
-            )}
-            {licStatus.expires_at && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">授权有效期</span>
-                <span className="font-medium">
-                  {new Date(licStatus.expires_at).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-            {licStatus.message && (
-              <p className="text-muted-foreground text-xs pt-1">{licStatus.message}</p>
-            )}
-          </div>
-        )}
-        {!isActivated && (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="license-key">授权码</Label>
-              <Input
-                id="license-key"
-                placeholder="AIHNT-XXXXX-XXXXX-XXXXX-XXXXX"
-                value={licenseKey}
-                onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="machine-label">设备名称（可选）</Label>
-              <Input
-                id="machine-label"
-                placeholder="例如：销售部 MacBook"
-                value={machineLabel}
-                onChange={(e) => setMachineLabel(e.target.value)}
-              />
-            </div>
-            {activateError && (
-              <p className="text-destructive text-sm flex items-center gap-1">
-                <XCircle className="h-4 w-4" /> {activateError}
-              </p>
-            )}
-            <Button
-              onClick={() =>
-                activateMutation.mutate({ license_key: licenseKey, machine_label: machineLabel })
-              }
-              disabled={!licenseKey.trim() || activateMutation.isPending}
-              className="w-full"
-            >
-              {activateMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 激活中…</>
-              ) : (
-                "激活授权"
-              )}
-            </Button>
-          </div>
-        )}
-        {isActivated && (
-          <div className="pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => deactivateMutation.mutate()}
-              disabled={deactivateMutation.isPending}
-              className="text-destructive hover:text-destructive"
-            >
-              {deactivateMutation.isPending ? (
-                <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> 解绑中…</>
-              ) : (
-                "解绑当前设备"
-              )}
-            </Button>
-            <p className="text-xs text-muted-foreground mt-1">
-              如需迁移授权到其他设备，请先解绑当前设备。
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 

@@ -285,10 +285,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
-function asRecordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")) : [];
-}
-
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
@@ -308,6 +304,33 @@ function formatEmailType(emailType: string): string {
     partnership_proposal: "合作提案",
   };
   return labels[emailType] || emailType;
+}
+
+function formatGenerationMode(mode: string): string {
+  const labels: Record<string, string> = {
+    template_pool: "组模板首稿",
+    template_pool_personalized: "组模板后二次个性化",
+    personalized: "逐条个性化",
+  };
+  return labels[mode] || mode || "未知模式";
+}
+
+function formatTemplatePerfStatus(status: string): string {
+  const labels: Record<string, string> = {
+    warming_up: "数据积累中",
+    underperforming: "表现偏弱",
+    exhausted: "已达上限",
+  };
+  return labels[status] || status || "未知";
+}
+
+function formatTemplateAction(action: string): string {
+  const labels: Record<string, string> = {
+    keep_collecting_data: "继续收集数据",
+    optimize_template_before_more_sends: "先优化模板再继续发",
+    create_new_template_version: "创建下一版模板",
+  };
+  return labels[action] || action || "待观察";
 }
 
 function buildSequencePreviewText(sequence: EmailSequence): string {
@@ -755,10 +778,14 @@ function EmailSequencePreviewSheet({
 
   const lead = asRecord(sequence.lead);
   const reviewSummary = asRecord(sequence.review_summary);
+  const validationSummary = asRecord(sequence.validation_summary);
   const templateProfile = asRecord(sequence.template_profile);
   const templatePlan = asRecord(sequence.template_plan);
+  const templatePerformance = asRecord(sequence.template_performance);
   const proofPoints = asStringArray(templatePlan.proof_points);
   const issues = asStringArray(reviewSummary.issues);
+  const validationIssues = asStringArray(validationSummary.issues);
+  const validationSuggestions = asStringArray(validationSummary.suggestions);
   const manualReview = asRecord(sequence.manual_review);
   const replyDetection = asRecord(sequence.reply_detection);
   const replies = Array.isArray(replyDetection.replies) ? replyDetection.replies as Array<Record<string, string>> : [];
@@ -779,7 +806,9 @@ function EmailSequencePreviewSheet({
               </Badge>
               <Badge variant="outline">Score {String(reviewSummary.score || 0)}</Badge>
               <Badge variant="outline">{formatTemplateSource(String(templateProfile.source || "auto_generated"))}</Badge>
-              {manualReview.decision && (
+              <Badge variant="outline">{formatGenerationMode(String(sequence.generation_mode || "personalized"))}</Badge>
+              {sequence.template_reused ? <Badge variant="outline">复用模板</Badge> : <Badge variant="outline">模板首稿</Badge>}
+              {Boolean(manualReview.decision) && (
                 <Badge variant="outline">
                   人工决策: {String(manualReview.decision) === "approved" ? "已批准" : "已拦截"}
                 </Badge>
@@ -806,6 +835,34 @@ function EmailSequencePreviewSheet({
           </div>
         </div>
 
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Validation</p>
+            <p className="mt-1 text-sm font-medium">{String(validationSummary.status || "n/a")}</p>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Template Status</p>
+            <p className="mt-1 text-sm font-medium">{formatTemplatePerfStatus(String(templatePerformance.status || "warming_up"))}</p>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Next Action</p>
+            <p className="mt-1 text-sm font-medium">{formatTemplateAction(String(templatePerformance.recommended_action || "keep_collecting_data"))}</p>
+          </div>
+        </div>
+
+        {sequence.template_id && (
+          <div className="rounded-md border p-3 text-sm">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
+              <p>Template ID: <span className="text-foreground">{String(sequence.template_id)}</span></p>
+              <p>Usage: <span className="text-foreground">{String(sequence.template_usage_index || 0)} / {String(sequence.template_assigned_count || 0)}</span></p>
+              <p>Remaining: <span className="text-foreground">{String(sequence.template_remaining_capacity ?? "n/a")}</span></p>
+            </div>
+            {Boolean(templatePerformance.reason) && (
+              <p className="mt-2 text-muted-foreground">{String(templatePerformance.reason)}</p>
+            )}
+          </div>
+        )}
+
         {proofPoints.length > 0 && (
           <div>
             <p className="mb-2 text-sm font-semibold">Proof Points</p>
@@ -823,6 +880,22 @@ function EmailSequencePreviewSheet({
             <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-400">
               {issues.map((issue) => <li key={issue}>• {issue}</li>)}
             </ul>
+          </div>
+        )}
+
+        {(validationIssues.length > 0 || validationSuggestions.length > 0) && (
+          <div className="rounded-md border p-4">
+            <p className="mb-2 text-sm font-semibold">Validation Summary</p>
+            {validationIssues.length > 0 && (
+              <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-400">
+                {validationIssues.map((issue) => <li key={issue}>• {issue}</li>)}
+              </ul>
+            )}
+            {validationSuggestions.length > 0 && (
+              <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+                {validationSuggestions.map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            )}
           </div>
         )}
 
@@ -1201,7 +1274,7 @@ export function HuntDetailPage() {
   const [previewSequenceIndex, setPreviewSequenceIndex] = useState<number | null>(null);
 
   const resumeMutation = useMutation({
-    mutationFn: ({ targetLeadCount, maxRounds, enableEmailCraft, emailTemplateExamples, emailTemplateNotes }: {
+    mutationFn: ({ targetLeadCount, maxRounds, minNewLeadsThreshold, enableEmailCraft, emailTemplateExamples, emailTemplateNotes }: {
       targetLeadCount: number;
       maxRounds: number;
       minNewLeadsThreshold: number;
@@ -1317,7 +1390,7 @@ export function HuntDetailPage() {
         sendStatus: String(email.send_status || ""),
         sentAt: String(email.sent_at || ""),
         sentTo: String(email.sent_to || ""),
-        queueReason: String((email as Record<string, unknown>).queue_reason || ""),
+        queueReason: String((email as unknown as Record<string, unknown>).queue_reason || ""),
         replyCount,
         replyStatus: replyCount > 0 ? "已回复" : "未回复",
       }));
@@ -2247,8 +2320,10 @@ export function HuntDetailPage() {
                   const lead = asRecord(seq.lead);
                   const emails = seq.emails || [];
                   const reviewSummary = asRecord(seq.review_summary);
+                  const validationSummary = asRecord(seq.validation_summary);
                   const templateProfile = asRecord(seq.template_profile);
                   const templatePlan = asRecord(seq.template_plan);
+                  const templatePerformance = asRecord(seq.template_performance);
                   const reviewStatus = String(reviewSummary.status || "needs_review");
                   const reviewIssues = asStringArray(reviewSummary.issues);
                   const reviewSuggestions = asStringArray(reviewSummary.suggestions);
@@ -2266,7 +2341,7 @@ export function HuntDetailPage() {
                           <Badge className={reviewStatus === "approved" ? "bg-emerald-600 hover:bg-emerald-600" : "bg-amber-600 hover:bg-amber-600"}>
                             {formatReviewStatus(reviewStatus)}
                           </Badge>
-                          {manualReview.decision && (
+                          {Boolean(manualReview.decision) && (
                             <Badge variant="outline">
                               {String(manualReview.decision) === "approved" ? "人工已批准" : "人工已拦截"}
                             </Badge>
@@ -2306,6 +2381,7 @@ export function HuntDetailPage() {
                           <div className="rounded-md border bg-muted/30 p-3">
                             <p className="text-xs uppercase tracking-wide text-muted-foreground">模板来源</p>
                             <p className="mt-1 text-sm font-semibold">{formatTemplateSource(String(templateProfile.source || "auto_generated"))}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{formatGenerationMode(String(seq.generation_mode || "personalized"))}</p>
                           </div>
                           <div className="rounded-md border bg-muted/30 p-3">
                             <p className="text-xs uppercase tracking-wide text-muted-foreground">发送资格</p>
@@ -2326,6 +2402,9 @@ export function HuntDetailPage() {
                               <p><span className="text-muted-foreground">Opening:</span> {String(templatePlan.opening_strategy || "n/a")}</p>
                               <p><span className="text-muted-foreground">Value Prop:</span> {String(templatePlan.value_angle || "n/a")}</p>
                               <p><span className="text-muted-foreground">CTA:</span> {String(templatePlan.cta_strategy || "n/a")}</p>
+                              <p><span className="text-muted-foreground">Validation:</span> {String(validationSummary.status || "n/a")}</p>
+                              <p><span className="text-muted-foreground">Template Perf:</span> {formatTemplatePerfStatus(String(templatePerformance.status || "warming_up"))}</p>
+                              <p><span className="text-muted-foreground">Next Action:</span> {formatTemplateAction(String(templatePerformance.recommended_action || "keep_collecting_data"))}</p>
                             </div>
                             {proofPoints.length > 0 && (
                               <div>

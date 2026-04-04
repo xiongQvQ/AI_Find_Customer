@@ -83,8 +83,31 @@ export interface EmailSequence {
   emails: EmailDraft[];
   template_profile: Record<string, unknown>;
   template_plan: Record<string, unknown>;
+  validation_summary?: {
+    passed?: boolean;
+    status?: string;
+    issues?: string[];
+    suggestions?: string[];
+  };
   review_summary: EmailReviewSummary;
   auto_send_eligible: boolean;
+  generation_mode?: string;
+  template_reused?: boolean;
+  template_group?: string;
+  template_id?: string;
+  template_usage_index?: number;
+  template_assigned_count?: number;
+  template_remaining_capacity?: number;
+  template_max_send_count?: number;
+  template_performance?: {
+    sent_count?: number;
+    replied_count?: number;
+    reply_rate?: number;
+    status?: string;
+    optimization_needed?: boolean;
+    recommended_action?: string;
+    reason?: string;
+  };
   manual_review?: EmailManualReview;
   reply_detection?: {
     checked_at?: string;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os as _os
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -12,16 +13,8 @@ from config.settings import get_settings
 from config.settings_store import is_configured, read_settings, update_settings
 from emailing.imap_client import test_imap_connection
 from emailing.smtp_client import test_smtp_connection
-from license.token_store import save_token
-from license.validator import LicenseResult, LicenseValidator
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-
-def _get_validator() -> LicenseValidator:
-    s = get_settings()
-    server_url = getattr(s, "license_server_url", "https://license.b2binsights.io/api/v1")
-    return LicenseValidator(server_url)
 
 
 class SettingsPayload(BaseModel):
@@ -88,7 +81,7 @@ class SettingsResponse(BaseModel):
 
 
 class ActivateRequest(BaseModel):
-    license_key: str
+    license_key: str = ""
     machine_label: str = ""
 
 
@@ -104,7 +97,7 @@ class SaveTokenRequest(BaseModel):
 
 
 class LicenseStatusResponse(BaseModel):
-    status: str
+    status: Literal["valid"]
     message: str
     plan: str
     customer_name: str
@@ -250,80 +243,38 @@ async def test_email_imap_settings():
 
 # ── License routes ────────────────────────────────────────────────────────────
 
-def _dev_skip_license() -> bool:
-    return _os.environ.get("DEV_SKIP_LICENSE", "0") == "1"
-
-
-def _dev_bypass_response() -> LicenseStatusResponse:
+def _license_removed_response() -> LicenseStatusResponse:
     return LicenseStatusResponse(
         status="valid",
-        message="Dev bypass — license server not yet deployed",
+        message="License verification has been removed; all features are available.",
         plan="lifetime",
-        customer_name="Dev User",
+        customer_name="Local User",
         expires_at=None,
     )
 
 
 @router.get("/license/status", response_model=LicenseStatusResponse)
 async def license_status():
-    """Check current license status."""
-    if _dev_skip_license():
-        return _dev_bypass_response()
-    validator = _get_validator()
-    result = await validator.check()
-    return _to_response(result)
+    """Return a compatibility response after license verification removal."""
+    return _license_removed_response()
 
 
 @router.post("/license/activate", response_model=LicenseStatusResponse)
 async def activate_license(req: ActivateRequest):
-    """Activate a license key on this machine."""
-    if _dev_skip_license():
-        return _dev_bypass_response()
-    if not req.license_key.strip():
-        raise HTTPException(status_code=400, detail="License key is required")
-    validator = _get_validator()
-    result = await validator.activate(req.license_key, req.machine_label)
-    if not result.is_allowed:
-        raise HTTPException(status_code=403, detail=result.message)
-    return _to_response(result)
+    """Keep the old activation endpoint stable after license removal."""
+    return _license_removed_response()
 
 
 @router.post("/license/deactivate", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_license():
-    """Deactivate this device (for device transfer)."""
-    validator = _get_validator()
-    await validator.deactivate()
+    """Keep the old deactivation endpoint stable after license removal."""
+    return None
 
 
 @router.post("/license/save-token", status_code=status.HTTP_204_NO_CONTENT)
 async def save_license_token(req: SaveTokenRequest):
-    """Save JWT token from license server (for offline use)."""
-    if _dev_skip_license():
-        return
-    # If expires_at not provided, decode from JWT token (fallback)
-    if req.expires_at:
-        from datetime import datetime, timezone
-        expires_at = datetime.fromisoformat(req.expires_at.replace("Z", "+00:00"))
-    else:
-        # Try to parse from JWT token
-        import base64
-        import json
-        try:
-            parts = req.token.split(".")
-            if len(parts) >= 2:
-                payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=="[: (4 - len(parts[1]) % 4)]))
-                exp = payload.get("exp")
-                if exp:
-                    from datetime import datetime, timezone
-                    expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
-                else:
-                    expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
-            else:
-                expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
-        except Exception:
-            from datetime import datetime, timezone
-            expires_at = datetime.now(timezone.utc).replace(year=2099, month=12, day=31)
-    save_token(req.token, expires_at)
+    """Accept legacy save-token calls as a no-op after license removal."""
+    return None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -336,13 +287,3 @@ def _mask(value: str) -> str:
 
 def _is_masked(value: str) -> bool:
     return "****" in value
-
-
-def _to_response(result: LicenseResult) -> LicenseStatusResponse:
-    return LicenseStatusResponse(
-        status=result.status.value,
-        message=result.message,
-        plan=result.plan,
-        customer_name=result.customer_name,
-        expires_at=result.expires_at.isoformat() if result.expires_at else None,
-    )
