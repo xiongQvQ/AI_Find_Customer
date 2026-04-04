@@ -162,8 +162,7 @@ def _wait_for_hunt(
         time.sleep(max(1, poll_seconds))
 
 
-def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
-    payload = build_hunt_payload(args)
+def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
     created = _request_json(
         method="POST",
         base_url=args.api_base_url,
@@ -237,6 +236,11 @@ def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         "email_sequence_count": len(sequences) if isinstance(sequences, list) else 0,
         "campaign": campaign_summary,
     }
+
+
+def run_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    payload = build_hunt_payload(args)
+    return run_hunt_payload(args, payload)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

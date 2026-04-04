@@ -202,6 +202,7 @@ class Settings(BaseSettings):
     # In packaged mode, redirected to ~/Library/Application Support/AIHunter/
     checkpoint_db_path: str = _resolve_file("hunt_sessions.db")
     email_db_path: str = _resolve_file("email_automation.db")
+    automation_queue_db_path: str = _resolve_file("automation_queue.db")
 
     # --- Hunt persistence ---
     hunts_dir: str = _resolve_dir("data/hunts")  # directory for JSON hunt files

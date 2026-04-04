@@ -364,41 +364,56 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 
 ## 无界面部署到 VPS
 
-如果你不需要前端界面，只想在 VPS 上持续执行“挖掘 -> 生成邮件 -> 自动发送”，推荐拆成两个常驻进程：
+如果你不需要前端界面，只想在 VPS 上持续执行“挖掘 -> 生成邮件 -> 自动发送”，现在有两种模式：
+
+- 简单模式：`headless_worker.py`
+  适合单机串行跑，一轮 hunt 完成后再开始下一轮
+- 队列模式：`hunt_queue.py producer` + `hunt_queue.py consumer`
+  适合你要的生产者-消费者结构
+
+如果你要真正的生产者-消费者，推荐拆成三个常驻进程：
 
 - `API 服务`：负责 hunt、邮件生成、campaign API、发送 scheduler、回信检测
-- `Worker 服务`：负责不断创建新 hunt，达到目标线索数后自动创建并启动 campaign
+- `Producer 服务`：持续往 `hunt_jobs` 队列写入新的挖掘任务
+- `Consumer 服务`：持续从 `hunt_jobs` 队列取任务，执行 hunt，并自动创建 / 启动 campaign
 
-这套结构本质上就是生产者-消费者：
+这套结构本质上就是两层生产者-消费者：
 
-- 生产者：`backend/scripts/headless_worker.py` 持续创建新的 hunt
-- 消费者：`api.app` 内置的 `EmailScheduler` 后台循环负责发送 pending 邮件
+- 第一层生产者：`backend/scripts/hunt_queue.py producer`
+- 第一层消费者：`backend/scripts/hunt_queue.py consumer`
+- 第二层消费者：`api.app` 内置的 `EmailScheduler`
 
 当前真实逻辑再具体一点：
 
-1. `headless_worker.py` 调 `/api/v1/hunts` 创建一个新 hunt
-2. worker 轮询这个 hunt，直到状态变成 `completed`
-3. hunt 完成后，如果开启了邮件生成，worker 会自动调 `/api/v1/hunts/{hunt_id}/email-campaigns`
-4. campaign 创建时，会把可发送的邮件序列写进 SQLite：
+1. `hunt_queue.py producer` 把 hunt payload 持久化写入 SQLite 的 `hunt_jobs`
+2. `hunt_queue.py consumer` 领取一个 `hunt_job`
+3. consumer 调 `/api/v1/hunts` 创建一个真实 hunt
+4. consumer 轮询这个 hunt，直到状态变成 `completed`
+5. hunt 完成后，如果开启了邮件生成，consumer 会自动调 `/api/v1/hunts/{hunt_id}/email-campaigns`
+6. campaign 创建时，会把可发送的邮件序列写进 SQLite：
    - `lead_email_sequences`
    - `email_messages`
-5. `EmailScheduler` 后台循环每 60 秒扫描一次 `email_messages` 里的 `pending` 记录
-6. 到时间的邮件会被发送，发送后更新状态为 `sent / failed`
-7. `EmailReply` 后台循环按配置间隔扫描 IMAP 回信，命中后会停掉后续跟进
+7. `EmailScheduler` 后台循环每 60 秒扫描一次 `email_messages` 里的 `pending` 记录
+8. 到时间的邮件会被发送，发送后更新状态为 `sent / failed`
+9. `EmailReply` 后台循环按配置间隔扫描 IMAP 回信，命中后会停掉后续跟进
 
-也就是说，现在的“队列”不是 Redis 或 MQ，而是 SQLite 里的持久化待发送队列：
+也就是说，现在已经是两层持久化队列：
 
-- 入队：创建 campaign 时写入 `email_messages`
-- 出队：scheduler 轮询 `pending + scheduled_at <= now`
-- 消费结果：更新为 `sent / failed / cancelled`
+- 第一层队列：`hunt_jobs`
+  负责“待执行的客户挖掘任务”
+- 第二层队列：`email_messages`
+  负责“待发送的邮件消息”
 
-需要注意一件事：
+当前两层队列都不是 Redis / MQ，而是 SQLite 持久化队列：
 
-- 现在的 producer 是“单 worker 串行生产”
-- 它会等当前 hunt 完成后，再创建下一轮 hunt
-- 但这不影响消费者并行工作，因为 `EmailScheduler` 是独立后台循环，会一边发旧 campaign 的邮件，一边等待新的 hunt 完成
-
-如果你后面想升级成“多个 producer 并发挖掘”，可以再多起几个 `headless_worker.py` 进程，或者再补一个专门的 hunt job queue。
+- `hunt_jobs`
+  - 入队：producer 创建 job
+  - 出队：consumer claim 一个 queued job
+  - 结果：`completed / failed / requeued`
+- `email_messages`
+  - 入队：创建 campaign 时写入待发送消息
+  - 出队：scheduler 轮询 `pending + scheduled_at <= now`
+  - 结果：`sent / failed / cancelled`
 
 ### 自动任务配置
 
@@ -442,6 +457,53 @@ python scripts/headless_worker.py \
 - 然后把邮件写入持久化待发送队列
 - 发送由后台 scheduler 按时间消费
 
+### 启动真正的 producer / consumer
+
+先准备任务模板：
+
+```bash
+cd backend
+cp automation_job.example.json automation_job.json
+```
+
+启动 producer：
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/hunt_queue.py producer \
+  --payload-file ./automation_job.json \
+  --continuous \
+  --enqueue-interval-seconds 60 \
+  --max-pending-jobs 3
+```
+
+这条命令表示：
+
+- 每 60 秒检查一次
+- 如果 `hunt_jobs` 里排队中和执行中的任务少于 3 个，就继续入队
+
+启动 consumer：
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/hunt_queue.py consumer \
+  --continuous \
+  --poll-seconds 15 \
+  --retry-delay-seconds 120 \
+  --status-poll-seconds 15
+```
+
+这条命令表示：
+
+- 每 15 秒看一次有没有新的 hunt job
+- 抢到 job 后执行 hunt
+- 失败时 120 秒后自动回到队列
+- hunt 完成后自动建 campaign 并启动
+
+如果你要更强的挖掘吞吐，可以起多个 consumer 进程；它们会竞争领取 `hunt_jobs` 队列里的任务。
+
 如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
 
 ```env
@@ -467,9 +529,11 @@ sudo systemctl enable --now ai-hunter-worker
 
 ### 无界面模式测试
 
-本仓库已经补了针对 headless worker 的无界面链路测试。你可以直接执行：
+本仓库已经补了针对无界面链路的测试。你可以直接执行：
 
 ```bash
+pytest backend/tests/test_automation/test_job_queue.py \
+  backend/tests/test_scripts/test_hunt_queue.py \
 pytest backend/tests/test_scripts/test_headless_worker.py \
   backend/tests/test_api/test_email_routes.py \
   backend/tests/test_api/test_routes.py
@@ -477,6 +541,9 @@ pytest backend/tests/test_scripts/test_headless_worker.py \
 
 这组测试覆盖了：
 
+- `hunt_jobs` 队列的入队、领取、完成、重试
+- producer 往 hunt 队列持续入任务
+- consumer 从 hunt 队列取任务并执行
 - worker 创建 hunt
 - 轮询 hunt 完成
 - 自动创建并启动 campaign
