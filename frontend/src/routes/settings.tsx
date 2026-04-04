@@ -121,6 +121,26 @@ const PROVIDERS: Provider[] = [
   },
 ];
 
+const MAIN_API_KEY_FIELDS: Record<string, string> = {
+  openai: "openai_api_key",
+  anthropic: "anthropic_api_key",
+  openrouter: "openrouter_api_key",
+  groq: "groq_api_key",
+  glm: "zai_api_key",
+  kimi: "moonshot_api_key",
+  minimax: "minimax_api_key",
+};
+
+const EMAIL_API_KEY_FIELDS: Record<string, string> = {
+  openai: "email_openai_api_key",
+  anthropic: "email_anthropic_api_key",
+  openrouter: "email_openrouter_api_key",
+  groq: "email_groq_api_key",
+  glm: "email_zai_api_key",
+  kimi: "email_moonshot_api_key",
+  minimax: "email_minimax_api_key",
+};
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 async function fetchSettings() {
@@ -269,14 +289,24 @@ function ModelCombobox({
 // ── LLM Provider Panel ────────────────────────────────────────────────────────
 
 function LLMProviderPanel({
+  title,
+  description,
   values,
   onChange,
+  defaultModelKey,
+  reasoningModelKey,
+  apiKeyFieldMap,
 }: {
+  title: string;
+  description: string;
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
+  defaultModelKey: string;
+  reasoningModelKey: string;
+  apiKeyFieldMap: Record<string, string>;
 }) {
-  const currentDefaultModel = values.llm_model ?? "";
-  const currentReasoningModel = values.reasoning_model ?? "";
+  const currentDefaultModel = values[defaultModelKey] ?? "";
+  const currentReasoningModel = values[reasoningModelKey] ?? "";
 
   // Derive the active provider from saved model values (default to openai)
   const [providerId, setProviderId] = useState<string>(() =>
@@ -291,24 +321,24 @@ function LLMProviderPanel({
     const p = PROVIDERS.find((pr) => pr.id === newId)!;
     // Only reset models if the current values don't belong to the new provider
     if (!currentDefaultModel || detectProvider(currentDefaultModel) !== newId) {
-      onChange("llm_model", p.defaultModels[0] ?? "");
+      onChange(defaultModelKey, p.defaultModels[0] ?? "");
     }
     if (!currentReasoningModel || detectProvider(currentReasoningModel) !== newId) {
-      onChange("reasoning_model", p.reasoningModels[0] ?? "");
+      onChange(reasoningModelKey, p.reasoningModels[0] ?? "");
     }
   };
 
-  const apiKeyValue = values[provider.apiKeyField] ?? "";
+  const apiKeyValue = values[apiKeyFieldMap[provider.id] ?? provider.apiKeyField] ?? "";
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Cpu className="h-5 w-5 text-primary" />
-          <CardTitle className="text-base">AI 模型配置</CardTitle>
+          <CardTitle className="text-base">{title}</CardTitle>
         </div>
         <CardDescription>
-          选择 LLM 供应商，填写 API Key，并配置默认模型与推理模型。
+          {description}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -340,7 +370,7 @@ function LLMProviderPanel({
           <SecretInput
             id="llm-api-key"
             value={apiKeyValue}
-            onChange={(v) => onChange(provider.apiKeyField, v)}
+            onChange={(v) => onChange(apiKeyFieldMap[provider.id] ?? provider.apiKeyField, v)}
             placeholder={provider.apiKeyPlaceholder || `输入 ${provider.label} API Key`}
           />
         </div>
@@ -357,8 +387,8 @@ function LLMProviderPanel({
           </Label>
           <ModelCombobox
             id="llm-default-model"
-            value={values.llm_model ?? ""}
-            onChange={(v) => onChange("llm_model", v)}
+            value={values[defaultModelKey] ?? ""}
+            onChange={(v) => onChange(defaultModelKey, v)}
             options={provider.defaultModels}
             placeholder={provider.defaultModels[0] ?? "gpt-4o-mini"}
           />
@@ -374,51 +404,11 @@ function LLMProviderPanel({
           </Label>
           <ModelCombobox
             id="llm-reasoning-model"
-            value={values.reasoning_model ?? ""}
-            onChange={(v) => onChange("reasoning_model", v)}
+            value={values[reasoningModelKey] ?? ""}
+            onChange={(v) => onChange(reasoningModelKey, v)}
             options={provider.reasoningModels}
             placeholder={provider.reasoningModels[0] ?? "gpt-4o"}
           />
-        </div>
-
-        <Separator />
-
-        <div className="space-y-1.5">
-          <Label htmlFor="email-llm-model">
-            邮件生成模型
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              — 用于模板提取、邮件生成、改写
-            </span>
-          </Label>
-          <ModelCombobox
-            id="email-llm-model"
-            value={values.email_llm_model ?? ""}
-            onChange={(v) => onChange("email_llm_model", v)}
-            options={provider.defaultModels}
-            placeholder={provider.defaultModels[0] ?? "gpt-4o-mini"}
-          />
-          <p className="text-xs text-muted-foreground">
-            留空时会回退到默认模型。单独配置后，邮件生成不会再和主链路共用同一个默认模型 RPM。
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="email-reasoning-model">
-            邮件推理模型
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              — 用于邮件 ReAct / 校验修复闭环
-            </span>
-          </Label>
-          <ModelCombobox
-            id="email-reasoning-model"
-            value={values.email_reasoning_model ?? ""}
-            onChange={(v) => onChange("email_reasoning_model", v)}
-            options={provider.reasoningModels}
-            placeholder={provider.reasoningModels[0] ?? "gpt-4o"}
-          />
-          <p className="text-xs text-muted-foreground">
-            留空时会回退到主推理模型。适合把邮件链路单独切到另一套模型，规避 MiniMax 共用限速。
-          </p>
         </div>
 
       </CardContent>
@@ -1030,6 +1020,13 @@ export function SettingsPage() {
         ZAI_API_KEY: "zai_api_key",
         MOONSHOT_API_KEY: "moonshot_api_key",
         MINIMAX_API_KEY: "minimax_api_key",
+        EMAIL_OPENAI_API_KEY: "email_openai_api_key",
+        EMAIL_ANTHROPIC_API_KEY: "email_anthropic_api_key",
+        EMAIL_OPENROUTER_API_KEY: "email_openrouter_api_key",
+        EMAIL_GROQ_API_KEY: "email_groq_api_key",
+        EMAIL_ZAI_API_KEY: "email_zai_api_key",
+        EMAIL_MOONSHOT_API_KEY: "email_moonshot_api_key",
+        EMAIL_MINIMAX_API_KEY: "email_minimax_api_key",
         SERPER_API_KEY: "serper_api_key",
         TAVILY_API_KEY: "tavily_api_key",
         JINA_API_KEY: "jina_api_key",
@@ -1116,7 +1113,25 @@ export function SettingsPage() {
       <Separator />
 
       {/* LLM Provider + Models (new unified panel) */}
-      <LLMProviderPanel values={values} onChange={handleChange} />
+      <LLMProviderPanel
+        title="AI 模型配置"
+        description="选择主链路 LLM 供应商，填写 API Key，并配置默认模型与推理模型。"
+        values={values}
+        onChange={handleChange}
+        defaultModelKey="llm_model"
+        reasoningModelKey="reasoning_model"
+        apiKeyFieldMap={MAIN_API_KEY_FIELDS}
+      />
+
+      <LLMProviderPanel
+        title="邮件模型配置"
+        description="为邮件生成、自动修复和邮件 ReAct 单独配置供应商、API Key 与模型，避免和主链路共用同一个 RPM。"
+        values={values}
+        onChange={handleChange}
+        defaultModelKey="email_llm_model"
+        reasoningModelKey="email_reasoning_model"
+        apiKeyFieldMap={EMAIL_API_KEY_FIELDS}
+      />
 
       {/* Search */}
       <FieldGroup

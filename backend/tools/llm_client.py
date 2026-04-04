@@ -53,9 +53,20 @@ def normalize_model_name(model: str) -> str:
     return model
 
 
-def _inject_api_keys(settings: Settings) -> None:
-    """Push provider API keys from Settings into env vars for litellm."""
-    _key_map = {
+def _provider_key_map(settings: Settings, scope: str) -> dict[str, str]:
+    if scope in {"email", "email_reasoning"}:
+        return {
+            "OPENAI_API_KEY": settings.email_openai_api_key or settings.openai_api_key,
+            "ANTHROPIC_API_KEY": settings.email_anthropic_api_key or settings.anthropic_api_key,
+            "OPENROUTER_API_KEY": settings.email_openrouter_api_key or settings.openrouter_api_key,
+            "GROQ_API_KEY": settings.email_groq_api_key or settings.groq_api_key,
+            "ZAI_API_KEY": settings.email_zai_api_key or settings.zai_api_key,
+            "MOONSHOT_API_KEY": settings.email_moonshot_api_key or settings.moonshot_api_key,
+            "MINIMAX_API_KEY": settings.email_minimax_api_key or settings.minimax_api_key,
+            "MINIMAX_API_BASE": normalize_minimax_api_base(settings.minimax_api_base),
+            "ZHIPUAI_API_KEY": settings.email_zai_api_key or settings.zai_api_key,
+        }
+    return {
         "OPENAI_API_KEY": settings.openai_api_key,
         "ANTHROPIC_API_KEY": settings.anthropic_api_key,
         "OPENROUTER_API_KEY": settings.openrouter_api_key,
@@ -66,6 +77,11 @@ def _inject_api_keys(settings: Settings) -> None:
         "MINIMAX_API_BASE": normalize_minimax_api_base(settings.minimax_api_base),
         "ZHIPUAI_API_KEY": settings.zai_api_key,
     }
+
+
+def _inject_api_keys(settings: Settings, scope: str = "default") -> None:
+    """Push provider API keys from Settings into env vars for litellm."""
+    _key_map = _provider_key_map(settings, scope)
     for env_var, value in _key_map.items():
         if value:
             os.environ[env_var] = value
@@ -127,7 +143,7 @@ class LLMTool:
         self._hunt_id = hunt_id
         self._agent = agent
         self._hunt_round = hunt_round
-        _inject_api_keys(self._settings)
+        _inject_api_keys(self._settings, self._model_type)
 
     @property
     def model(self) -> str:

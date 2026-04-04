@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     moonshot_api_key: str = ""    # Kimi / Moonshot AI
     minimax_api_key: str = ""
     minimax_api_base: str = "https://api.minimax.io/v1"
+    email_openai_api_key: str = ""
+    email_anthropic_api_key: str = ""
+    email_openrouter_api_key: str = ""
+    email_groq_api_key: str = ""
+    email_zai_api_key: str = ""
+    email_moonshot_api_key: str = ""
+    email_minimax_api_key: str = ""
 
     # --- Search ---
     serper_api_key: str = ""

@@ -23,6 +23,13 @@ def _make_settings(**overrides) -> Settings:
         "reasoning_temperature": 0.2,
         "reasoning_max_tokens": 4096,
         "reasoning_requests_per_minute": 0,
+        "email_openai_api_key": "",
+        "email_anthropic_api_key": "",
+        "email_openrouter_api_key": "",
+        "email_groq_api_key": "",
+        "email_zai_api_key": "",
+        "email_moonshot_api_key": "",
+        "email_minimax_api_key": "",
         "email_llm_model": "",
         "email_reasoning_model": "",
         "email_llm_requests_per_minute": 0,
@@ -311,6 +318,29 @@ class TestInjectApiKeys:
         os.environ.pop("GROQ_API_KEY", None)
         _inject_api_keys(settings)
         assert "GROQ_API_KEY" not in os.environ
+
+    def test_email_scope_prefers_email_specific_keys(self):
+        settings = _make_settings(
+            openai_api_key="main-openai",
+            email_openai_api_key="email-openai",
+            minimax_api_key="main-minimax",
+            email_minimax_api_key="email-minimax",
+        )
+        saved_openai = os.environ.pop("OPENAI_API_KEY", None)
+        saved_minimax = os.environ.pop("MINIMAX_API_KEY", None)
+        try:
+            _inject_api_keys(settings, "email")
+            assert os.environ["OPENAI_API_KEY"] == "email-openai"
+            assert os.environ["MINIMAX_API_KEY"] == "email-minimax"
+        finally:
+            if saved_openai is not None:
+                os.environ["OPENAI_API_KEY"] = saved_openai
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+            if saved_minimax is not None:
+                os.environ["MINIMAX_API_KEY"] = saved_minimax
+            else:
+                os.environ.pop("MINIMAX_API_KEY", None)
 
     def test_overwrites_stale_zai_key_for_reasoning_model(self):
         settings = _make_settings(

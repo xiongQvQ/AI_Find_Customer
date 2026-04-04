@@ -239,7 +239,7 @@ async def react_loop(
     max_tokens = _settings.reasoning_max_tokens
 
     # Inject API keys
-    _inject_api_keys(_settings)
+    _inject_api_keys(_settings, model_scope)
 
     # Build tool schemas and lookup
     tool_schemas = [t.to_openai_schema() for t in tools]

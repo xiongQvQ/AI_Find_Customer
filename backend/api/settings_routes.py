@@ -30,6 +30,13 @@ class SettingsPayload(BaseModel):
     zai_api_key: str = ""
     moonshot_api_key: str = ""
     minimax_api_key: str = ""
+    email_openai_api_key: str = ""
+    email_anthropic_api_key: str = ""
+    email_openrouter_api_key: str = ""
+    email_groq_api_key: str = ""
+    email_zai_api_key: str = ""
+    email_moonshot_api_key: str = ""
+    email_minimax_api_key: str = ""
     serper_api_key: str = ""
     tavily_api_key: str = ""
     jina_api_key: str = ""
@@ -160,6 +167,13 @@ async def save_settings(payload: SettingsPayload):
         "zai_api_key": "ZAI_API_KEY",
         "moonshot_api_key": "MOONSHOT_API_KEY",
         "minimax_api_key": "MINIMAX_API_KEY",
+        "email_openai_api_key": "EMAIL_OPENAI_API_KEY",
+        "email_anthropic_api_key": "EMAIL_ANTHROPIC_API_KEY",
+        "email_openrouter_api_key": "EMAIL_OPENROUTER_API_KEY",
+        "email_groq_api_key": "EMAIL_GROQ_API_KEY",
+        "email_zai_api_key": "EMAIL_ZAI_API_KEY",
+        "email_moonshot_api_key": "EMAIL_MOONSHOT_API_KEY",
+        "email_minimax_api_key": "EMAIL_MINIMAX_API_KEY",
         "serper_api_key": "SERPER_API_KEY",
         "tavily_api_key": "TAVILY_API_KEY",
         "jina_api_key": "JINA_API_KEY",
