@@ -6,16 +6,51 @@ MiniMax, and 100+ other providers through litellm.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 import litellm
 
 from config.settings import Settings, get_settings
+from tools.llm_errors import format_llm_error
+from tools.llm_rate_limiter import get_llm_rate_limiter
 
 
 # Suppress litellm's verbose logging by default
 litellm.suppress_debug_info = True
+logger = logging.getLogger(__name__)
+
+
+_RESPONSE_FORMAT_UNSUPPORTED_PREFIXES = (
+    "zai/",
+)
+
+
+def normalize_minimax_api_base(api_base: str) -> str:
+    """Normalize MiniMax API base URLs to the OpenAI-compatible `/v1` form."""
+    base = (api_base or "").strip().rstrip("/")
+    if not base:
+        return api_base
+    if base.endswith("/anthropic"):
+        logger.warning("Normalizing legacy MiniMax API base from %s to OpenAI-compatible /v1", api_base)
+        return base[: -len("/anthropic")] + "/v1"
+    return base
+
+
+def normalize_model_name(model: str) -> str:
+    """Normalize legacy provider/model aliases before sending to LiteLLM.
+
+    MiniMax exposes an Anthropic-compatible endpoint, so older config may use
+    `anthropic/MiniMax-*`. LiteLLM treats that as the real Anthropic provider
+    and expects `ANTHROPIC_API_KEY`, which breaks auth when only
+    `MINIMAX_API_KEY` is configured.
+    """
+    if model.startswith("anthropic/") and "minimax" in model.lower():
+        normalized = "minimax/" + model.split("/", 1)[1]
+        logger.warning("Normalizing legacy model alias from %s to %s", model, normalized)
+        return normalized
+    return model
 
 
 def _inject_api_keys(settings: Settings) -> None:
@@ -28,18 +63,18 @@ def _inject_api_keys(settings: Settings) -> None:
         "ZAI_API_KEY": settings.zai_api_key,
         "MOONSHOT_API_KEY": settings.moonshot_api_key,
         "MINIMAX_API_KEY": settings.minimax_api_key,
-        "MINIMAX_API_BASE": settings.minimax_api_base,
+        "MINIMAX_API_BASE": normalize_minimax_api_base(settings.minimax_api_base),
         "ZHIPUAI_API_KEY": settings.zai_api_key,
     }
     for env_var, value in _key_map.items():
-        if value and not os.environ.get(env_var):
+        if value:
             os.environ[env_var] = value
 
     # Native workaround: If using anthropic/ prefix for MiniMax, inject ANTHROPIC_API_BASE
     if settings.llm_model.startswith("anthropic/") and "minimax" in settings.llm_model.lower():
-        os.environ["ANTHROPIC_API_BASE"] = settings.minimax_api_base
+        os.environ["ANTHROPIC_API_BASE"] = normalize_minimax_api_base(settings.minimax_api_base)
     if settings.reasoning_model.startswith("anthropic/") and "minimax" in settings.reasoning_model.lower():
-        os.environ["ANTHROPIC_API_BASE"] = settings.minimax_api_base
+        os.environ["ANTHROPIC_API_BASE"] = normalize_minimax_api_base(settings.minimax_api_base)
 
 
 class LLMTool:
@@ -83,8 +118,8 @@ class LLMTool:
     @property
     def model(self) -> str:
         if self._model_type == "reasoning":
-            return self._settings.reasoning_model
-        return self._settings.llm_model
+            return normalize_model_name(self._settings.reasoning_model)
+        return normalize_model_name(self._settings.llm_model)
 
     @property
     def _default_temperature(self) -> float:
@@ -97,6 +132,16 @@ class LLMTool:
         if self._model_type == "reasoning":
             return self._settings.reasoning_max_tokens
         return self._settings.llm_max_tokens
+
+    @property
+    def _requests_per_minute(self) -> int:
+        if self._model_type == "reasoning":
+            return self._settings.reasoning_requests_per_minute or self._settings.llm_requests_per_minute
+        return self._settings.llm_requests_per_minute
+
+    def _supports_response_format(self) -> bool:
+        """Return whether the current provider accepts OpenAI-style response_format."""
+        return not self.model.startswith(_RESPONSE_FORMAT_UNSUPPORTED_PREFIXES)
 
     async def generate(
         self,
@@ -134,9 +179,19 @@ class LLMTool:
             "max_tokens": tokens,
         }
         if response_format:
-            kwargs["response_format"] = response_format
+            if self._supports_response_format():
+                kwargs["response_format"] = response_format
+            else:
+                logger.info(
+                    "Skipping response_format for model %s because the provider does not support it",
+                    self.model,
+                )
 
-        response = await litellm.acompletion(**kwargs)
+        try:
+            await get_llm_rate_limiter(self._model_type, self._requests_per_minute).acquire()
+            response = await litellm.acompletion(**kwargs)
+        except Exception as exc:
+            raise RuntimeError(format_llm_error(exc)) from exc
 
         # Record cost to tracker if hunt_id is set
         if self._hunt_id:

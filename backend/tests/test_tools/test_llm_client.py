@@ -8,6 +8,7 @@ import pytest
 
 from config.settings import Settings
 from tools.llm_client import LLMTool, _inject_api_keys
+from tools.llm_errors import format_llm_error
 
 
 def _make_settings(**overrides) -> Settings:
@@ -17,9 +18,11 @@ def _make_settings(**overrides) -> Settings:
         "llm_model": "gpt-4o-mini",
         "llm_temperature": 0.3,
         "llm_max_tokens": 4096,
+        "llm_requests_per_minute": 0,
         "reasoning_model": "gpt-4o",
         "reasoning_temperature": 0.2,
         "reasoning_max_tokens": 4096,
+        "reasoning_requests_per_minute": 0,
     }
     defaults.update(overrides)
     return Settings(**defaults)
@@ -121,6 +124,17 @@ class TestLLMToolGenerate:
         assert mock_call.call_args.kwargs["response_format"] == {"type": "json_object"}
 
     @pytest.mark.asyncio
+    async def test_generate_json_mode_skips_response_format_for_zai(self):
+        tool = LLMTool(settings=_make_settings(llm_model="zai/glm-4.7"))
+        mock_resp = _mock_completion('{"key": "val"}')
+
+        with patch("tools.llm_client.litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_call:
+            result = await tool.generate("test", response_format={"type": "json_object"})
+
+        assert result == '{"key": "val"}'
+        assert "response_format" not in mock_call.call_args.kwargs
+
+    @pytest.mark.asyncio
     async def test_generate_uses_default_temperature(self):
         tool = LLMTool(settings=_make_settings(llm_temperature=0.7))
         mock_resp = _mock_completion("ok")
@@ -164,6 +178,19 @@ class TestLLMToolGenerate:
 
             assert mock_call.call_args.kwargs["model"] == model_name
 
+    @pytest.mark.asyncio
+    async def test_generate_applies_rpm_limiter(self):
+        tool = LLMTool(settings=_make_settings(llm_requests_per_minute=12))
+        mock_resp = _mock_completion("ok")
+        limiter = AsyncMock()
+
+        with patch("tools.llm_client.get_llm_rate_limiter", return_value=limiter) as mock_get:
+            with patch("tools.llm_client.litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp):
+                await tool.generate("test")
+
+        mock_get.assert_called_once_with("default", 12)
+        limiter.acquire.assert_awaited_once()
+
 
 class TestLLMToolErrors:
     @pytest.mark.asyncio
@@ -171,8 +198,34 @@ class TestLLMToolErrors:
         tool = LLMTool(settings=_make_settings())
 
         with patch("tools.llm_client.litellm.acompletion", new_callable=AsyncMock, side_effect=Exception("API error")):
-            with pytest.raises(Exception, match="API error"):
+            with pytest.raises(RuntimeError, match="API error"):
                 await tool.generate("test")
+
+    @pytest.mark.asyncio
+    async def test_minimax_insufficient_balance_is_reworded(self):
+        tool = LLMTool(settings=_make_settings())
+        upstream = (
+            'litellm.APIConnectionError: MinimaxException - '
+            '{"type":"error","error":{"type":"insufficient_balance_error",'
+            '"message":"insufficient balance (1008)","http_code":"429"}}'
+        )
+
+        with patch("tools.llm_client.litellm.acompletion", new_callable=AsyncMock, side_effect=Exception(upstream)):
+            with pytest.raises(RuntimeError, match="账户余额不足"):
+                await tool.generate("test")
+
+
+class TestFormatLLMError:
+    def test_formats_insufficient_balance(self):
+        msg = format_llm_error(Exception(
+            'MinimaxException - {"error":{"type":"insufficient_balance_error","message":"insufficient balance (1008)","http_code":"429"}}'
+        ))
+        assert "账户余额不足" in msg
+        assert "MiniMax API 调用失败" in msg
+
+    def test_formats_generic_429(self):
+        msg = format_llm_error(Exception('provider error {"http_code":"429"}'))
+        assert "上游返回 429" in msg
 
 
 class TestInjectApiKeys:
@@ -215,12 +268,12 @@ class TestInjectApiKeys:
                 else:
                     os.environ.pop(k, None)
 
-    def test_does_not_overwrite_existing_env(self):
+    def test_overwrites_existing_env_with_current_settings(self):
         settings = _make_settings(openai_api_key="new-key")
         os.environ["OPENAI_API_KEY"] = "existing-key"
         try:
             _inject_api_keys(settings)
-            assert os.environ["OPENAI_API_KEY"] == "existing-key"
+            assert os.environ["OPENAI_API_KEY"] == "new-key"
         finally:
             os.environ.pop("OPENAI_API_KEY", None)
 
@@ -229,6 +282,21 @@ class TestInjectApiKeys:
         os.environ.pop("GROQ_API_KEY", None)
         _inject_api_keys(settings)
         assert "GROQ_API_KEY" not in os.environ
+
+    def test_overwrites_stale_zai_key_for_reasoning_model(self):
+        settings = _make_settings(
+            reasoning_model="zai/glm-4.7",
+            zai_api_key="new-zai-key",
+        )
+        os.environ["ZAI_API_KEY"] = "stale-zai-key"
+        os.environ["ZHIPUAI_API_KEY"] = "stale-zai-key"
+        try:
+            _inject_api_keys(settings)
+            assert os.environ["ZAI_API_KEY"] == "new-zai-key"
+            assert os.environ["ZHIPUAI_API_KEY"] == "new-zai-key"
+        finally:
+            os.environ.pop("ZAI_API_KEY", None)
+            os.environ.pop("ZHIPUAI_API_KEY", None)
 
 
 class TestLLMToolLifecycle:
