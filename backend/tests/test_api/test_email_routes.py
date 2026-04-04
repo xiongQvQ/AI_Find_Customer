@@ -14,6 +14,8 @@ def test_create_and_start_email_campaign(monkeypatch, tmp_path):
                 {
                     "lead": {"company_name": "Acme", "website": "https://acme.com"},
                     "locale": "en_US",
+                    "review_summary": {"status": "approved", "score": 92},
+                    "auto_send_eligible": True,
                     "generation_mode": "template_pool",
                     "template_id": "tpl_123",
                     "template_group": "en_US|decision_maker_verified|general",
@@ -147,6 +149,84 @@ def test_create_campaign_skips_blocked_template(monkeypatch, tmp_path):
     res = client.post("/api/v1/hunts/hunt_1/email-campaigns", json={"name": "Blocked Campaign"})
     assert res.status_code == 200
     assert res.json()["sequence_count"] == 0
+
+
+def test_create_campaign_skips_unapproved_sequences(monkeypatch, tmp_path):
+    app = create_app()
+    client = TestClient(app)
+
+    hunt = {
+        "status": "completed",
+        "result": {
+            "email_sequences": [
+                {
+                    "lead": {"company_name": "Needs Review", "website": "https://review.com"},
+                    "locale": "en_US",
+                    "review_summary": {"status": "needs_review", "score": 61},
+                    "auto_send_eligible": False,
+                    "target": {
+                        "target_email": "buyer@review.com",
+                        "target_name": "Jane",
+                        "target_title": "Purchasing Manager",
+                        "target_type": "decision_maker_verified",
+                    },
+                    "emails": [
+                        {"sequence_number": 1, "email_type": "company_intro", "subject": "Hi", "body_text": "A", "suggested_send_day": 0},
+                    ],
+                },
+                {
+                    "lead": {"company_name": "Approved", "website": "https://approved.com"},
+                    "locale": "en_US",
+                    "review_summary": {"status": "approved", "score": 90},
+                    "auto_send_eligible": True,
+                    "target": {
+                        "target_email": "buyer@approved.com",
+                        "target_name": "John",
+                        "target_title": "Purchasing Manager",
+                        "target_type": "decision_maker_verified",
+                    },
+                    "emails": [
+                        {"sequence_number": 1, "email_type": "company_intro", "subject": "Hi", "body_text": "A", "suggested_send_day": 0},
+                    ],
+                }
+            ]
+        },
+    }
+
+    monkeypatch.setattr("api.email_routes.load_hunt", lambda hunt_id: hunt)
+    monkeypatch.setattr("api.email_routes.save_hunt", lambda hunt_id, data: None)
+    monkeypatch.setattr("api.email_routes.get_settings", lambda: type("S", (), {
+        "email_db_path": str(tmp_path / "email.db"),
+        "email_provider_type": "smtp",
+        "email_from_name": "B2Binsights",
+        "email_from_address": "sales@example.com",
+        "email_reply_to": "sales@example.com",
+        "email_smtp_host": "smtp.example.com",
+        "email_smtp_port": 587,
+        "email_smtp_username": "sales@example.com",
+        "email_smtp_password": "secret",
+        "email_smtp_last_test_at": "2026-04-04T10:00:00Z",
+        "email_imap_host": "",
+        "email_imap_port": 993,
+        "email_imap_username": "",
+        "email_imap_password": "",
+        "email_use_tls": True,
+        "email_daily_send_limit": 50,
+        "email_hourly_send_limit": 10,
+        "email_language_mode": "auto_by_region",
+        "email_default_language": "en",
+        "email_fallback_language": "en",
+        "email_tone": "professional",
+        "email_step1_delay_days": 0,
+        "email_step2_delay_days": 3,
+        "email_step3_delay_days": 3,
+        "email_min_fit_score_to_send": 0.6,
+        "email_min_contactability_score_to_send": 0.45,
+    })())
+
+    res = client.post("/api/v1/hunts/hunt_1/email-campaigns", json={"name": "Approved Only"})
+    assert res.status_code == 200
+    assert res.json()["sequence_count"] == 1
 
 
 def test_run_email_scheduler_route(monkeypatch, tmp_path):

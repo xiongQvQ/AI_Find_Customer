@@ -97,12 +97,10 @@ async def lifespan(app: FastAPI):
     from observability.setup import setup_observability
     setup_observability()
 
-    if settings.email_auto_send_enabled:
-        app.state.email_scheduler_task = asyncio.create_task(_email_scheduler_loop())
-        logger.info("[EmailScheduler] background loop started")
-    if settings.email_reply_detection_enabled:
-        app.state.email_reply_task = asyncio.create_task(_email_reply_loop())
-        logger.info("[EmailReply] background loop started")
+    app.state.email_scheduler_task = asyncio.create_task(_email_scheduler_loop())
+    logger.info("[EmailScheduler] background loop started")
+    app.state.email_reply_task = asyncio.create_task(_email_reply_loop())
+    logger.info("[EmailReply] background loop started")
 
     start_background_workers()
 

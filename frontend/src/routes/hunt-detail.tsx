@@ -297,6 +297,17 @@ function formatReviewStatus(status: string): string {
   return status === "approved" ? "可进入发送流程" : "需人工复核";
 }
 
+function isSequenceReadyForSend(sequence: EmailSequence): boolean {
+  const manualReview = asRecord(sequence.manual_review);
+  if (String(manualReview.decision || "") === "approved") {
+    return true;
+  }
+  if (String(manualReview.decision || "") === "rejected") {
+    return false;
+  }
+  return Boolean(sequence.auto_send_eligible);
+}
+
 function formatEmailType(emailType: string): string {
   const labels: Record<string, string> = {
     company_intro: "首封介绍",
@@ -1358,7 +1369,7 @@ export function HuntDetailPage() {
   );
   const emailCount = emailSequences.length;
   const approvedEmailCount = useMemo(
-    () => emailSequences.filter((seq) => asRecord(seq.review_summary).status === "approved").length,
+    () => emailSequences.filter((seq) => isSequenceReadyForSend(seq)).length,
     [emailSequences],
   );
   const reviewNeededCount = emailCount - approvedEmailCount;
@@ -1366,12 +1377,12 @@ export function HuntDetailPage() {
     if (emailFilter === "approved") {
       return emailSequences
         .map((seq, index) => ({ seq, index }))
-        .filter(({ seq }) => asRecord(seq.review_summary).status === "approved");
+        .filter(({ seq }) => isSequenceReadyForSend(seq));
     }
     if (emailFilter === "needs_review") {
       return emailSequences
         .map((seq, index) => ({ seq, index }))
-        .filter(({ seq }) => asRecord(seq.review_summary).status !== "approved");
+        .filter(({ seq }) => !isSequenceReadyForSend(seq));
     }
     return emailSequences.map((seq, index) => ({ seq, index }));
   }, [emailFilter, emailSequences]);

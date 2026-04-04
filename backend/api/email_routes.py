@@ -57,6 +57,17 @@ def _default_account(store: EmailStore) -> dict[str, Any]:
     return store.get_account(account_id) or payload
 
 
+def _sequence_is_campaign_ready(sequence: dict[str, Any]) -> bool:
+    manual_review = sequence.get("manual_review")
+    if isinstance(manual_review, dict):
+        decision = str(manual_review.get("decision", "") or "")
+        if decision == "approved":
+            return True
+        if decision == "rejected":
+            return False
+    return bool(sequence.get("auto_send_eligible"))
+
+
 def _campaign_summary(store: EmailStore, campaign_id: str) -> dict[str, Any]:
     settings = get_settings()
     campaign = store.get_campaign(campaign_id)
@@ -177,6 +188,8 @@ async def create_email_campaign(hunt_id: str, payload: CreateCampaignRequest):
         template_perf = seq.get("template_performance") or {}
         template_status = str(template_perf.get("status", "") or "")
         if not target.get("target_email") or not emails:
+            continue
+        if not _sequence_is_campaign_ready(seq):
             continue
         if template_status in {"underperforming", "exhausted"}:
             continue
