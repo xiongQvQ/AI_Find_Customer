@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import router
+from api.routes import router, start_background_workers, stop_background_workers
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from config.settings import get_settings
@@ -42,7 +42,11 @@ async def lifespan(app: FastAPI):
     from observability.setup import setup_observability
     setup_observability()
 
+    start_background_workers()
+
     yield
+
+    await stop_background_workers()
 
 
 def create_app() -> FastAPI:

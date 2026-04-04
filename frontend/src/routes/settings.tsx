@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { api } from "@/api/client";
 import {
   Card,
   CardContent,
@@ -599,6 +600,20 @@ const EMAIL_FIELDS: FieldDef[] = [
   { key: "hunter_api_key", label: "Hunter.io API Key", placeholder: "", secret: true, hint: "企业邮箱发现" },
 ];
 
+const EMAIL_DELIVERY_FIELDS: FieldDef[] = [
+  { key: "email_from_name", label: "发件人名称", placeholder: "B2Binsights" },
+  { key: "email_from_address", label: "发件邮箱", placeholder: "sales@example.com" },
+  { key: "email_reply_to", label: "回复邮箱", placeholder: "sales@example.com" },
+  { key: "email_smtp_host", label: "SMTP Host", placeholder: "smtp.gmail.com" },
+  { key: "email_smtp_port", label: "SMTP Port", placeholder: "587" },
+  { key: "email_smtp_username", label: "SMTP 用户名", placeholder: "sales@example.com" },
+  { key: "email_smtp_password", label: "SMTP 授权码 / 密码", placeholder: "", secret: true },
+  { key: "email_imap_host", label: "IMAP Host", placeholder: "imap.gmail.com" },
+  { key: "email_imap_port", label: "IMAP Port", placeholder: "993" },
+  { key: "email_imap_username", label: "IMAP 用户名", placeholder: "sales@example.com" },
+  { key: "email_imap_password", label: "IMAP 授权码 / 密码", placeholder: "", secret: true },
+];
+
 const CONCURRENCY_FIELDS: FieldDef[] = [
   { key: "search_concurrency", label: "搜索并发数", placeholder: "10", hint: "搜索 API 最大并发调用数" },
   { key: "scrape_concurrency", label: "抓取并发数", placeholder: "5", hint: "Jina 抓取最大并发调用数" },
@@ -656,6 +671,184 @@ function FieldGroup({
   );
 }
 
+function EmailDeliveryPanel({
+  values,
+  onChange,
+}: {
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  const smtpTestMutation = useMutation({
+    mutationFn: () => api.testEmailSettings(),
+  });
+  const imapTestMutation = useMutation({
+    mutationFn: () => api.testImapSettings(),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Mail className="h-5 w-5 text-primary" />
+          <CardTitle className="text-base">SMTP 发信配置</CardTitle>
+        </div>
+        <CardDescription>
+          配置企业邮箱 SMTP，用于测试连接和手动发送已批准邮件。推荐先保存，再点击测试连接。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {EMAIL_DELIVERY_FIELDS.map((f) => (
+          <div key={f.key} className="space-y-1.5">
+            <Label htmlFor={f.key}>{f.label}</Label>
+            {f.secret ? (
+              <SecretInput
+                id={f.key}
+                value={values[f.key] ?? ""}
+                onChange={(v) => onChange(f.key, v)}
+                placeholder={f.placeholder}
+              />
+            ) : (
+              <Input
+                id={f.key}
+                value={values[f.key] ?? ""}
+                onChange={(e) => onChange(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                className="font-mono text-sm"
+              />
+            )}
+          </div>
+        ))}
+
+        <div className="space-y-2">
+          <Label>SMTP TLS</Label>
+          <div className="flex gap-2">
+            {[
+              ["true", "启用 TLS / STARTTLS"],
+              ["false", "纯明文 / SSL 已由端口决定"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onChange("email_use_tls", value)}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  (values.email_use_tls ?? "true") === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>自动发送</Label>
+          <div className="flex gap-2">
+            {[
+              ["false", "关闭"],
+              ["true", "开启"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onChange("email_auto_send_enabled", value)}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  (values.email_auto_send_enabled ?? "false") === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>回信自动检测</Label>
+          <div className="flex gap-2">
+            {[
+              ["false", "关闭"],
+              ["true", "开启"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onChange("email_reply_detection_enabled", value)}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  (values.email_reply_detection_enabled ?? "false") === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email_reply_check_interval_seconds">回信检查间隔（秒）</Label>
+          <Input
+            id="email_reply_check_interval_seconds"
+            value={values.email_reply_check_interval_seconds ?? ""}
+            onChange={(e) => onChange("email_reply_check_interval_seconds", e.target.value)}
+            placeholder="180"
+            className="font-mono text-sm"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => smtpTestMutation.mutate()}
+            disabled={smtpTestMutation.isPending}
+          >
+            {smtpTestMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 测试中…</>
+            ) : (
+              "测试 SMTP 连接"
+            )}
+          </Button>
+          {smtpTestMutation.isSuccess && (
+            <p className="text-sm text-emerald-600">
+              已连接到 {smtpTestMutation.data.host} / {smtpTestMutation.data.username}
+            </p>
+          )}
+          {smtpTestMutation.isError && (
+            <p className="text-sm text-destructive">{smtpTestMutation.error.message}</p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => imapTestMutation.mutate()}
+            disabled={imapTestMutation.isPending}
+          >
+            {imapTestMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 测试中…</>
+            ) : (
+              "测试 IMAP 连接"
+            )}
+          </Button>
+          {imapTestMutation.isSuccess && (
+            <p className="text-sm text-emerald-600">
+              已连接到 {imapTestMutation.data.host} / {imapTestMutation.data.username}
+            </p>
+          )}
+          {imapTestMutation.isError && (
+            <p className="text-sm text-destructive">{imapTestMutation.error.message}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -687,6 +880,21 @@ export function SettingsPage() {
         AMAP_API_KEY: "amap_api_key",
         BAIDU_API_KEY: "baidu_api_key",
         HUNTER_API_KEY: "hunter_api_key",
+        EMAIL_FROM_NAME: "email_from_name",
+        EMAIL_FROM_ADDRESS: "email_from_address",
+        EMAIL_REPLY_TO: "email_reply_to",
+        EMAIL_SMTP_HOST: "email_smtp_host",
+        EMAIL_SMTP_PORT: "email_smtp_port",
+        EMAIL_SMTP_USERNAME: "email_smtp_username",
+        EMAIL_SMTP_PASSWORD: "email_smtp_password",
+        EMAIL_IMAP_HOST: "email_imap_host",
+        EMAIL_IMAP_PORT: "email_imap_port",
+        EMAIL_IMAP_USERNAME: "email_imap_username",
+        EMAIL_IMAP_PASSWORD: "email_imap_password",
+        EMAIL_USE_TLS: "email_use_tls",
+        EMAIL_AUTO_SEND_ENABLED: "email_auto_send_enabled",
+        EMAIL_REPLY_DETECTION_ENABLED: "email_reply_detection_enabled",
+        EMAIL_REPLY_CHECK_INTERVAL_SECONDS: "email_reply_check_interval_seconds",
         SEARCH_CONCURRENCY: "search_concurrency",
         SCRAPE_CONCURRENCY: "scrape_concurrency",
       };
@@ -774,6 +982,8 @@ export function SettingsPage() {
         values={values}
         onChange={handleChange}
       />
+
+      <EmailDeliveryPanel values={values} onChange={handleChange} />
 
       {/* Concurrency */}
       <FieldGroup

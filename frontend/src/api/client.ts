@@ -1,4 +1,5 @@
 const API_BASE = "/api/v1";
+const SETTINGS_API_BASE = "/api/settings";
 
 export interface HuntRequest {
   website_url: string;
@@ -34,12 +35,58 @@ export interface HuntStatus {
   error: string | null;
 }
 
+export interface EmailDraft {
+  sequence_number: number;
+  email_type: string;
+  subject: string;
+  body_text: string;
+  suggested_send_day: number;
+  personalization_points?: string[];
+  cultural_adaptations?: string[];
+  send_status?: string;
+  sent_at?: string;
+  sent_to?: string;
+}
+
+export interface EmailReviewSummary {
+  status: string;
+  score: number;
+  issues: string[];
+  suggestions: string[];
+  min_score_required: number;
+  max_blocking_issues: number;
+  blocking_issue_count: number;
+  locale: string;
+}
+
+export interface EmailManualReview {
+  decision: string;
+  notes?: string;
+  updated_at?: string;
+}
+
+export interface EmailSequence {
+  lead: Record<string, unknown>;
+  locale: string;
+  emails: EmailDraft[];
+  template_profile: Record<string, unknown>;
+  template_plan: Record<string, unknown>;
+  review_summary: EmailReviewSummary;
+  auto_send_eligible: boolean;
+  manual_review?: EmailManualReview;
+  reply_detection?: {
+    checked_at?: string;
+    reply_count?: number;
+    replies?: Array<Record<string, string>>;
+  };
+}
+
 export interface HuntResult {
   hunt_id: string;
   status: string;
   insight: Record<string, unknown> | null;
   leads: Record<string, unknown>[];
-  email_sequences: Record<string, unknown>[];
+  email_sequences: EmailSequence[];
   used_keywords: string[];
   hunt_round: number;
   round_feedback: Record<string, unknown> | null;
@@ -94,6 +141,65 @@ export interface HuntListItem {
   email_sequences_count: number;
 }
 
+export interface EmailSequenceDecisionRequest {
+  decision: "approved" | "rejected";
+  notes?: string;
+}
+
+export interface EmailSequenceDecisionResponse {
+  hunt_id: string;
+  sequence_index: number;
+  decision: string;
+  auto_send_eligible: boolean;
+  manual_review: EmailManualReview;
+}
+
+export interface SmtpTestResponse {
+  status: string;
+  message: string;
+  host: string;
+  username: string;
+}
+
+export interface ImapTestResponse {
+  status: string;
+  message: string;
+  host: string;
+  username: string;
+}
+
+export interface SendEmailDraftRequest {
+  sequence_number: number;
+}
+
+export interface SendEmailDraftResponse {
+  hunt_id: string;
+  sequence_index: number;
+  sequence_number: number;
+  sent_to: string;
+  subject: string;
+  status: string;
+}
+
+export interface DetectReplyResponse {
+  hunt_id: string;
+  sequence_index: number;
+  reply_count: number;
+  replies: Array<Record<string, string>>;
+}
+
+async function requestSettings<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${SETTINGS_API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -137,6 +243,33 @@ export const api = {
     request<HuntResponse>(`/hunts/${huntId}/resume`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  decideEmailSequence: (huntId: string, sequenceIndex: number, data: EmailSequenceDecisionRequest) =>
+    request<EmailSequenceDecisionResponse>(`/hunts/${huntId}/email-sequences/${sequenceIndex}/decision`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  sendEmailDraft: (huntId: string, sequenceIndex: number, data: SendEmailDraftRequest) =>
+    request<SendEmailDraftResponse>(`/hunts/${huntId}/email-sequences/${sequenceIndex}/send`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  testEmailSettings: () =>
+    requestSettings<SmtpTestResponse>("/email/test", {
+      method: "POST",
+    }),
+
+  testImapSettings: () =>
+    requestSettings<ImapTestResponse>("/email/imap-test", {
+      method: "POST",
+    }),
+
+  detectReplies: (huntId: string, sequenceIndex: number) =>
+    request<DetectReplyResponse>(`/hunts/${huntId}/email-sequences/${sequenceIndex}/detect-replies`, {
+      method: "POST",
     }),
 
   getHuntCost: (huntId: string) =>

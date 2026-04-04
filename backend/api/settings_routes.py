@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from config.settings import get_settings
+from emailing.imap_client import test_imap_connection
+from emailing.smtp_client import test_smtp_connection
 from license.settings_store import get_env_path, is_configured, read_settings, update_settings
 from license.token_store import save_token
 from license.validator import LicenseResult, LicenseValidator
@@ -45,6 +47,21 @@ class SettingsPayload(BaseModel):
     baidu_api_key: str = ""
     # Email
     hunter_api_key: str = ""
+    email_from_name: str = ""
+    email_from_address: str = ""
+    email_reply_to: str = ""
+    email_smtp_host: str = ""
+    email_smtp_port: str = ""
+    email_smtp_username: str = ""
+    email_smtp_password: str = ""
+    email_imap_host: str = ""
+    email_imap_port: str = ""
+    email_imap_username: str = ""
+    email_imap_password: str = ""
+    email_use_tls: str = ""
+    email_auto_send_enabled: str = ""
+    email_reply_detection_enabled: str = ""
+    email_reply_check_interval_seconds: str = ""
     # Concurrency
     search_concurrency: str = ""
     scrape_concurrency: str = ""
@@ -72,6 +89,20 @@ class LicenseStatusResponse(BaseModel):
     plan: str
     customer_name: str
     expires_at: str | None
+
+
+class SmtpTestResponse(BaseModel):
+    status: str
+    message: str
+    host: str
+    username: str
+
+
+class ImapTestResponse(BaseModel):
+    status: str
+    message: str
+    host: str
+    username: str
 
 
 # ── Settings routes ───────────────────────────────────────────────────────────
@@ -108,6 +139,21 @@ async def save_settings(payload: SettingsPayload):
         "amap_api_key": "AMAP_API_KEY",
         "baidu_api_key": "BAIDU_API_KEY",
         "hunter_api_key": "HUNTER_API_KEY",
+        "email_from_name": "EMAIL_FROM_NAME",
+        "email_from_address": "EMAIL_FROM_ADDRESS",
+        "email_reply_to": "EMAIL_REPLY_TO",
+        "email_smtp_host": "EMAIL_SMTP_HOST",
+        "email_smtp_port": "EMAIL_SMTP_PORT",
+        "email_smtp_username": "EMAIL_SMTP_USERNAME",
+        "email_smtp_password": "EMAIL_SMTP_PASSWORD",
+        "email_imap_host": "EMAIL_IMAP_HOST",
+        "email_imap_port": "EMAIL_IMAP_PORT",
+        "email_imap_username": "EMAIL_IMAP_USERNAME",
+        "email_imap_password": "EMAIL_IMAP_PASSWORD",
+        "email_use_tls": "EMAIL_USE_TLS",
+        "email_auto_send_enabled": "EMAIL_AUTO_SEND_ENABLED",
+        "email_reply_detection_enabled": "EMAIL_REPLY_DETECTION_ENABLED",
+        "email_reply_check_interval_seconds": "EMAIL_REPLY_CHECK_INTERVAL_SECONDS",
         "search_concurrency": "SEARCH_CONCURRENCY",
         "scrape_concurrency": "SCRAPE_CONCURRENCY",
     }
@@ -127,6 +173,40 @@ async def save_settings(payload: SettingsPayload):
 
     # Reload settings cache so next call picks up the new values
     get_settings.cache_clear()
+
+
+@router.post("/email/test", response_model=SmtpTestResponse)
+async def test_email_settings():
+    """Test SMTP connectivity using the current saved settings."""
+    get_settings.cache_clear()
+    settings = get_settings()
+    try:
+        result = await asyncio.to_thread(test_smtp_connection, settings)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SmtpTestResponse(
+        status="ok",
+        message="SMTP connection successful",
+        host=result["host"],
+        username=result["username"],
+    )
+
+
+@router.post("/email/imap-test", response_model=ImapTestResponse)
+async def test_email_imap_settings():
+    """Test IMAP connectivity using the current saved settings."""
+    get_settings.cache_clear()
+    settings = get_settings()
+    try:
+        result = await asyncio.to_thread(test_imap_connection, settings)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ImapTestResponse(
+        status="ok",
+        message="IMAP connection successful",
+        host=result["host"],
+        username=result["username"],
+    )
 
 
 # ── License routes ────────────────────────────────────────────────────────────

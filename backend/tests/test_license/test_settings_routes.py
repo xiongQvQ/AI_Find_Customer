@@ -131,6 +131,77 @@ class TestSaveSettings:
         elif "SERPER_API_KEY" in os.environ:
             del os.environ["SERPER_API_KEY"]
 
+    @pytest.mark.asyncio
+    async def test_saves_smtp_fields(self, client):
+        with (
+            patch("api.settings_routes.update_settings") as mock_update,
+            patch("api.settings_routes.get_settings") as mock_gs,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            resp = await client.post("/api/settings", json={
+                "email_from_address": "sales@example.com",
+                "email_smtp_host": "smtp.example.com",
+                "email_smtp_port": "587",
+                "email_smtp_username": "sales@example.com",
+                "email_smtp_password": "secret",
+                "email_use_tls": "true",
+            })
+        assert resp.status_code == 204
+        call_args = mock_update.call_args[0][0]
+        assert call_args["EMAIL_FROM_ADDRESS"] == "sales@example.com"
+        assert call_args["EMAIL_SMTP_HOST"] == "smtp.example.com"
+        assert call_args["EMAIL_SMTP_PORT"] == "587"
+        assert call_args["EMAIL_SMTP_USERNAME"] == "sales@example.com"
+        assert call_args["EMAIL_SMTP_PASSWORD"] == "secret"
+        assert call_args["EMAIL_USE_TLS"] == "true"
+
+
+class TestEmailSettings:
+    @pytest.mark.asyncio
+    async def test_smtp_test_success(self, client):
+        with (
+            patch("api.settings_routes.get_settings") as mock_gs,
+            patch("api.settings_routes.test_smtp_connection", return_value={
+                "host": "smtp.example.com",
+                "username": "sales@example.com",
+            }),
+        ):
+            mock_gs.cache_clear = MagicMock()
+            mock_gs.return_value = MagicMock()
+            resp = await client.post("/api/settings/email/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["host"] == "smtp.example.com"
+
+    @pytest.mark.asyncio
+    async def test_smtp_test_failure(self, client):
+        with (
+            patch("api.settings_routes.get_settings") as mock_gs,
+            patch("api.settings_routes.test_smtp_connection", side_effect=ValueError("Missing SMTP settings")),
+        ):
+            mock_gs.cache_clear = MagicMock()
+            mock_gs.return_value = MagicMock()
+            resp = await client.post("/api/settings/email/test")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_imap_test_success(self, client):
+        with (
+            patch("api.settings_routes.get_settings") as mock_gs,
+            patch("api.settings_routes.test_imap_connection", return_value={
+                "host": "imap.example.com",
+                "username": "sales@example.com",
+            }),
+        ):
+            mock_gs.cache_clear = MagicMock()
+            mock_gs.return_value = MagicMock()
+            resp = await client.post("/api/settings/email/imap-test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["host"] == "imap.example.com"
+
 
 # ── GET /api/settings/license/status ─────────────────────────────────────────
 
