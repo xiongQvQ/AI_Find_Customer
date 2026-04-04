@@ -374,6 +374,32 @@ EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
 - 生产者：`backend/scripts/headless_worker.py` 持续创建新的 hunt
 - 消费者：`api.app` 内置的 `EmailScheduler` 后台循环负责发送 pending 邮件
 
+当前真实逻辑再具体一点：
+
+1. `headless_worker.py` 调 `/api/v1/hunts` 创建一个新 hunt
+2. worker 轮询这个 hunt，直到状态变成 `completed`
+3. hunt 完成后，如果开启了邮件生成，worker 会自动调 `/api/v1/hunts/{hunt_id}/email-campaigns`
+4. campaign 创建时，会把可发送的邮件序列写进 SQLite：
+   - `lead_email_sequences`
+   - `email_messages`
+5. `EmailScheduler` 后台循环每 60 秒扫描一次 `email_messages` 里的 `pending` 记录
+6. 到时间的邮件会被发送，发送后更新状态为 `sent / failed`
+7. `EmailReply` 后台循环按配置间隔扫描 IMAP 回信，命中后会停掉后续跟进
+
+也就是说，现在的“队列”不是 Redis 或 MQ，而是 SQLite 里的持久化待发送队列：
+
+- 入队：创建 campaign 时写入 `email_messages`
+- 出队：scheduler 轮询 `pending + scheduled_at <= now`
+- 消费结果：更新为 `sent / failed / cancelled`
+
+需要注意一件事：
+
+- 现在的 producer 是“单 worker 串行生产”
+- 它会等当前 hunt 完成后，再创建下一轮 hunt
+- 但这不影响消费者并行工作，因为 `EmailScheduler` 是独立后台循环，会一边发旧 campaign 的邮件，一边等待新的 hunt 完成
+
+如果你后面想升级成“多个 producer 并发挖掘”，可以再多起几个 `headless_worker.py` 进程，或者再补一个专门的 hunt job queue。
+
 ### 自动任务配置
 
 ```bash
@@ -408,6 +434,14 @@ python scripts/headless_worker.py \
   --status-poll-seconds 15
 ```
 
+上面这条命令的语义是：
+
+- 每轮先挖到 `target_lead_count`
+- 然后自动生成邮件
+- 然后自动建 campaign
+- 然后把邮件写入持久化待发送队列
+- 发送由后台 scheduler 按时间消费
+
 如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
 
 ```env
@@ -430,6 +464,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now ai-hunter-api
 sudo systemctl enable --now ai-hunter-worker
 ```
+
+### 无界面模式测试
+
+本仓库已经补了针对 headless worker 的无界面链路测试。你可以直接执行：
+
+```bash
+pytest backend/tests/test_scripts/test_headless_worker.py \
+  backend/tests/test_api/test_email_routes.py \
+  backend/tests/test_api/test_routes.py
+```
+
+这组测试覆盖了：
+
+- worker 创建 hunt
+- 轮询 hunt 完成
+- 自动创建并启动 campaign
+- campaign 把邮件写入持久化发送队列
+- 发送资格判断和自动发送入口
 
 ## API Key 申请入口与填写方式
 
