@@ -1,0 +1,18 @@
+{
+  "description": "Find distributors and importers of switch components in the United States for Guangdong Yushun Electrical Co., Ltd.",
+  "product_keywords": [
+    "micro switch",
+    "rotary selector switch",
+    "toggle switch"
+  ],
+  "target_customer_profile": "Electrical distributors, importers, and industrial component wholesalers",
+  "target_regions": [
+    "United States"
+  ],
+  "target_lead_count": 100,
+  "max_rounds": 10,
+  "min_new_leads_threshold": 5,
+  "enable_email_craft": true,
+  "email_template_examples": [],
+  "email_template_notes": "Keep the email concise, professional, and suitable for export B2B outreach."
+}

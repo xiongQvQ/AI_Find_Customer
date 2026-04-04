@@ -21,6 +21,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class SettingsPayload(BaseModel):
     llm_model: str = ""
     reasoning_model: str = ""
+    email_llm_model: str = ""
+    email_reasoning_model: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     openrouter_api_key: str = ""
@@ -65,10 +67,13 @@ class SettingsPayload(BaseModel):
     email_fallback_language: str = ""
     email_tone: str = ""
     email_signature_block: str = ""
+    email_llm_requests_per_minute: str = ""
+    email_reasoning_requests_per_minute: str = ""
     email_min_fit_score_to_send: str = ""
     email_min_contactability_score_to_send: str = ""
     email_allow_inferred_target: str = ""
     email_allow_generic_company_email: str = ""
+    email_require_approval_before_send: str = ""
     email_reply_detection_enabled: str = ""
     email_reply_check_interval_seconds: str = ""
     email_template_max_send_count: str = ""
@@ -146,6 +151,8 @@ async def save_settings(payload: SettingsPayload):
     field_map = {
         "llm_model": "LLM_MODEL",
         "reasoning_model": "REASONING_MODEL",
+        "email_llm_model": "EMAIL_LLM_MODEL",
+        "email_reasoning_model": "EMAIL_REASONING_MODEL",
         "openai_api_key": "OPENAI_API_KEY",
         "anthropic_api_key": "ANTHROPIC_API_KEY",
         "openrouter_api_key": "OPENROUTER_API_KEY",
@@ -190,10 +197,13 @@ async def save_settings(payload: SettingsPayload):
         "email_fallback_language": "EMAIL_FALLBACK_LANGUAGE",
         "email_tone": "EMAIL_TONE",
         "email_signature_block": "EMAIL_SIGNATURE_BLOCK",
+        "email_llm_requests_per_minute": "EMAIL_LLM_REQUESTS_PER_MINUTE",
+        "email_reasoning_requests_per_minute": "EMAIL_REASONING_REQUESTS_PER_MINUTE",
         "email_min_fit_score_to_send": "EMAIL_MIN_FIT_SCORE_TO_SEND",
         "email_min_contactability_score_to_send": "EMAIL_MIN_CONTACTABILITY_SCORE_TO_SEND",
         "email_allow_inferred_target": "EMAIL_ALLOW_INFERRED_TARGET",
         "email_allow_generic_company_email": "EMAIL_ALLOW_GENERIC_COMPANY_EMAIL",
+        "email_require_approval_before_send": "EMAIL_REQUIRE_APPROVAL_BEFORE_SEND",
         "email_reply_detection_enabled": "EMAIL_REPLY_DETECTION_ENABLED",
         "email_reply_check_interval_seconds": "EMAIL_REPLY_CHECK_INTERVAL_SECONDS",
         "email_template_max_send_count": "EMAIL_TEMPLATE_MAX_SEND_COUNT",

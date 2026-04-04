@@ -190,7 +190,12 @@ def _clean_email(value: str) -> str:
 
 def _sequence_is_send_approved(sequence: dict[str, Any]) -> bool:
     manual_review = sequence.get("manual_review")
-    if isinstance(manual_review, dict) and manual_review.get("decision") == "approved":
+    if isinstance(manual_review, dict):
+        if manual_review.get("decision") == "approved":
+            return True
+        if manual_review.get("decision") == "rejected":
+            return False
+    if not bool(getattr(get_settings(), "email_require_approval_before_send", True)):
         return True
     return bool(sequence.get("auto_send_eligible"))
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Hunter API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-hunter/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-hunter/backend/.venv/bin/python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

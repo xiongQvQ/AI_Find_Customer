@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from api.app import create_app
-from api.routes import _hunts, stop_background_workers
+from api.routes import _hunts, _sequence_is_send_approved, stop_background_workers
 
 # Patch save_hunt globally so tests never write to disk
 pytestmark = pytest.mark.usefixtures("_mock_save_hunt")
@@ -48,6 +48,13 @@ class TestBackgroundWorkers:
     @pytest.mark.asyncio
     async def test_stop_background_workers_without_email_send_queue(self):
         await stop_background_workers()
+
+    def test_send_approval_allows_bypass_when_configured(self, monkeypatch):
+        monkeypatch.setattr(
+            "api.routes.get_settings",
+            lambda: type("S", (), {"email_require_approval_before_send": False})(),
+        )
+        assert _sequence_is_send_approved({"auto_send_eligible": False}) is True
 
 
 class TestCreateHunt:

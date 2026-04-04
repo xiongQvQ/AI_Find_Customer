@@ -381,6 +381,46 @@ function LLMProviderPanel({
           />
         </div>
 
+        <Separator />
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email-llm-model">
+            邮件生成模型
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              — 用于模板提取、邮件生成、改写
+            </span>
+          </Label>
+          <ModelCombobox
+            id="email-llm-model"
+            value={values.email_llm_model ?? ""}
+            onChange={(v) => onChange("email_llm_model", v)}
+            options={provider.defaultModels}
+            placeholder={provider.defaultModels[0] ?? "gpt-4o-mini"}
+          />
+          <p className="text-xs text-muted-foreground">
+            留空时会回退到默认模型。单独配置后，邮件生成不会再和主链路共用同一个默认模型 RPM。
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email-reasoning-model">
+            邮件推理模型
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              — 用于邮件 ReAct / 校验修复闭环
+            </span>
+          </Label>
+          <ModelCombobox
+            id="email-reasoning-model"
+            value={values.email_reasoning_model ?? ""}
+            onChange={(v) => onChange("email_reasoning_model", v)}
+            options={provider.reasoningModels}
+            placeholder={provider.reasoningModels[0] ?? "gpt-4o"}
+          />
+          <p className="text-xs text-muted-foreground">
+            留空时会回退到主推理模型。适合把邮件链路单独切到另一套模型，规避 MiniMax 共用限速。
+          </p>
+        </div>
+
       </CardContent>
     </Card>
   );
@@ -502,6 +542,8 @@ const EMAIL_PROVIDER_PRESETS: EmailProviderPreset[] = [
 const CONCURRENCY_FIELDS: FieldDef[] = [
   { key: "search_concurrency", label: "搜索并发数", placeholder: "10", hint: "搜索 API 最大并发调用数" },
   { key: "scrape_concurrency", label: "抓取并发数", placeholder: "5", hint: "Jina 抓取最大并发调用数" },
+  { key: "email_llm_requests_per_minute", label: "邮件生成模型 RPM", placeholder: "0", hint: "0 表示不限；用于邮件默认模型单独限速" },
+  { key: "email_reasoning_requests_per_minute", label: "邮件推理模型 RPM", placeholder: "0", hint: "0 表示不限；用于邮件 ReAct / 校验模型单独限速" },
 ];
 
 function FieldGroup({
@@ -829,6 +871,32 @@ function EmailDeliveryPanel({
         </div>
 
         <div className="space-y-2">
+          <Label>发送前必须人工审核</Label>
+          <div className="flex gap-2">
+            {[
+              ["true", "必须审核"],
+              ["false", "直接放行"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onChange("email_require_approval_before_send", value)}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  (values.email_require_approval_before_send ?? "true") === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            关闭后，`needs_review` 的邮件序列也会允许进入 campaign 和发送链路。只有手动明确拒绝的序列仍然不会发送。
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label>回信自动检测</Label>
           <div className="flex gap-2">
             {[
@@ -953,6 +1021,8 @@ export function SettingsPage() {
       const keyMap: Record<string, string> = {
         LLM_MODEL: "llm_model",
         REASONING_MODEL: "reasoning_model",
+        EMAIL_LLM_MODEL: "email_llm_model",
+        EMAIL_REASONING_MODEL: "email_reasoning_model",
         OPENAI_API_KEY: "openai_api_key",
         ANTHROPIC_API_KEY: "anthropic_api_key",
         OPENROUTER_API_KEY: "openrouter_api_key",
@@ -983,6 +1053,9 @@ export function SettingsPage() {
         EMAIL_AUTO_SEND_ENABLED: "email_auto_send_enabled",
         EMAIL_REPLY_DETECTION_ENABLED: "email_reply_detection_enabled",
         EMAIL_REPLY_CHECK_INTERVAL_SECONDS: "email_reply_check_interval_seconds",
+        EMAIL_LLM_REQUESTS_PER_MINUTE: "email_llm_requests_per_minute",
+        EMAIL_REASONING_REQUESTS_PER_MINUTE: "email_reasoning_requests_per_minute",
+        EMAIL_REQUIRE_APPROVAL_BEFORE_SEND: "email_require_approval_before_send",
         SEARCH_CONCURRENCY: "search_concurrency",
         SCRAPE_CONCURRENCY: "scrape_concurrency",
       };

@@ -266,7 +266,21 @@ EMAIL_IMAP_PASSWORD=your-app-password
 EMAIL_USE_TLS=true
 EMAIL_AUTO_SEND_ENABLED=false
 EMAIL_REPLY_DETECTION_ENABLED=false
+EMAIL_LLM_MODEL=minimax/MiniMax-M2.1-highspeed
+EMAIL_REASONING_MODEL=minimax/MiniMax-M2.5
+EMAIL_LLM_REQUESTS_PER_MINUTE=60
+EMAIL_REASONING_REQUESTS_PER_MINUTE=30
+EMAIL_REQUIRE_APPROVAL_BEFORE_SEND=true
 ```
+
+如果你担心 `MiniMax` 的 RPM 被搜索主链路和邮件链路一起打满，建议单独配置：
+
+- `EMAIL_LLM_MODEL`
+- `EMAIL_REASONING_MODEL`
+- `EMAIL_LLM_REQUESTS_PER_MINUTE`
+- `EMAIL_REASONING_REQUESTS_PER_MINUTE`
+
+这样邮件生成、自动修复、邮件 ReAct 会走单独模型和单独限速，不会和主流程抢同一个默认模型额度。
 
 ## 支持的输入与上传限制
 
@@ -312,11 +326,91 @@ MINIMAX_API_KEY=your-minimax-key
 MINIMAX_API_BASE=https://api.minimax.io/v1
 ```
 
+如果你要长期跑无界面自动外呼，推荐把邮件链路单独拆出去，例如：
+
+```env
+LLM_MODEL=minimax/MiniMax-M2.1-highspeed
+REASONING_MODEL=minimax/MiniMax-M2.5
+EMAIL_LLM_MODEL=openrouter/google/gemini-flash-1.5
+EMAIL_REASONING_MODEL=openrouter/deepseek/deepseek-r1
+```
+
+这样主链路继续跑 MiniMax，邮件生成和修复走另一套模型，不会互相卡 RPM。
+
 `MINIMAX_API_BASE` 说明：
 
 - 国际站默认：`https://api.minimax.io/v1`
 - 中国大陆可选：`https://api.minimaxi.com/v1`
 - 如果你不确定，先使用 `https://api.minimax.io/v1`
+
+## 无界面部署到 VPS
+
+如果你不需要前端界面，只想在 VPS 上持续执行“挖掘 -> 生成邮件 -> 自动发送”，推荐拆成两个常驻进程：
+
+- `API 服务`：负责 hunt、邮件生成、campaign API、发送 scheduler、回信检测
+- `Worker 服务`：负责不断创建新 hunt，达到目标线索数后自动创建并启动 campaign
+
+这套结构本质上就是生产者-消费者：
+
+- 生产者：`backend/scripts/headless_worker.py` 持续创建新的 hunt
+- 消费者：`api.app` 内置的 `EmailScheduler` 后台循环负责发送 pending 邮件
+
+### 自动任务配置
+
+```bash
+cd backend
+cp automation_job.example.json automation_job.json
+```
+
+然后编辑 `automation_job.json`。如果你希望“每次挖到 100 个就发邮件”，把：
+
+```json
+"target_lead_count": 100
+```
+
+### 启动 API
+
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn api.app:app --host 0.0.0.0 --port 8000
+```
+
+### 启动 headless worker
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/headless_worker.py \
+  --payload-file ./automation_job.json \
+  --continuous \
+  --auto-start-campaign \
+  --cycle-interval-seconds 60 \
+  --status-poll-seconds 15
+```
+
+如果你想跳过人工审核，直接放行 `needs_review` 的邮件序列，可以在 `.env` 中设置：
+
+```env
+EMAIL_REQUIRE_APPROVAL_BEFORE_SEND=false
+```
+
+### systemd 常驻
+
+仓库已经提供 systemd 示例文件：
+
+- [deploy/systemd/ai-hunter-api.service](/Users/xiongbojian/work/opensource/AI_Find_Customer/deploy/systemd/ai-hunter-api.service)
+- [deploy/systemd/ai-hunter-worker.service](/Users/xiongbojian/work/opensource/AI_Find_Customer/deploy/systemd/ai-hunter-worker.service)
+
+把里面的 `/opt/ai-hunter/backend` 改成你 VPS 的实际路径后：
+
+```bash
+sudo cp deploy/systemd/ai-hunter-api.service /etc/systemd/system/
+sudo cp deploy/systemd/ai-hunter-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-hunter-api
+sudo systemctl enable --now ai-hunter-worker
+```
 
 ## API Key 申请入口与填写方式
 

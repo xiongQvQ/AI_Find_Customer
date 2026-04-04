@@ -71,10 +71,24 @@ def _inject_api_keys(settings: Settings) -> None:
             os.environ[env_var] = value
 
     # Native workaround: If using anthropic/ prefix for MiniMax, inject ANTHROPIC_API_BASE
-    if settings.llm_model.startswith("anthropic/") and "minimax" in settings.llm_model.lower():
+    llm_models = [
+        settings.llm_model,
+        settings.reasoning_model,
+        settings.email_llm_model,
+        settings.email_reasoning_model,
+    ]
+    if any(model.startswith("anthropic/") and "minimax" in model.lower() for model in llm_models if model):
         os.environ["ANTHROPIC_API_BASE"] = normalize_minimax_api_base(settings.minimax_api_base)
-    if settings.reasoning_model.startswith("anthropic/") and "minimax" in settings.reasoning_model.lower():
-        os.environ["ANTHROPIC_API_BASE"] = normalize_minimax_api_base(settings.minimax_api_base)
+
+
+def _select_model(settings: Settings, model_type: str) -> str:
+    if model_type == "reasoning":
+        return settings.reasoning_model
+    if model_type == "email":
+        return settings.email_llm_model or settings.llm_model
+    if model_type == "email_reasoning":
+        return settings.email_reasoning_model or settings.reasoning_model
+    return settings.llm_model
 
 
 class LLMTool:
@@ -117,19 +131,17 @@ class LLMTool:
 
     @property
     def model(self) -> str:
-        if self._model_type == "reasoning":
-            return normalize_model_name(self._settings.reasoning_model)
-        return normalize_model_name(self._settings.llm_model)
+        return normalize_model_name(_select_model(self._settings, self._model_type))
 
     @property
     def _default_temperature(self) -> float:
-        if self._model_type == "reasoning":
+        if self._model_type in {"reasoning", "email_reasoning"}:
             return self._settings.reasoning_temperature
         return self._settings.llm_temperature
 
     @property
     def _default_max_tokens(self) -> int:
-        if self._model_type == "reasoning":
+        if self._model_type in {"reasoning", "email_reasoning"}:
             return self._settings.reasoning_max_tokens
         return self._settings.llm_max_tokens
 
@@ -137,6 +149,10 @@ class LLMTool:
     def _requests_per_minute(self) -> int:
         if self._model_type == "reasoning":
             return self._settings.reasoning_requests_per_minute or self._settings.llm_requests_per_minute
+        if self._model_type == "email":
+            return self._settings.email_llm_requests_per_minute or self._settings.llm_requests_per_minute
+        if self._model_type == "email_reasoning":
+            return self._settings.email_reasoning_requests_per_minute or self._settings.reasoning_requests_per_minute or self._settings.llm_requests_per_minute
         return self._settings.llm_requests_per_minute
 
     def _supports_response_format(self) -> bool:

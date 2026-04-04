@@ -40,7 +40,10 @@ async def _acompletion_with_rpm_limit(
     scope: str = "reasoning",
     **kwargs: Any,
 ) -> Any:
-    rpm = settings.reasoning_requests_per_minute or settings.llm_requests_per_minute
+    if scope == "email_reasoning":
+        rpm = settings.email_reasoning_requests_per_minute or settings.reasoning_requests_per_minute or settings.llm_requests_per_minute
+    else:
+        rpm = settings.reasoning_requests_per_minute or settings.llm_requests_per_minute
     await get_llm_rate_limiter(scope, rpm).acquire()
     return await litellm.acompletion(**kwargs)
 
@@ -203,6 +206,7 @@ async def react_loop(
     settings: Settings | None = None,
     max_iterations: int | None = None,
     required_json_fields: list[str] | None = None,
+    model_scope: str = "reasoning",
     hunt_id: str = "",
     agent: str = "react",
     hunt_round: int = 0,
@@ -227,7 +231,10 @@ async def react_loop(
     """
     _settings = settings or get_settings()
     max_iter = max_iterations or _settings.react_max_iterations
-    model = normalize_model_name(_settings.reasoning_model)
+    if model_scope == "email_reasoning":
+        model = normalize_model_name(_settings.email_reasoning_model or _settings.reasoning_model)
+    else:
+        model = normalize_model_name(_settings.reasoning_model)
     temperature = _settings.reasoning_temperature
     max_tokens = _settings.reasoning_max_tokens
 
@@ -270,7 +277,7 @@ async def react_loop(
             })
 
         try:
-            response = await _acompletion_with_rpm_limit(_settings, **kwargs)
+            response = await _acompletion_with_rpm_limit(_settings, scope=model_scope, **kwargs)
             _record_react_cost(response, hunt_id, agent, model, hunt_round)
         except Exception as e:
             # Fallback for last iteration: some Anthropic-compatible APIs (e.g. MiniMax)
@@ -287,7 +294,7 @@ async def react_loop(
                         "temperature": temperature,
                         "max_tokens": max_tokens,
                     }
-                    response = await _acompletion_with_rpm_limit(_settings, **fallback_kwargs)
+                    response = await _acompletion_with_rpm_limit(_settings, scope=model_scope, **fallback_kwargs)
                     _record_react_cost(response, hunt_id, agent, model, hunt_round)
                 except Exception as e2:
                     formatted = format_llm_error(e2)
@@ -343,6 +350,7 @@ async def react_loop(
                 try:
                     nudge_resp = await _acompletion_with_rpm_limit(
                         _settings,
+                        scope=model_scope,
                         model=model,
                         messages=nudge_messages,
                         temperature=temperature,
@@ -414,6 +422,7 @@ async def react_loop(
         try:
             response = await _acompletion_with_rpm_limit(
                 _settings,
+                scope=model_scope,
                 model=model,
                 messages=final_messages,
                 temperature=temperature,

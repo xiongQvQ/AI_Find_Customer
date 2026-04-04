@@ -23,6 +23,10 @@ def _make_settings(**overrides) -> Settings:
         "reasoning_temperature": 0.2,
         "reasoning_max_tokens": 4096,
         "reasoning_requests_per_minute": 0,
+        "email_llm_model": "",
+        "email_reasoning_model": "",
+        "email_llm_requests_per_minute": 0,
+        "email_reasoning_requests_per_minute": 0,
     }
     defaults.update(overrides)
     return Settings(**defaults)
@@ -59,6 +63,18 @@ class TestLLMToolProperties:
     def test_reasoning_temperature(self):
         tool = LLMTool(model_type="reasoning", settings=_make_settings(reasoning_temperature=0.1))
         assert tool._default_temperature == 0.1
+
+    def test_email_model_falls_back_to_default(self):
+        tool = LLMTool(model_type="email", settings=_make_settings())
+        assert tool.model == "gpt-4o-mini"
+
+    def test_email_model_uses_dedicated_model(self):
+        tool = LLMTool(model_type="email", settings=_make_settings(email_llm_model="openrouter/google/gemini-flash-1.5"))
+        assert tool.model == "openrouter/google/gemini-flash-1.5"
+
+    def test_email_reasoning_model_uses_dedicated_model(self):
+        tool = LLMTool(model_type="email_reasoning", settings=_make_settings(email_reasoning_model="openrouter/deepseek/deepseek-r1"))
+        assert tool.model == "openrouter/deepseek/deepseek-r1"
 
     def test_default_temperature(self):
         tool = LLMTool(settings=_make_settings(llm_temperature=0.5))
@@ -189,6 +205,19 @@ class TestLLMToolGenerate:
                 await tool.generate("test")
 
         mock_get.assert_called_once_with("default", 12)
+        limiter.acquire.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_email_model_applies_dedicated_rpm_limiter(self):
+        tool = LLMTool(model_type="email", settings=_make_settings(email_llm_requests_per_minute=7))
+        mock_resp = _mock_completion("ok")
+        limiter = AsyncMock()
+
+        with patch("tools.llm_client.get_llm_rate_limiter", return_value=limiter) as mock_get:
+            with patch("tools.llm_client.litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp):
+                await tool.generate("test")
+
+        mock_get.assert_called_once_with("email", 7)
         limiter.acquire.assert_awaited_once()
 
 

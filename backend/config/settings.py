@@ -147,10 +147,15 @@ class Settings(BaseSettings):
     email_fallback_language: str = "en"
     email_tone: str = "professional"
     email_signature_block: str = ""
+    email_llm_model: str = ""
+    email_reasoning_model: str = ""
+    email_llm_requests_per_minute: int = 0
+    email_reasoning_requests_per_minute: int = 0
     email_min_fit_score_to_send: float = 0.6
     email_min_contactability_score_to_send: float = 0.45
     email_allow_inferred_target: bool = True
     email_allow_generic_company_email: bool = False
+    email_require_approval_before_send: bool = True
     email_reply_detection_enabled: bool = False
     email_reply_check_interval_seconds: int = 180
     email_template_max_send_count: int = 100

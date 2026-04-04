@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Hunter Headless Worker
+After=network.target ai-hunter-api.service
+Requires=ai-hunter-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-hunter/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-hunter/backend/.venv/bin/python scripts/headless_worker.py --payload-file /opt/ai-hunter/backend/automation_job.json --continuous --auto-start-campaign --cycle-interval-seconds 60 --status-poll-seconds 15
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -65,6 +65,8 @@ def _sequence_is_campaign_ready(sequence: dict[str, Any]) -> bool:
             return True
         if decision == "rejected":
             return False
+    if not bool(getattr(get_settings(), "email_require_approval_before_send", True)):
+        return True
     return bool(sequence.get("auto_send_eligible"))
 
 

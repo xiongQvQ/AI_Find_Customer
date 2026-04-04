@@ -777,6 +777,12 @@ def _review_issue_requires_manual_review(issue: str) -> bool:
     return any(marker in normalized for marker in manual_only_markers)
 
 
+def _review_allows_send(review_summary: dict[str, Any], settings: Any) -> bool:
+    if not bool(getattr(settings, "email_require_approval_before_send", True)):
+        return True
+    return str(review_summary.get("status", "") or "") == "approved"
+
+
 def _split_review_issues(
     issues: list[str],
     suggestions: list[str],
@@ -1485,6 +1491,7 @@ async def _craft_for_lead(
                 settings=None,
                 max_iterations=react_max_iterations,
                 required_json_fields=["locale", "emails"],
+                model_scope="email_reasoning",
                 hunt_id=hunt_id,
                 agent="email_craft",
                 hunt_round=hunt_round,
@@ -1557,7 +1564,7 @@ async def _craft_for_lead(
             "template_plan": template_plan,
             "review_summary": review_summary,
             "review_optimization": review_optimization,
-            "auto_send_eligible": review_summary["status"] == "approved",
+            "auto_send_eligible": _review_allows_send(review_summary, settings),
         }
 
 
@@ -1588,6 +1595,7 @@ async def email_craft_node(state: HuntState) -> dict:
     email_template_examples = list(state.get("email_template_examples", []) or [])
     email_template_notes = str(state.get("email_template_notes", "") or "")
     llm = LLMTool(
+        model_type="email",
         hunt_id=hunt_id,
         agent="email_craft",
         hunt_round=hunt_round,
@@ -1701,7 +1709,7 @@ async def email_craft_node(state: HuntState) -> dict:
                             }
                             applied["review_status"] = review_summary["status"]
                             applied["review_optimization"] = review_optimization
-                            applied["auto_send_eligible"] = review_summary["status"] == "approved"
+                            applied["auto_send_eligible"] = _review_allows_send(review_summary, settings)
                             applied["generation_mode"] = "template_pool_personalized"
                 email_sequences.append(applied)
     finally:
