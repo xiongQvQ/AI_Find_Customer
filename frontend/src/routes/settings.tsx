@@ -684,13 +684,28 @@ function EmailDeliveryPanel({
         </div>
 
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-950">
-          <p className="font-semibold">如何准备邮箱授权码</p>
+          <p className="font-semibold">SMTP 和 IMAP 怎么配</p>
           <div className="mt-2 space-y-2 text-xs leading-5 text-blue-900/90">
-            <p>1. 先确认你要用哪个发件邮箱。通常需要这个邮箱地址、SMTP/IMAP 服务器地址、端口，以及该邮箱的登录账号。</p>
-            <p>2. 很多企业邮箱、Gmail、Outlook 之类服务不建议直接填登录密码，而是需要在邮箱后台开启 SMTP / IMAP，并生成“应用专用密码”或“客户端授权码”。</p>
-            <p>3. 一般去邮箱服务商的安全设置里找：`IMAP/SMTP 开启`、`第三方客户端`、`应用密码`、`授权码` 这些选项。</p>
-            <p>4. `SMTP 授权码 / 密码` 用于发信；`IMAP 授权码 / 密码` 用于收取回信。部分服务两者可以相同，部分服务需要分别确认。</p>
-            <p>5. 填完后先点“测试 SMTP 连接”和“测试 IMAP 连接”。测试成功后，系统才会允许开启自动发送和回信自动检测。</p>
+            <p>1. `SMTP` 用于发信，是发送邮件的必填项。只想生成邮件并手动发送，配置 SMTP 就够了。</p>
+            <p>2. `IMAP` 用于收信和检测客户回复。只有你想开启“回信自动检测”时，才需要额外配置 IMAP。</p>
+            <p>3. 先确认你要用哪个发件邮箱。通常需要邮箱地址、服务器地址、端口、登录账号，以及授权码或应用专用密码。</p>
+            <p>4. 很多服务商不建议直接填邮箱登录密码，而是要求先在邮箱后台开启 `SMTP / IMAP`、`第三方客户端`，再生成 `授权码` 或 `应用密码`。</p>
+            <p>5. 一般去邮箱服务商的安全设置里找这些选项：`IMAP/SMTP 开启`、`第三方客户端`、`授权码`、`应用密码`。</p>
+            <p>6. `SMTP 授权码 / 密码` 用于发信；`IMAP 授权码 / 密码` 用于检测回信。部分服务商两者相同，部分服务商需要分别确认。</p>
+            <p>7. 填完后先测试对应连接：
+              只发信时至少测试 `SMTP`；
+              想自动检测回信时，再测试 `IMAP`。
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+          <p className="font-semibold">主流邮箱服务商说明</p>
+          <div className="mt-2 space-y-2 text-xs leading-5 text-amber-900/90">
+            <p>QQ 邮箱、腾讯企业邮箱、网易 163/126、网易企业邮箱、阿里云企业邮箱，服务商类型基本是固定的：发信用 SMTP，收信/查回信用 IMAP。</p>
+            <p>也就是说，服务商不会让你“只配 IMAP 就能发信”。发送邮件一定走 SMTP。</p>
+            <p>如果你已经选了服务商模板，系统会自动填入常见 SMTP / IMAP 默认值；但授权码是否必需、是否允许第三方客户端，仍要以邮箱后台实际开关为准。</p>
+            <p>阿里云企业邮箱和部分企业邮箱常常需要管理员先开启第三方客户端权限；网易企业邮箱不同站点的服务器地址也可能有差异，必要时请以管理员后台显示为准。</p>
           </div>
         </div>
 
@@ -699,7 +714,7 @@ function EmailDeliveryPanel({
             <div>
               <p className="text-sm font-semibold">邮箱服务商模板</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                选择后会自动填入常见 SMTP / IMAP 默认值，你仍然可以手动修改。
+                选择后会自动填入常见 SMTP / IMAP 默认值。只发信时先完成 SMTP 配置即可；需要自动检测回信时再补齐 IMAP。
               </p>
             </div>
           </div>
@@ -800,7 +815,7 @@ function EmailDeliveryPanel({
           </div>
           {!canEnableAutoSend && (
             <p className="text-xs text-amber-700">
-              需要先完整填写 SMTP 参数并测试成功，才能开启自动发送。
+              自动发送只依赖 SMTP。需要先完整填写 SMTP 参数并测试成功，才能开启自动发送。
             </p>
           )}
         </div>
@@ -836,7 +851,7 @@ function EmailDeliveryPanel({
           </div>
           {!canEnableReplyDetection && (
             <p className="text-xs text-amber-700">
-              需要先完整填写 IMAP 参数并测试成功，才能开启回信自动检测。
+              回信自动检测依赖 IMAP。需要先完整填写 IMAP 参数并测试成功，才能开启回信自动检测。
             </p>
           )}
         </div>
