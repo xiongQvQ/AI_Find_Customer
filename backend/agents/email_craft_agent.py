@@ -741,6 +741,132 @@ async def _rewrite_email_sequence(
     return None
 
 
+def _review_issue_requires_manual_review(issue: str) -> bool:
+    normalized = str(issue or "").strip().lower()
+    if not normalized:
+        return False
+    manual_only_markers = (
+        "missing a subject",
+        "missing a cta strategy",
+        "missing tone guidance",
+        "expected exactly 3 emails",
+    )
+    return any(marker in normalized for marker in manual_only_markers)
+
+
+def _split_review_issues(
+    issues: list[str],
+    suggestions: list[str],
+) -> tuple[list[str], list[str], list[str]]:
+    manual_issues: list[str] = []
+    fixable_issues: list[str] = []
+    fixable_suggestions = list(dict.fromkeys(str(item) for item in suggestions if str(item).strip()))
+    for issue in issues:
+        cleaned = str(issue or "").strip()
+        if not cleaned:
+            continue
+        if _review_issue_requires_manual_review(cleaned):
+            manual_issues.append(cleaned)
+        else:
+            fixable_issues.append(cleaned)
+    return manual_issues, fixable_issues, fixable_suggestions
+
+
+async def _auto_improve_reviewed_sequence(
+    llm: LLMTool,
+    *,
+    locale: str,
+    rules: dict[str, Any],
+    user_prompt: str,
+    current_sequence: dict[str, Any],
+    lead: dict[str, Any],
+    template_profile: dict[str, Any],
+    template_plan: dict[str, Any],
+    min_score: int,
+    max_blocking_issues: int,
+    max_rounds: int = 2,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    current = copy.deepcopy(current_sequence)
+    last_review = _review_email_sequence(
+        lead,
+        locale=locale,
+        emails=list(current.get("emails", []) or []),
+        template_profile=template_profile,
+        template_plan=template_plan,
+        min_score=min_score,
+        max_blocking_issues=max_blocking_issues,
+    )
+    improvement_summary: dict[str, Any] = {
+        "attempted": False,
+        "rounds": 0,
+        "improved": False,
+        "stopped_reason": "not_needed" if last_review.get("status") == "approved" else "manual_review_required",
+        "manual_review_issues": [],
+        "fixable_issues": [],
+    }
+    if last_review.get("status") == "approved":
+        return current, last_review, improvement_summary
+
+    for _ in range(max_rounds):
+        manual_issues, fixable_issues, fixable_suggestions = _split_review_issues(
+            list(last_review.get("issues", []) or []),
+            list(last_review.get("suggestions", []) or []),
+        )
+        improvement_summary["manual_review_issues"] = manual_issues
+        improvement_summary["fixable_issues"] = fixable_issues
+        if manual_issues:
+            improvement_summary["stopped_reason"] = "manual_review_required"
+            return current, last_review, improvement_summary
+        if not fixable_issues:
+            improvement_summary["stopped_reason"] = "no_fixable_issues"
+            return current, last_review, improvement_summary
+
+        revised = await _rewrite_email_sequence(
+            llm,
+            locale=locale,
+            rules=rules,
+            user_prompt=user_prompt,
+            current_sequence=current,
+            issues=fixable_issues,
+            suggestions=fixable_suggestions,
+        )
+        if revised is None:
+            improvement_summary["stopped_reason"] = "rewrite_failed"
+            return current, last_review, improvement_summary
+
+        validated = validate_dict(
+            revised,
+            EMAIL_SEQUENCE_REQUIRED,
+            defaults=EMAIL_SEQUENCE_DEFAULTS,
+            context="EmailCraftReviewRewriter",
+        )
+        if validated is None or not validated.get("emails"):
+            improvement_summary["stopped_reason"] = "rewrite_invalid"
+            return current, last_review, improvement_summary
+
+        improvement_summary["attempted"] = True
+        improvement_summary["rounds"] = int(improvement_summary["rounds"]) + 1
+        current = validated
+        next_review = _review_email_sequence(
+            lead,
+            locale=locale,
+            emails=validated["emails"],
+            template_profile=template_profile,
+            template_plan=template_plan,
+            min_score=min_score,
+            max_blocking_issues=max_blocking_issues,
+        )
+        if int(next_review.get("score", 0) or 0) > int(last_review.get("score", 0) or 0):
+            improvement_summary["improved"] = True
+        last_review = next_review
+        if last_review.get("status") == "approved":
+            improvement_summary["stopped_reason"] = "approved"
+            return current, last_review, improvement_summary
+
+    improvement_summary["stopped_reason"] = "max_rounds_reached"
+    return current, last_review, improvement_summary
+
+
 async def _validate_and_revise_sequence(
     llm: LLMTool,
     *,
@@ -1359,6 +1485,21 @@ async def _craft_for_lead(
             min_score=int(settings.email_review_min_score or 75),
             max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
         )
+        optimized_sequence = {"locale": validated.get("locale", locale), "emails": emails}
+        optimized_sequence, review_summary, review_optimization = await _auto_improve_reviewed_sequence(
+            llm,
+            locale=locale,
+            rules=rules,
+            user_prompt=user_prompt,
+            current_sequence=optimized_sequence,
+            lead=lead,
+            template_profile=template_profile,
+            template_plan=template_plan,
+            min_score=int(settings.email_review_min_score or 75),
+            max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
+            max_rounds=2,
+        )
+        emails = list(optimized_sequence.get("emails", []) or emails)
         logger.info("[EmailCraft] %s → %d emails in %s", lead.get("company_name"), len(emails), locale)
 
         return {
@@ -1368,11 +1509,12 @@ async def _craft_for_lead(
             "language_choice": language_choice,
             "strategy_brief": strategy_brief,
             "validation_summary": validation_summary,
-            "review_status": validation_summary.get("status", "approved"),
+            "review_status": review_summary.get("status", validation_summary.get("status", "approved")),
             "emails": emails,
             "template_profile": template_profile,
             "template_plan": template_plan,
             "review_summary": review_summary,
+            "review_optimization": review_optimization,
             "auto_send_eligible": review_summary["status"] == "approved",
         }
 
@@ -1487,6 +1629,26 @@ async def email_craft_node(state: HuntState) -> dict:
                                 min_score=int(settings.email_review_min_score or 75),
                                 max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
                             )
+                            optimized_sequence, review_summary, review_optimization = await _auto_improve_reviewed_sequence(
+                                llm,
+                                locale=str(applied.get("locale", "en_US") or "en_US"),
+                                rules=_get_locale_rules(str(applied.get("locale", "en_US") or "en_US")),
+                                user_prompt=(
+                                    f"Personalize this approved template sequence for {lead.get('company_name', '')} "
+                                    f"and the chosen contact {target.get('target_name', '')} <{target.get('target_email', '')}>."
+                                ),
+                                current_sequence={
+                                    "locale": str(applied.get("locale", "en_US") or "en_US"),
+                                    "emails": validated["emails"],
+                                },
+                                lead=lead,
+                                template_profile=applied.get("template_profile", {}) or {},
+                                template_plan=applied.get("template_plan", {}) or {},
+                                min_score=int(settings.email_review_min_score or 75),
+                                max_blocking_issues=int(settings.email_review_max_blocking_issues or 0),
+                                max_rounds=2,
+                            )
+                            applied["emails"] = list(optimized_sequence.get("emails", []) or validated["emails"])
                             applied["review_summary"] = review_summary
                             applied["validation_summary"] = {
                                 "passed": review_summary["status"] == "approved",
@@ -1495,6 +1657,7 @@ async def email_craft_node(state: HuntState) -> dict:
                                 "suggestions": list(review_summary.get("suggestions", [])),
                             }
                             applied["review_status"] = review_summary["status"]
+                            applied["review_optimization"] = review_optimization
                             applied["auto_send_eligible"] = review_summary["status"] == "approved"
                             applied["generation_mode"] = "template_pool_personalized"
                 email_sequences.append(applied)

@@ -8,6 +8,7 @@ import pytest
 from agents.email_craft_agent import (
     email_craft_node, _craft_for_lead, _get_locale,
     _get_locale_rules, _build_email_tools, _rule_validate_emails_payload,
+    _auto_improve_reviewed_sequence,
 )
 from emailing.template_pipeline import build_fallback_template_profile
 import asyncio
@@ -949,6 +950,96 @@ class TestCraftForLead:
         assert result["review_summary"]["status"] == "needs_review"
         assert result["auto_send_eligible"] is False
         assert result["review_summary"]["issues"]
+
+    @pytest.mark.asyncio
+    async def test_review_gate_auto_optimizes_fixable_issues(self):
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value=json.dumps({
+            "locale": "en_US",
+            "emails": [
+                {
+                    "sequence_number": 1,
+                    "email_type": "company_intro",
+                    "subject": "Acme partnership idea",
+                    "body_text": (
+                        "Hi Acme team, we noticed your distribution activity in industrial switching and thought our range "
+                        "could be relevant. MyCompany supplies industrial switches for buyers who need stable supply, "
+                        "clear specs, and responsive support. If this category is relevant on your side, I can share a "
+                        "short overview with target applications and current export support. We already work with overseas "
+                        "buyers who value predictable lead times, practical technical documentation, and straightforward "
+                        "commercial communication during qualification."
+                    ),
+                    "suggested_send_day": 0,
+                    "personalization_points": ["Acme", "industrial switching"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 2,
+                    "email_type": "product_showcase",
+                    "subject": "Acme sourcing fit for industrial switches",
+                    "body_text": (
+                        "Following up with a bit more detail for Acme. Our switch range covers common industrial use cases, "
+                        "with documentation and export coordination designed for distributors who need quick quoting and "
+                        "repeatable supply. If useful, I can send a concise spec sheet and product shortlist aligned to the "
+                        "kind of accounts your team usually serves. That usually helps partners quickly judge fit without "
+                        "wasting time on oversized catalogs or claims that are hard to verify in an early sourcing discussion."
+                    ),
+                    "suggested_send_day": 3,
+                    "personalization_points": ["Acme sourcing fit"],
+                    "cultural_adaptations": [],
+                },
+                {
+                    "sequence_number": 3,
+                    "email_type": "partnership_proposal",
+                    "subject": "Should I send Acme a short product shortlist?",
+                    "body_text": (
+                        "One last note in case this is relevant for Acme. If your team is reviewing switch suppliers or "
+                        "related categories this quarter, I can send a short product shortlist with typical distributor use "
+                        "cases and lead times. If not your area, happy to close the loop. If it is relevant, I can also "
+                        "suggest a small first list focused on mainstream specifications so your team can evaluate quickly "
+                        "without a heavy onboarding step."
+                    ),
+                    "suggested_send_day": 7,
+                    "personalization_points": ["Acme"],
+                    "cultural_adaptations": [],
+                },
+            ],
+        }))
+
+        current_sequence = {
+            "locale": "en_US",
+            "emails": [
+                {"sequence_number": 1, "email_type": "company_intro", "subject": "Same", "body_text": "short text only", "suggested_send_day": 0},
+                {"sequence_number": 2, "email_type": "product_showcase", "subject": "Same", "body_text": "short text only", "suggested_send_day": 3},
+                {"sequence_number": 3, "email_type": "partnership_proposal", "subject": "Same", "body_text": "short text only", "suggested_send_day": 7},
+            ],
+        }
+        lead = {"company_name": "Acme", "country_code": "us", "emails": ["buyer@acme.com"]}
+        template_profile = {"tone": "professional", "source": "auto_generated"}
+        template_plan = {
+            "cta_strategy": "Ask a low-friction qualification question",
+            "opening_strategy": "Lead with buyer relevance",
+            "value_angle": "Relevant product fit",
+        }
+
+        optimized, review_summary, optimization = await _auto_improve_reviewed_sequence(
+            llm,
+            locale="en_US",
+            rules=_get_locale_rules("en_US"),
+            user_prompt="Write a concise outbound sequence for Acme.",
+            current_sequence=current_sequence,
+            lead=lead,
+            template_profile=template_profile,
+            template_plan=template_plan,
+            min_score=75,
+            max_blocking_issues=0,
+            max_rounds=2,
+        )
+
+        assert review_summary["status"] == "approved"
+        assert optimization["attempted"] is True
+        assert optimization["improved"] is True
+        assert "Acme" in optimized["emails"][0]["body_text"]
 
 
 class TestEmailCraftNode:
