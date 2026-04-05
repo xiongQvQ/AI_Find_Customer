@@ -368,6 +368,11 @@ async def lifespan(app: FastAPI):
     app.state.email_reply_task = None
     app.state.automation_notify_task = None
     app.state.automation_consumer_task = None
+    queue = HuntJobQueue(settings.automation_queue_db_path)
+    queue.init_db()
+    recovered_jobs = queue.recover_interrupted_running_jobs(updated_at=_now_iso())
+    if recovered_jobs:
+        logger.warning("[AutomationConsumer] recovered %s interrupted running job(s) after startup", recovered_jobs)
 
     # Enable Langfuse tracing if configured
     from observability.setup import setup_observability

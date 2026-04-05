@@ -60,3 +60,23 @@ def test_cancel_and_retry_job(tmp_path):
     assert retried is not None
     assert retried["status"] == "queued"
     assert retried["finished_at"] == ""
+
+
+def test_recover_interrupted_running_jobs(tmp_path):
+    queue = HuntJobQueue(str(tmp_path / "queue.db"))
+    queue.init_db()
+
+    job_id = queue.enqueue({"description": "Find buyers"}, now_iso="2026-04-04T00:00:00+00:00")
+    claimed = queue.claim_next(worker_id="worker-a", now_iso="2026-04-04T00:00:01+00:00")
+    assert claimed is not None
+
+    recovered = queue.recover_interrupted_running_jobs(updated_at="2026-04-04T00:02:00+00:00")
+    assert recovered == 1
+
+    recovered_job = queue.get(job_id)
+    assert recovered_job is not None
+    assert recovered_job["status"] == "queued"
+    assert recovered_job["claimed_by"] == ""
+    assert recovered_job["started_at"] == ""
+    assert recovered_job["progress_stage"] == "queued"
+    assert "Recovered after API restart" in recovered_job["progress_message"]

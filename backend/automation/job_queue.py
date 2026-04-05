@@ -337,3 +337,26 @@ class HuntJobQueue:
                 f"UPDATE hunt_jobs SET {', '.join(fields)} WHERE id = ?",
                 values,
             )
+
+    def recover_interrupted_running_jobs(self, *, updated_at: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET status = 'queued',
+                    available_at = ?,
+                    updated_at = ?,
+                    claimed_by = '',
+                    started_at = '',
+                    progress_stage = 'queued',
+                    progress_message = 'Recovered after API restart; waiting for consumer to reclaim',
+                    last_error = CASE
+                      WHEN last_error = '' THEN 'Recovered after API restart'
+                      ELSE last_error
+                    END
+                WHERE status = 'running'
+                """
+                ,
+                (updated_at, updated_at),
+            )
+            return int(cur.rowcount or 0)

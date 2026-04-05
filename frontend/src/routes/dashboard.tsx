@@ -47,21 +47,24 @@ function queueStatusVariant(job: AutomationJob) {
 }
 
 export function DashboardPage() {
-  const { data: jobs, isLoading } = useQuery({
+  const { data: jobs, isLoading, isFetching, error: jobsError } = useQuery({
     queryKey: ["automation-jobs"],
     queryFn: api.listAutomationJobs,
     refetchInterval: 5000,
   });
-  const { data: automationStatus } = useQuery({
+  const { data: automationStatus, error: statusError } = useQuery({
     queryKey: ["automation-status"],
     queryFn: api.getAutomationStatus,
     refetchInterval: 5000,
   });
-  const { data: automationMetrics } = useQuery({
+  const { data: automationMetrics, error: metricsError } = useQuery({
     queryKey: ["automation-metrics", 24],
     queryFn: () => api.getAutomationMetrics(24),
     refetchInterval: 10000,
   });
+  const jobList = jobs ?? [];
+  const consumer = automationStatus?.workers?.consumer;
+  const dashboardErrors = [jobsError, statusError, metricsError].filter(Boolean) as Error[];
 
   return (
     <div className="space-y-8">
@@ -78,8 +81,23 @@ export function DashboardPage() {
         </Link>
       </div>
 
-      {(automationStatus || automationMetrics) && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      {dashboardErrors.length > 0 && (
+        <Card className="border-amber-300">
+          <CardHeader>
+            <CardTitle className="text-lg">数据加载异常</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-amber-700">
+            {dashboardErrors.map((err, index) => (
+              <div key={`${err.message}-${index}`}>{err.message}</div>
+            ))}
+            <div className="text-muted-foreground">
+              如果你刚更新了后端或前端，请重启 dev 服务后再刷新。
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">任务队列</CardTitle>
@@ -101,11 +119,11 @@ export function DashboardPage() {
             <CardContent>
               <div className="flex items-center gap-2 text-2xl font-semibold">
                 <Workflow className="h-5 w-5 text-muted-foreground" />
-                {automationStatus?.workers?.consumer?.running ? "在线" : "离线"}
+                {consumer?.running ? "在线" : "离线"}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {automationStatus?.workers?.consumer?.active_job_id
-                  ? `正在处理 ${automationStatus.workers.consumer.active_job_id.slice(0, 8)}`
+                {consumer?.active_job_id
+                  ? `正在处理 ${consumer.active_job_id.slice(0, 8)}`
                   : "当前没有正在执行的 queue job"}
               </p>
             </CardContent>
@@ -152,8 +170,7 @@ export function DashboardPage() {
               </p>
             </CardContent>
           </Card>
-        </div>
-      )}
+      </div>
 
       {automationMetrics?.recent_failed_hunts?.length ? (
         <Card className="border-amber-300">
@@ -264,10 +281,13 @@ export function DashboardPage() {
       ) : null}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : !jobs?.length ? (
+        <Card className="border-dashed">
+          <CardContent className="flex items-center justify-center gap-3 py-16 text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <span>正在加载队列任务…</span>
+          </CardContent>
+        </Card>
+      ) : !jobList.length ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Crosshair className="h-12 w-12 text-muted-foreground mb-4" />
@@ -282,8 +302,18 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {jobs.map((job) => {
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>队列任务</span>
+            {isFetching && (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在刷新
+              </span>
+            )}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {jobList.map((job) => {
             const detailLink = job.last_hunt_id ? (
               <Link to="/hunts/$huntId" params={{ huntId: job.last_hunt_id }} className="text-primary hover:underline">
                 查看 Hunt 详情
@@ -352,6 +382,7 @@ export function DashboardPage() {
               </Card>
             );
           })}
+          </div>
         </div>
       )}
     </div>
