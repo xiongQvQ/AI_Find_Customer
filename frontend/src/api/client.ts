@@ -343,6 +343,33 @@ export interface AutomationJob {
   hunt_stage: string;
   hunt_error: string;
   leads_count: number;
+  email_sequences_count: number;
+  lead_preview: Array<{
+    company_name: string;
+    website: string;
+    country: string;
+    emails: string[];
+    email_count: number;
+  }>;
+  email_sequence_preview: Array<{
+    company_name: string;
+    website: string;
+    target_emails: string[];
+    email_count: number;
+    subjects: string[];
+  }>;
+  campaign_summary: {
+    campaign_id?: string;
+    status?: string;
+    sequences_total?: number;
+    sent_count?: number;
+    failed_count?: number;
+    pending_count?: number;
+    replied_count?: number;
+  };
+  campaign_count: number;
+  campaign_sequence_count: number;
+  campaign_target_emails: string[];
 }
 
 export interface AutomationStatus {
@@ -380,6 +407,17 @@ export interface AutomationStatus {
   };
   workers: {
     consumer?: {
+      enabled?: boolean;
+      running?: boolean;
+      worker_id?: string;
+      active_job_id?: string;
+      last_claimed_job_id?: string;
+      last_completed_job_id?: string;
+      last_error?: string;
+      last_poll_at?: string;
+      last_activity_at?: string;
+    };
+    template_seed?: {
       enabled?: boolean;
       running?: boolean;
       worker_id?: string;

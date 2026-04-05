@@ -271,6 +271,8 @@ export function AutomationJobPage() {
     queryFn: api.getAutomationStatus,
     refetchInterval: 5000,
   });
+  const consumerWorker = automationStatus?.workers?.consumer;
+  const templateSeedWorker = automationStatus?.workers?.template_seed;
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["automation-job", jobId],
     queryFn: () => api.getAutomationJob(jobId),
@@ -532,15 +534,31 @@ export function AutomationJobPage() {
             <CardTitle className="text-sm">Consumer</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">
-            {automationStatus?.workers?.consumer?.running ? "在线" : "离线"}
+            {consumerWorker?.running ? "在线" : "离线"}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Seed Worker</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold">
+            {templateSeedWorker?.running ? "在线" : "离线"}
           </CardContent>
         </Card>
       </div>
 
-      {!automationStatus?.workers?.consumer?.running && (
+      {!consumerWorker?.running && (
         <Card className="border-amber-300">
           <CardContent className="py-4 text-sm text-amber-700">
             当前没有检测到运行中的 consumer。queue job 会停留在排队状态，直到 API 内嵌 consumer 或独立 consumer 进程开始消费。
+          </CardContent>
+        </Card>
+      )}
+
+      {!templateSeedWorker?.running && job.enable_email_craft && job.template_seed_status !== "ready" && (
+        <Card className="border-amber-300">
+          <CardContent className="py-4 text-sm text-amber-700">
+            当前没有检测到运行中的 template seed worker。启用邮件生成的 queue job 仍然可以继续执行，但模板 seed 不会在 consumer 领取前预热。
           </CardContent>
         </Card>
       )}
@@ -593,7 +611,7 @@ export function AutomationJobPage() {
             </div>
             <div>
               <div className="font-medium">当前活跃 Job</div>
-              <div className="text-muted-foreground break-all">{automationStatus?.workers?.consumer?.active_job_id || "-"}</div>
+              <div className="text-muted-foreground break-all">{consumerWorker?.active_job_id || "-"}</div>
             </div>
             <div>
               <div className="font-medium">模板 Seed 来源</div>
@@ -601,7 +619,15 @@ export function AutomationJobPage() {
             </div>
             <div>
               <div className="font-medium">最近 Consumer 活动</div>
-              <div className="text-muted-foreground">{formatTime(automationStatus?.workers?.consumer?.last_activity_at || "")}</div>
+              <div className="text-muted-foreground">{formatTime(consumerWorker?.last_activity_at || "")}</div>
+            </div>
+            <div>
+              <div className="font-medium">Seed Worker 当前 Job</div>
+              <div className="text-muted-foreground break-all">{templateSeedWorker?.active_job_id || "-"}</div>
+            </div>
+            <div>
+              <div className="font-medium">最近 Seed 活动</div>
+              <div className="text-muted-foreground">{formatTime(templateSeedWorker?.last_activity_at || "")}</div>
             </div>
           </div>
         </CardContent>

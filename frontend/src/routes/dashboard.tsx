@@ -71,6 +71,7 @@ export function DashboardPage() {
   });
   const jobList = jobs ?? [];
   const consumer = automationStatus?.workers?.consumer;
+  const templateSeedWorker = automationStatus?.workers?.template_seed;
   const dashboardErrors = [jobsError, statusError, metricsError].filter(Boolean) as Error[];
   const feishuWebhook = settings?.settings?.AUTOMATION_FEISHU_WEBHOOK_URL || "";
   const feishuConfigured = Boolean(feishuWebhook && !feishuWebhook.includes("****") ? feishuWebhook : feishuWebhook.includes("****"));
@@ -116,7 +117,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">任务队列</CardTitle>
@@ -144,6 +145,22 @@ export function DashboardPage() {
                 {consumer?.active_job_id
                   ? `正在处理 ${consumer.active_job_id.slice(0, 8)}`
                   : "当前没有正在执行的 queue job"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Template Seed</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Workflow className="h-5 w-5 text-muted-foreground" />
+                {templateSeedWorker?.running ? "在线" : "离线"}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {templateSeedWorker?.active_job_id
+                  ? `正在预热 ${templateSeedWorker.active_job_id.slice(0, 8)}`
+                  : "当前没有正在预热的模板 seed"}
               </p>
             </CardContent>
           </Card>
@@ -211,6 +228,27 @@ export function DashboardPage() {
             </CardContent>
           </Card>
       </div>
+
+      {(consumer?.last_activity_at || templateSeedWorker?.last_activity_at) && (
+        <Card className="border-dashed">
+          <CardContent className="grid gap-3 py-4 text-sm md:grid-cols-2">
+            <div>
+              <div className="font-medium">Consumer 最近活动</div>
+              <div className="text-muted-foreground">
+                {formatTime(consumer?.last_activity_at || "") || "-"}
+                {consumer?.active_job_id ? ` · 正在处理 ${consumer.active_job_id.slice(0, 8)}` : ""}
+              </div>
+            </div>
+            <div>
+              <div className="font-medium">Template Seed 最近活动</div>
+              <div className="text-muted-foreground">
+                {formatTime(templateSeedWorker?.last_activity_at || "") || "-"}
+                {templateSeedWorker?.active_job_id ? ` · 正在预热 ${templateSeedWorker.active_job_id.slice(0, 8)}` : ""}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-dashed">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
