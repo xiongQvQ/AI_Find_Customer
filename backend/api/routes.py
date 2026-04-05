@@ -42,6 +42,27 @@ _sse_queues: dict[str, list[asyncio.Queue]] = {}
 _reply_detection_task: asyncio.Task[Any] | None = None
 
 
+class HuntCancelledError(RuntimeError):
+    """Raised when a running hunt was cancelled by the operator."""
+
+
+def request_hunt_cancel(hunt_id: str, reason: str = "Cancelled by user") -> bool:
+    hunt = _hunts.get(hunt_id)
+    if not hunt:
+        return False
+    hunt["cancel_requested"] = True
+    hunt["cancel_reason"] = reason
+    save_hunt(hunt_id, hunt)
+    logger.info("[Hunt %s] cancellation requested: %s", hunt_id[:8], reason)
+    return True
+
+
+def _raise_if_hunt_cancelled(hunt_id: str) -> None:
+    hunt = _hunts.get(hunt_id) or {}
+    if bool(hunt.get("cancel_requested")):
+        raise HuntCancelledError(str(hunt.get("cancel_reason") or "Cancelled by user"))
+
+
 def _lead_key(lead: dict[str, Any]) -> str:
     website = str(lead.get("website", "") or "").strip().lower()
     if website:
@@ -552,6 +573,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
     set_progress_callback(_on_lead_progress)
 
     try:
+        _raise_if_hunt_cancelled(hunt_id)
         graph = build_graph(
             parse_description_node=parse_description_node,
             insight_node=insight_node,
@@ -569,6 +591,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
         accumulated: dict[str, Any] = dict(initial_state)
 
         async for chunk in graph.astream(initial_state):
+            _raise_if_hunt_cancelled(hunt_id)
             # chunk is {node_name: node_output_dict}
             for node_name, node_output in chunk.items():
                 if node_name == "__end__":
@@ -624,6 +647,7 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
                     "hunt_round": hunt_round,
                     "stage": stage,
                 })
+                _raise_if_hunt_cancelled(hunt_id)
 
         # Stream finished — accumulated has the full merged state
         cost_summary = get_tracker(hunt_id).to_summary()
@@ -653,6 +677,22 @@ async def _run_hunt(hunt_id: str, request: HuntRequest) -> None:
             "hunt_round": accumulated.get("hunt_round", 0),
         })
 
+    except HuntCancelledError as e:
+        logger.warning("[Hunt %s] Cancelled: %s", hunt_id[:8], e)
+        cost_summary = get_tracker(hunt_id).to_summary()
+        remove_tracker(hunt_id)
+        accumulated["cost_summary"] = cost_summary
+        _hunts[hunt_id].update({
+            "status": "cancelled",
+            "error": str(e),
+            "completed_at": now_iso(),
+            "cost_summary": cost_summary,
+            "result": accumulated,
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
+            "hunt_round": accumulated.get("hunt_round", 0),
+        })
+        save_hunt(hunt_id, _hunts[hunt_id])
+        _broadcast(hunt_id, "failed", {"error": str(e)})
     except Exception as e:
         logger.error("[Hunt %s] Failed: %s", hunt_id[:8], e, exc_info=True)
         cost_summary = get_tracker(hunt_id).to_summary()
@@ -795,6 +835,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
     set_progress_callback(_on_lead_progress)
 
     try:
+        _raise_if_hunt_cancelled(hunt_id)
         graph = build_graph(
             parse_description_node=parse_description_node,
             insight_node=insight_node,
@@ -811,6 +852,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
         accumulated: dict[str, Any] = dict(initial_state)
 
         async for chunk in graph.astream(initial_state):
+            _raise_if_hunt_cancelled(hunt_id)
             for node_name, node_output in chunk.items():
                 if node_name == "__end__":
                     continue
@@ -857,6 +899,7 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
                     "hunt_round": hunt_round,
                     "stage": stage,
                 })
+                _raise_if_hunt_cancelled(hunt_id)
 
         _hunts[hunt_id].update({
             "status": "completed",
@@ -881,6 +924,22 @@ async def _run_resume_hunt(hunt_id: str, request: ResumeRequest, prior_result: d
             "hunt_round": accumulated.get("hunt_round", 0),
         })
 
+    except HuntCancelledError as e:
+        logger.warning("[Hunt %s] Resume cancelled: %s", hunt_id[:8], e)
+        cost_summary = get_tracker(hunt_id).to_summary()
+        remove_tracker(hunt_id)
+        accumulated["cost_summary"] = cost_summary
+        _hunts[hunt_id].update({
+            "status": "cancelled",
+            "error": str(e),
+            "completed_at": now_iso(),
+            "cost_summary": cost_summary,
+            "result": accumulated,
+            "leads_count": _unique_leads_count(accumulated.get("leads", [])),
+            "hunt_round": accumulated.get("hunt_round", 0),
+        })
+        save_hunt(hunt_id, _hunts[hunt_id])
+        _broadcast(hunt_id, "failed", {"error": str(e)})
     except Exception as e:
         logger.error("[Hunt %s] Resume failed: %s", hunt_id[:8], e, exc_info=True)
         cost_summary = get_tracker(hunt_id).to_summary()

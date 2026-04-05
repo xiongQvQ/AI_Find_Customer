@@ -213,6 +213,8 @@ def test_cancel_and_retry_automation_job(monkeypatch):
 
     monkeypatch.setattr("api.automation_routes._queue", lambda: FakeQueue())
     monkeypatch.setattr("api.automation_routes.load_hunt", lambda hunt_id: None)
+    requested = []
+    monkeypatch.setattr("api.automation_routes.request_hunt_cancel", lambda hunt_id, reason="": requested.append((hunt_id, reason)) or True)
 
     cancelled = client.post("/api/v1/automation/jobs/job-3/cancel")
     retried = client.post("/api/v1/automation/jobs/job-3/retry")
@@ -221,6 +223,51 @@ def test_cancel_and_retry_automation_job(monkeypatch):
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "failed"
     assert "Cancelled by user" in cancelled.json()["last_error"]
+    assert requested == []
     assert retried.status_code == 200
     assert retried.json()["status"] == "queued"
     assert missing.status_code == 404
+
+
+def test_cancel_running_job_requests_hunt_cancel(monkeypatch):
+    app = create_app()
+    client = TestClient(app)
+
+    state = {
+        "id": "job-4",
+        "status": "running",
+        "created_at": "2026-04-05T00:00:00+00:00",
+        "updated_at": "2026-04-05T00:00:00+00:00",
+        "started_at": "2026-04-05T00:00:10+00:00",
+        "finished_at": "",
+        "attempt_count": 1,
+        "last_error": "",
+        "last_hunt_id": "hunt-123",
+        "payload": {"website_url": "https://www.gdushun.com/"},
+    }
+
+    class FakeQueue:
+        def init_db(self):
+            return None
+
+        def get(self, job_id):
+            if job_id != "job-4":
+                return None
+            return state.copy()
+
+        def cancel(self, job_id, updated_at):
+            state["status"] = "failed"
+            state["finished_at"] = updated_at
+            state["updated_at"] = updated_at
+            state["last_error"] = "Cancelled by user"
+            state["progress_stage"] = "cancelled"
+
+    requested = []
+    monkeypatch.setattr("api.automation_routes._queue", lambda: FakeQueue())
+    monkeypatch.setattr("api.automation_routes.load_hunt", lambda hunt_id: None)
+    monkeypatch.setattr("api.automation_routes.request_hunt_cancel", lambda hunt_id, reason="": requested.append((hunt_id, reason)) or True)
+
+    cancelled = client.post("/api/v1/automation/jobs/job-4/cancel")
+
+    assert cancelled.status_code == 200
+    assert requested == [("hunt-123", "Cancelled by user via automation job")]

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.hunt_store import load_hunt, now_iso
-from api.routes import _hunts
+from api.routes import _hunts, request_hunt_cancel
 from api.security import require_api_access
 from automation.job_queue import HuntJobQueue
 from automation.metrics import collect_automation_metrics, collect_automation_status
@@ -159,6 +159,9 @@ async def cancel_automation_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Automation job not found")
     queue.cancel(job_id, updated_at=now_iso())
+    hunt_id = str(job.get("last_hunt_id", "") or "")
+    if hunt_id:
+        request_hunt_cancel(hunt_id, reason="Cancelled by user via automation job")
     logger.info("[AutomationQueue] cancelled job=%s", job_id[:8])
     updated = queue.get(job_id)
     return _serialize_job(updated or job)

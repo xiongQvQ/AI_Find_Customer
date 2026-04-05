@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import pytest
 
-from scripts.headless_worker import ApiError, _headers, _normalize_base_url, build_hunt_payload, run_cycle
+from scripts.headless_worker import ApiError, JobCancelledError, _headers, _normalize_base_url, build_hunt_payload, run_cycle, run_hunt_payload
 
 
 class _Args:
@@ -167,3 +167,20 @@ def test_run_cycle_sends_immediate_failure_notification_when_hunt_creation_fails
 
     assert any("任务失败" in item for item in notifications)
     assert any("backend down" in item for item in notifications)
+
+
+def test_run_hunt_payload_stops_when_cancelled_before_hunt_creation(monkeypatch):
+    class Args(_Args):
+        api_base_url = "http://127.0.0.1:8000"
+        api_token = "secret"
+        request_timeout_seconds = 30
+        status_poll_seconds = 0
+        auto_start_campaign = True
+        campaign_name_prefix = "Auto Campaign"
+        progress_callback = None
+        cancel_check = staticmethod(lambda: True)
+
+    monkeypatch.setattr("scripts.headless_worker._notify_feishu", lambda text: None)
+
+    with pytest.raises(JobCancelledError):
+        run_hunt_payload(Args(), build_hunt_payload(_Args()))

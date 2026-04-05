@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.automation_routes import router as automation_router
 from api.hunt_store import load_all_hunts
 from api.email_routes import router as email_router
-from api.routes import router, start_background_workers, stop_background_workers
+from api.routes import router, start_background_workers, stop_background_workers, request_hunt_cancel
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from automation.job_queue import HuntJobQueue
@@ -35,7 +35,7 @@ from emailing.readiness import ensure_imap_tested, ensure_smtp_tested
 from emailing.reply_detector import run_reply_detection_once
 from emailing.scheduler import run_scheduler_once
 from emailing.store import EmailStore
-from scripts.headless_worker import run_hunt_payload
+from scripts.headless_worker import JobCancelledError, run_hunt_payload
 
 # Configure logging for the entire application
 logging.basicConfig(
@@ -130,6 +130,7 @@ async def _run_automation_consumer_once() -> bool:
         template_seed_status=extra.get("template_seed_status"),
         template_seed_source=extra.get("template_seed_source"),
     )
+    consumer_args.cancel_check = lambda: queue.is_cancellation_requested(job_id)
 
     try:
         result = await asyncio.to_thread(run_hunt_payload, consumer_args, job.get("payload") or {})
@@ -142,6 +143,18 @@ async def _run_automation_consumer_once() -> bool:
             last_error="",
         )
         logger.info("[AutomationConsumer] completed job=%s hunt=%s", job_id[:8], str(result['hunt_id'])[:8])
+    except JobCancelledError as exc:
+        latest_job = queue.get(job_id) or {}
+        hunt_id = str(latest_job.get("last_hunt_id", "") or job.get("last_hunt_id", "") or "")
+        if hunt_id:
+            request_hunt_cancel(hunt_id, reason=str(exc))
+        update_worker_state(
+            "consumer",
+            active_job_id="",
+            last_activity_at=_now_iso(),
+            last_error=str(exc),
+        )
+        logger.warning("[AutomationConsumer] job=%s cancelled: %s", job_id[:8], exc)
     except asyncio.CancelledError:
         raise
     except Exception as exc:

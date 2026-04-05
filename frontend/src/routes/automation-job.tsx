@@ -277,14 +277,22 @@ export function AutomationJobPage() {
     refetchInterval: 10000,
   });
   const huntId = job?.last_hunt_id || "";
-  const { data: huntResult } = useQuery<HuntResult>({
+  const {
+    data: huntResult,
+    isLoading: huntResultLoading,
+    error: huntResultError,
+  } = useQuery<HuntResult>({
     queryKey: ["automation-job-hunt-result", huntId],
     queryFn: () => api.getHuntResult(huntId),
     enabled: !!huntId,
     refetchInterval: job?.status === "running" ? 5000 : false,
     retry: false,
   });
-  const { data: campaigns } = useQuery<EmailCampaignListItem[]>({
+  const {
+    data: campaigns,
+    isLoading: campaignsLoading,
+    error: campaignsError,
+  } = useQuery<EmailCampaignListItem[]>({
     queryKey: ["automation-job-campaigns", huntId],
     queryFn: () => api.listEmailCampaigns(huntId),
     enabled: !!huntId,
@@ -681,7 +689,20 @@ export function AutomationJobPage() {
               placeholder="按公司名、官网、国家过滤企业…"
               className="font-mono text-sm"
             />
-            {filteredLeads.length ? filteredLeads.slice(0, 20).map((lead, index) => {
+            {!huntId ? (
+              <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
+                当前 queue job 还没有创建 Hunt，所以还没有企业数据。
+              </div>
+            ) : huntResultLoading ? (
+              <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在加载企业结果…
+              </div>
+            ) : huntResultError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                {huntResultError instanceof Error ? huntResultError.message : "加载企业结果失败"}
+              </div>
+            ) : filteredLeads.length ? filteredLeads.slice(0, 20).map((lead, index) => {
               const item = asRecord(lead);
               const emails = Array.isArray(item.emails) ? item.emails : [];
               return (
@@ -695,7 +716,9 @@ export function AutomationJobPage() {
               );
             }) : (
               <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
-                当前没有匹配的企业结果
+                {job.progress_stage === "queued" || job.progress_stage === "claimed" || job.progress_stage === "template_seed" || job.progress_stage === "create_hunt"
+                  ? "Hunt 还没开始深挖企业，稍后会在这里显示。"
+                  : "当前没有匹配的企业结果"}
               </div>
             )}
           </CardContent>
@@ -717,7 +740,20 @@ export function AutomationJobPage() {
               placeholder="按公司名、目标邮箱、主题过滤模板…"
               className="font-mono text-sm"
             />
-            {filteredEmailSequences.length ? filteredEmailSequences.slice(0, 10).map((sequence, index) => {
+            {!huntId ? (
+              <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
+                当前 queue job 还没有创建 Hunt，所以还没有邮件模板。
+              </div>
+            ) : huntResultLoading ? (
+              <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在加载邮件模板…
+              </div>
+            ) : huntResultError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                {huntResultError instanceof Error ? huntResultError.message : "加载邮件模板失败"}
+              </div>
+            ) : filteredEmailSequences.length ? filteredEmailSequences.slice(0, 10).map((sequence, index) => {
               const lead = asRecord(sequence.lead);
               const targets = extractSequenceTargets(sequence);
               return (
@@ -744,7 +780,9 @@ export function AutomationJobPage() {
               );
             }) : (
               <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
-                当前没有匹配的邮件模板
+                {job.progress_stage === "wait_hunt" || job.progress_stage === "load_result"
+                  ? "Hunt 还在执行中，邮件模板会在结果加载完成后显示。"
+                  : "当前没有匹配的邮件模板"}
               </div>
             )}
           </CardContent>
@@ -779,7 +817,20 @@ export function AutomationJobPage() {
                 placeholder="按公司、邮箱、Campaign、状态过滤发送记录…"
                 className="mt-2 font-mono text-sm"
               />
-              {filteredCampaignSequences.length ? (
+              {!huntId ? (
+                <div className="mt-2 rounded-md border border-dashed p-4 text-center text-muted-foreground">
+                  当前 queue job 还没有创建 Hunt，所以还没有发送序列。
+                </div>
+              ) : campaignsLoading ? (
+                <div className="mt-2 flex items-center justify-center rounded-md border border-dashed p-4 text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在加载发送记录…
+                </div>
+              ) : campaignsError ? (
+                <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  {campaignsError instanceof Error ? campaignsError.message : "加载发送记录失败"}
+                </div>
+              ) : filteredCampaignSequences.length ? (
                 <div className="mt-2 space-y-2">
                   {filteredCampaignSequences.slice(0, 20).map((sequence) => (
                     <div key={sequence.id} className="rounded-md border p-3">
@@ -806,7 +857,9 @@ export function AutomationJobPage() {
                 </div>
               ) : (
                 <div className="mt-2 rounded-md border border-dashed p-4 text-center text-muted-foreground">
-                  当前没有匹配的发送序列
+                  {job.progress_stage === "load_result" || job.progress_stage === "create_campaign" || job.progress_stage === "start_campaign"
+                    ? "Campaign 还在创建或启动中，发送序列稍后会显示。"
+                    : "当前没有匹配的发送序列"}
                 </div>
               )}
             </div>

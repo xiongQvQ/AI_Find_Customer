@@ -37,6 +37,10 @@ class ApiError(RuntimeError):
     """Raised when the local API returns a non-success response."""
 
 
+class JobCancelledError(RuntimeError):
+    """Raised when a queue job was cancelled while it was running."""
+
+
 def _notify_feishu(text: str) -> None:
     settings = get_settings()
     webhook_url = str(settings.automation_feishu_webhook_url or "").strip()
@@ -183,9 +187,12 @@ def _wait_for_hunt(
     api_token: str,
     hunt_id: str,
     poll_seconds: int,
+    should_cancel: Any | None = None,
 ) -> dict[str, Any]:
     last_status = ""
     while True:
+        if callable(should_cancel) and should_cancel():
+            raise JobCancelledError(f"queue job cancelled while waiting for hunt {hunt_id}")
         status = _request_json(
             method="GET",
             base_url=base_url,
@@ -211,13 +218,19 @@ def _wait_for_hunt(
 
 def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
     progress_callback = getattr(args, "progress_callback", None)
+    cancel_check = getattr(args, "cancel_check", None)
 
     def report(stage: str, message: str, **extra: Any) -> None:
         if callable(progress_callback):
             progress_callback(stage=stage, message=message, **extra)
 
+    def ensure_not_cancelled() -> None:
+        if callable(cancel_check) and cancel_check():
+            raise JobCancelledError("Queue job cancelled by user")
+
     try:
         try:
+            ensure_not_cancelled()
             report("template_seed", "Preparing email template seed", template_seed_status="preparing")
             template_seed = _prepare_template_seed(
                 base_url=args.api_base_url,
@@ -239,6 +252,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             report("template_seed", f"Template seed preparation failed: {exc}", template_seed_status="failed")
             logger.warning("template seed preparation failed, continuing without pre-generated seed: %s", exc)
 
+        ensure_not_cancelled()
         report("create_hunt", "Creating hunt from queue job")
         created = _request_json(
             method="POST",
@@ -268,16 +282,19 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
         raise
 
     try:
+        ensure_not_cancelled()
         report("wait_hunt", "Consumer is polling hunt status", hunt_id=hunt_id)
         status = _wait_for_hunt(
             base_url=args.api_base_url,
             api_token=args.api_token,
             hunt_id=hunt_id,
             poll_seconds=args.status_poll_seconds,
+            should_cancel=cancel_check,
         )
         if str(status.get("status", "")) != "completed":
             raise ApiError(f"hunt {hunt_id} failed: {status.get('error', 'unknown error')}")
 
+        ensure_not_cancelled()
         report("load_result", "Loading completed hunt result", hunt_id=hunt_id)
         result = _request_json(
             method="GET",
@@ -297,6 +314,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
 
         campaign_summary: dict[str, Any] | None = None
         if args.auto_start_campaign and payload.get("enable_email_craft"):
+            ensure_not_cancelled()
             report("create_campaign", "Creating campaign from approved email sequences", hunt_id=hunt_id)
             created_campaign = _request_json(
                 method="POST",
@@ -310,6 +328,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             sequence_count = int(created_campaign.get("sequence_count", 0) or 0)
             logger.info("campaign=%s created sequence_count=%s", campaign_id[:8], sequence_count)
             if sequence_count > 0:
+                ensure_not_cancelled()
                 report("start_campaign", "Starting campaign and handing off to scheduler", hunt_id=hunt_id)
                 campaign_summary = _request_json(
                     method="POST",

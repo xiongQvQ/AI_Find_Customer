@@ -177,6 +177,18 @@ class HuntJobQueue:
             data["payload"] = {}
         return data
 
+    def is_cancellation_requested(self, job_id: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT status, progress_stage FROM hunt_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return False
+        status = str(row["status"] or "")
+        progress_stage = str(row["progress_stage"] or "")
+        return status == "failed" and progress_stage == "cancelled"
+
     def get_by_hunt_id(self, hunt_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
