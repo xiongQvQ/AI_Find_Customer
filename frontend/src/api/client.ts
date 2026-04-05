@@ -467,6 +467,12 @@ export const api = {
   getAutomationJobByHunt: (huntId: string) =>
     request<AutomationJob>(`/automation/jobs/by-hunt/${huntId}`),
 
+  createAutomationJobFromHunt: (huntId: string, data: ResumeRequest) =>
+    request<AutomationJob>(`/automation/jobs/from-hunt/${huntId}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   getAutomationStatus: () =>
     request<AutomationStatus>("/automation/status"),
 

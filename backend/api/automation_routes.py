@@ -32,6 +32,15 @@ class AutomationJobRequest(BaseModel):
     email_template_notes: str = ""
 
 
+class AutomationJobContinueRequest(BaseModel):
+    target_lead_count: int = Field(default=200, ge=1, le=10000)
+    max_rounds: int = Field(default=10, ge=1, le=50)
+    min_new_leads_threshold: int = Field(default=5, ge=1, le=100)
+    enable_email_craft: bool = False
+    email_template_examples: list[str] = Field(default_factory=list)
+    email_template_notes: str = ""
+
+
 def _queue() -> HuntJobQueue:
     settings = get_settings()
     queue = HuntJobQueue(settings.automation_queue_db_path)
@@ -96,6 +105,37 @@ async def get_automation_job_by_hunt(hunt_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Automation job not found for hunt")
     return _serialize_job(job)
+
+
+@router.post("/jobs/from-hunt/{hunt_id}", dependencies=[Depends(require_api_access)])
+async def create_automation_job_from_hunt(hunt_id: str, request: AutomationJobContinueRequest):
+    hunt = load_hunt(hunt_id)
+    if not hunt:
+        raise HTTPException(status_code=404, detail="Hunt not found")
+
+    payload = hunt.get("payload") if isinstance(hunt.get("payload"), dict) else {}
+    if not payload:
+        raise HTTPException(status_code=422, detail="Hunt has no reusable payload")
+
+    next_payload = {
+        "website_url": str(payload.get("website_url", "") or ""),
+        "description": str(payload.get("description", "") or ""),
+        "product_keywords": list(payload.get("product_keywords", []) or []),
+        "target_customer_profile": str(payload.get("target_customer_profile", "") or ""),
+        "target_regions": list(payload.get("target_regions", []) or []),
+        "uploaded_file_ids": list(payload.get("uploaded_file_ids", []) or []),
+        "target_lead_count": int(request.target_lead_count),
+        "max_rounds": int(request.max_rounds),
+        "min_new_leads_threshold": int(request.min_new_leads_threshold),
+        "enable_email_craft": bool(request.enable_email_craft),
+        "email_template_examples": list(request.email_template_examples),
+        "email_template_notes": str(request.email_template_notes or ""),
+    }
+
+    queue = _queue()
+    job_id = queue.enqueue(next_payload, now_iso=now_iso())
+    job = queue.get(job_id)
+    return _serialize_job(job or {"id": job_id, "payload": next_payload})
 
 
 @router.get("/status", dependencies=[Depends(require_api_access)])

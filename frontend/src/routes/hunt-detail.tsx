@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { api, EmailDraft, EmailSequence } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
-// ── Resume Dialog ────────────────────────────────────────────────────
-function ResumeDialog({
+// ── Continue Job Dialog ──────────────────────────────────────────────
+function ContinueJobDialog({
   open, onClose, onConfirm, isLoading, currentLeads,
 }: {
   open: boolean;
@@ -63,8 +63,8 @@ function ResumeDialog({
             <PlayCircle className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-bold">继续挖掘客户</h2>
-            <p className="text-sm text-muted-foreground">在已有 {currentLeads} 条线索基础上继续</p>
+            <h2 className="text-lg font-bold">提交后续任务</h2>
+            <p className="text-sm text-muted-foreground">基于已有 {currentLeads} 条线索，创建新的 queue job 持续挖掘</p>
           </div>
         </div>
 
@@ -178,9 +178,9 @@ function ResumeDialog({
             disabled={isLoading}
           >
             {isLoading ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />启动中...</>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />提交中...</>
             ) : (
-              <><PlayCircle className="h-4 w-4 mr-2" />开始继续挖掘</>
+              <><PlayCircle className="h-4 w-4 mr-2" />提交后续任务</>
             )}
           </Button>
         </div>
@@ -1265,6 +1265,7 @@ function StageDetailPanel({ stage, data }: { stage: string; data: StageDataMap }
 
 export function HuntDetailPage() {
   const { huntId } = useParams({ from: "/hunts/$huntId" });
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [sse, setSSE] = useState<SSEState>({
     stage: null, huntRound: 0, leadsCount: 0, status: "connecting", error: null,
@@ -1277,14 +1278,14 @@ export function HuntDetailPage() {
   const logEndRef = useRef<HTMLDivElement>(null);
   const [stageData, setStageData] = useState<StageDataMap>({});
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [showContinueJobDialog, setShowContinueJobDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "leads" | "emails" | "email-log">("overview");
   const [realtimeLeads, setRealtimeLeads] = useState<Lead[]>([]);
   const [emailFilter, setEmailFilter] = useState<"all" | "approved" | "needs_review">("all");
   const [previewSequence, setPreviewSequence] = useState<EmailSequence | null>(null);
   const [previewSequenceIndex, setPreviewSequenceIndex] = useState<number | null>(null);
 
-  const resumeMutation = useMutation({
+  const continueJobMutation = useMutation({
     mutationFn: ({ targetLeadCount, maxRounds, minNewLeadsThreshold, enableEmailCraft, emailTemplateExamples, emailTemplateNotes }: {
       targetLeadCount: number;
       maxRounds: number;
@@ -1292,7 +1293,7 @@ export function HuntDetailPage() {
       enableEmailCraft: boolean;
       emailTemplateExamples: string[];
       emailTemplateNotes: string;
-    }) => api.resumeHunt(huntId, {
+    }) => api.createAutomationJobFromHunt(huntId, {
       target_lead_count: targetLeadCount,
       max_rounds: maxRounds,
       min_new_leads_threshold: minNewLeadsThreshold,
@@ -1300,17 +1301,10 @@ export function HuntDetailPage() {
       email_template_examples: emailTemplateExamples,
       email_template_notes: emailTemplateNotes,
     }),
-    onSuccess: () => {
-      setShowResumeDialog(false);
-      // Reset all local state so the page reconnects via SSE
-      setSSE({ stage: null, huntRound: 0, leadsCount: 0, status: "connecting", error: null });
-      setShowResult(false);
-      setInitialLoaded(false);
-      setActivityLog([]);
-      setStageData({});
-      setSelectedStage(null);
-      setRealtimeLeads([]);
-      queryClient.removeQueries({ queryKey: ["hunt-result", huntId] });
+    onSuccess: async (job) => {
+      setShowContinueJobDialog(false);
+      await queryClient.invalidateQueries({ queryKey: ["automation-jobs"] });
+      navigate({ to: "/automation/$jobId", params: { jobId: job.job_id } });
     },
   });
   const emailDecisionMutation = useMutation({
@@ -1775,7 +1769,7 @@ export function HuntDetailPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Hunt {huntId.slice(0, 8)}...</h1>
           <p className="text-muted-foreground text-sm">
-            {sse.status === "completed" ? "Completed" : sse.status === "failed" ? "Failed" : "In progress..."}
+            {sse.status === "completed" ? "已完成" : sse.status === "failed" ? "失败" : "运行中"}
           </p>
         </div>
         <div className="ml-auto flex items-center gap-3">
@@ -1786,7 +1780,7 @@ export function HuntDetailPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setShowResumeDialog(true)}
+              onClick={() => setShowContinueJobDialog(true)}
               className="gap-2"
             >
               <RefreshCw className="h-4 w-4" />
@@ -1796,11 +1790,11 @@ export function HuntDetailPage() {
         </div>
       </div>
 
-      <ResumeDialog
-        open={showResumeDialog}
-        onClose={() => setShowResumeDialog(false)}
+      <ContinueJobDialog
+        open={showContinueJobDialog}
+        onClose={() => setShowContinueJobDialog(false)}
         onConfirm={(targetLeadCount, maxRounds, minNewLeadsThreshold, enableEmailCraft, emailTemplateExamples, emailTemplateNotes) =>
-          resumeMutation.mutate({
+          continueJobMutation.mutate({
             targetLeadCount,
             maxRounds,
             minNewLeadsThreshold,
@@ -1809,7 +1803,7 @@ export function HuntDetailPage() {
             emailTemplateNotes,
           })
         }
-        isLoading={resumeMutation.isPending}
+        isLoading={continueJobMutation.isPending}
         currentLeads={sse.leadsCount || (result?.leads?.length ?? 0)}
       />
 
