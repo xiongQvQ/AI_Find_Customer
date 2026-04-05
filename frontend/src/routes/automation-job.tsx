@@ -5,6 +5,7 @@ import { api, type EmailCampaignListItem, type EmailSequence, type HuntResult } 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Clock, Globe, Loader2, RotateCcw, Target, Workflow, Mail, Building2, Send, Eye } from "lucide-react";
 import { Sheet, SheetBody, SheetHeader } from "@/components/ui/sheet";
 
@@ -262,6 +263,9 @@ export function AutomationJobPage() {
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "connected" | "fallback">("idle");
   const [selectedSequenceId, setSelectedSequenceId] = useState("");
   const [activeSection, setActiveSection] = useState<"overview" | "pipeline" | "leads" | "templates" | "delivery">("overview");
+  const [leadFilter, setLeadFilter] = useState("");
+  const [templateFilter, setTemplateFilter] = useState("");
+  const [deliveryFilter, setDeliveryFilter] = useState("");
   const { data: automationStatus } = useQuery({
     queryKey: ["automation-status"],
     queryFn: api.getAutomationStatus,
@@ -362,6 +366,40 @@ export function AutomationJobPage() {
     () => generatedTargetEmails.filter((email) => !queuedOrSentEmails.includes(email)),
     [generatedTargetEmails, queuedOrSentEmails],
   );
+  const filteredLeads = useMemo(() => {
+    const keyword = leadFilter.trim().toLowerCase();
+    if (!keyword) return leads;
+    return leads.filter((lead) => {
+      const item = asRecord(lead);
+      const company = String(item.company_name || "").toLowerCase();
+      const website = String(item.website || "").toLowerCase();
+      const country = String(item.country || "").toLowerCase();
+      return company.includes(keyword) || website.includes(keyword) || country.includes(keyword);
+    });
+  }, [leadFilter, leads]);
+  const filteredEmailSequences = useMemo(() => {
+    const keyword = templateFilter.trim().toLowerCase();
+    if (!keyword) return emailSequences;
+    return emailSequences.filter((sequence) => {
+      const lead = asRecord(sequence.lead);
+      const company = String(lead.company_name || "").toLowerCase();
+      const targets = extractSequenceTargets(sequence).join(" ").toLowerCase();
+      const subjects = (sequence.emails || []).map((email) => email.subject || "").join(" ").toLowerCase();
+      return company.includes(keyword) || targets.includes(keyword) || subjects.includes(keyword);
+    });
+  }, [templateFilter, emailSequences]);
+  const filteredCampaignSequences = useMemo(() => {
+    const keyword = deliveryFilter.trim().toLowerCase();
+    if (!keyword) return campaignSequences;
+    return campaignSequences.filter((sequence) => {
+      return (
+        String(sequence.lead_name || "").toLowerCase().includes(keyword) ||
+        String(sequence.lead_email || "").toLowerCase().includes(keyword) ||
+        String(sequence.campaignName || "").toLowerCase().includes(keyword) ||
+        String(sequence.status || "").toLowerCase().includes(keyword)
+      );
+    });
+  }, [deliveryFilter, campaignSequences]);
   const navItems = [
     ["overview", "执行概况"],
     ["pipeline", "执行链路"],
@@ -637,7 +675,13 @@ export function AutomationJobPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {leads.length ? leads.slice(0, 20).map((lead, index) => {
+            <Input
+              value={leadFilter}
+              onChange={(e) => setLeadFilter(e.target.value)}
+              placeholder="按公司名、官网、国家过滤企业…"
+              className="font-mono text-sm"
+            />
+            {filteredLeads.length ? filteredLeads.slice(0, 20).map((lead, index) => {
               const item = asRecord(lead);
               const emails = Array.isArray(item.emails) ? item.emails : [];
               return (
@@ -651,7 +695,7 @@ export function AutomationJobPage() {
               );
             }) : (
               <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
-                当前还没有可展示的企业结果
+                当前没有匹配的企业结果
               </div>
             )}
           </CardContent>
@@ -667,7 +711,13 @@ export function AutomationJobPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {emailSequences.length ? emailSequences.slice(0, 10).map((sequence, index) => {
+            <Input
+              value={templateFilter}
+              onChange={(e) => setTemplateFilter(e.target.value)}
+              placeholder="按公司名、目标邮箱、主题过滤模板…"
+              className="font-mono text-sm"
+            />
+            {filteredEmailSequences.length ? filteredEmailSequences.slice(0, 10).map((sequence, index) => {
               const lead = asRecord(sequence.lead);
               const targets = extractSequenceTargets(sequence);
               return (
@@ -694,7 +744,7 @@ export function AutomationJobPage() {
               );
             }) : (
               <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
-                当前还没有生成邮件模板
+                当前没有匹配的邮件模板
               </div>
             )}
           </CardContent>
@@ -723,9 +773,15 @@ export function AutomationJobPage() {
 
             <div>
               <div className="font-medium">实际发送/入队邮箱</div>
-              {campaignSequences.length ? (
+              <Input
+                value={deliveryFilter}
+                onChange={(e) => setDeliveryFilter(e.target.value)}
+                placeholder="按公司、邮箱、Campaign、状态过滤发送记录…"
+                className="mt-2 font-mono text-sm"
+              />
+              {filteredCampaignSequences.length ? (
                 <div className="mt-2 space-y-2">
-                  {campaignSequences.slice(0, 20).map((sequence) => (
+                  {filteredCampaignSequences.slice(0, 20).map((sequence) => (
                     <div key={sequence.id} className="rounded-md border p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="font-medium">{sequence.lead_name || sequence.lead_email}</div>
@@ -750,7 +806,7 @@ export function AutomationJobPage() {
                 </div>
               ) : (
                 <div className="mt-2 rounded-md border border-dashed p-4 text-center text-muted-foreground">
-                  当前还没有创建 campaign 或发送序列
+                  当前没有匹配的发送序列
                 </div>
               )}
             </div>

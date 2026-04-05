@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow, Reply, Bell } from "lucide-react";
+import { useMemo, useState } from "react";
 
 function formatTime(iso: string) {
   if (!iso) return "";
@@ -47,6 +48,7 @@ function queueStatusVariant(job: AutomationJob) {
 }
 
 export function DashboardPage() {
+  const [eventFilter, setEventFilter] = useState<"all" | "failed" | "sent" | "reply">("all");
   const { data: jobs, isLoading, isFetching, error: jobsError } = useQuery({
     queryKey: ["automation-jobs"],
     queryFn: api.listAutomationJobs,
@@ -74,6 +76,14 @@ export function DashboardPage() {
   const feishuConfigured = Boolean(feishuWebhook && !feishuWebhook.includes("****") ? feishuWebhook : feishuWebhook.includes("****"));
   const summaryEnabled = (settings?.settings?.AUTOMATION_SUMMARY_ENABLED || "true") === "true";
   const alertsEnabled = (settings?.settings?.AUTOMATION_ALERTS_ENABLED || "true") === "true";
+  const showFailed = eventFilter === "all" || eventFilter === "failed";
+  const showSent = eventFilter === "all" || eventFilter === "sent";
+  const showReply = eventFilter === "all" || eventFilter === "reply";
+  const eventCount = useMemo(() => {
+    return (showFailed ? (automationMetrics?.recent_failed_hunts?.length || 0) : 0)
+      + (showSent ? (automationMetrics?.recent_sent_messages?.length || 0) : 0)
+      + (showReply ? (automationMetrics?.recent_reply_events?.length || 0) : 0);
+  }, [automationMetrics?.recent_failed_hunts?.length, automationMetrics?.recent_reply_events?.length, automationMetrics?.recent_sent_messages?.length, showFailed, showReply, showSent]);
 
   return (
     <div className="space-y-8">
@@ -202,7 +212,37 @@ export function DashboardPage() {
           </Card>
       </div>
 
-      {automationMetrics?.recent_failed_hunts?.length ? (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div>
+            <div className="text-sm font-medium">事件流筛选</div>
+            <div className="text-xs text-muted-foreground">按失败、发送、回复筛选运营事件</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["all", "全部事件"],
+              ["failed", "只看失败"],
+              ["sent", "只看发送"],
+              ["reply", "只看回复"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setEventFilter(value as "all" | "failed" | "sent" | "reply")}
+                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                  eventFilter === value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:border-primary hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {showFailed && automationMetrics?.recent_failed_hunts?.length ? (
         <Card className="border-amber-300">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -249,7 +289,7 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {(automationMetrics?.recent_completed_hunts?.length || automationMetrics?.recent_sent_messages?.length || automationMetrics?.recent_reply_events?.length) ? (
+      {eventCount ? (
         <div className="grid gap-4 xl:grid-cols-3">
           <Card>
             <CardHeader>
@@ -269,6 +309,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
+          {showSent ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">最近发送邮件</CardTitle>
@@ -286,7 +327,9 @@ export function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          ) : <div />}
 
+          {showReply ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -307,6 +350,7 @@ export function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          ) : <div />}
         </div>
       ) : null}
 
