@@ -120,6 +120,8 @@ flowchart TD
 - 后端负责 `真正执行 producer / consumer + scheduler`
 - 有界面和无界面现在走的是同一套底层任务系统，不再是两套分裂逻辑
 - 队列任务详情页会展示 `job 状态 / 尝试次数 / 目标线索数 / 当前线索数 / Hunt 阶段 / 最近错误`
+- Dashboard 还会展示 `运营摘要卡 + 最近发现企业 / 最近发送邮件 / 最近回复` 事件流
+- 继续挖掘不再直接调用旧的同步 resume，而是基于当前 hunt 创建新的后续 queue job
 
 ## 邮件能力
 
@@ -855,7 +857,12 @@ JINA_API_KEY=your-jina-key
 - `GET /api/v1/hunts/{hunt_id}/result`：查看任务结果
 - `GET /api/v1/hunts/{hunt_id}/cost`：查看成本统计
 - `GET /api/v1/hunts/{hunt_id}/stream`：SSE 实时进度流
-- `POST /api/v1/hunts/{hunt_id}/resume`：继续挖掘
+- `POST /api/v1/automation/jobs`：创建 queue job
+- `GET /api/v1/automation/jobs`：查看 queue job 列表
+- `GET /api/v1/automation/jobs/{job_id}`：查看 queue job 详情
+- `POST /api/v1/automation/jobs/from-hunt/{hunt_id}`：基于已有 hunt 创建后续 queue job
+- `POST /api/v1/automation/jobs/{job_id}/cancel`：取消 queue job
+- `POST /api/v1/automation/jobs/{job_id}/retry`：把失败/完成的 job 重新入队
 - `GET /api/v1/health`：健康检查
 
 ## 常见问题
