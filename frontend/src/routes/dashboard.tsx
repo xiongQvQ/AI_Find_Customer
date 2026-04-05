@@ -4,7 +4,7 @@ import { api, AutomationJob } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow } from "lucide-react";
+import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow, Reply } from "lucide-react";
 
 function formatTime(iso: string) {
   if (!iso) return "";
@@ -184,6 +184,67 @@ export function DashboardPage() {
             ))}
           </CardContent>
         </Card>
+      ) : null}
+
+      {(automationMetrics?.recent_completed_hunts?.length || automationMetrics?.recent_sent_messages?.length || automationMetrics?.recent_reply_events?.length) ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">最近发现企业</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {automationMetrics?.recent_completed_hunts?.length ? automationMetrics.recent_completed_hunts.slice(0, 5).map((hunt) => (
+                <div key={hunt.hunt_id} className="rounded-md border p-3">
+                  <p className="font-medium">{hunt.website_url || hunt.hunt_id}</p>
+                  <p className="text-muted-foreground">
+                    新增企业 {hunt.lead_count} · 生成序列 {hunt.email_sequence_count}
+                  </p>
+                </div>
+              )) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">暂无最近发现企业</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">最近发送邮件</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {automationMetrics?.recent_sent_messages?.length ? automationMetrics.recent_sent_messages.slice(0, 5).map((message) => (
+                <div key={message.id} className="rounded-md border p-3">
+                  <p className="font-medium">{message.lead_name || message.lead_email}</p>
+                  <p className="text-muted-foreground break-all">{message.lead_email}</p>
+                  <p className="mt-1">{message.subject || "-"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{formatTime(message.sent_at)}</p>
+                </div>
+              )) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">暂无最近发送邮件</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Reply className="h-4 w-4 text-muted-foreground" />
+                最近回复
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {automationMetrics?.recent_reply_events?.length ? automationMetrics.recent_reply_events.slice(0, 5).map((reply) => (
+                <div key={reply.id} className="rounded-md border p-3">
+                  <p className="font-medium">{reply.lead_name || reply.from_email}</p>
+                  <p className="text-muted-foreground break-all">{reply.from_email}</p>
+                  <p className="mt-1">{reply.subject || "-"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{reply.snippet || "无摘要"}</p>
+                </div>
+              )) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">暂无最近回复</div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
 
       {isLoading ? (

@@ -154,6 +154,8 @@ def test_collect_automation_status_and_metrics(monkeypatch, tmp_path):
     assert metrics["emails"]["replied"] == 1
     assert metrics["recent_failed_hunts"][0]["retry_status"] == "queued_retry"
     assert metrics["recent_failures"][0]["failure_reason"] == "smtp_timeout"
+    assert metrics["recent_sent_messages"][0]["lead_email"] == "buyer@example.com"
+    assert metrics["recent_reply_events"][0]["from_email"] == "buyer@example.com"
     assert metrics["top_failure_reasons"][0]["failure_reason"] == "smtp_timeout"
     assert metrics["recent_completed_hunts"][0]["lead_count"] == 2
 

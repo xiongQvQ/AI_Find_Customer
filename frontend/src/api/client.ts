@@ -400,6 +400,25 @@ export interface AutomationMetrics {
     subject?: string;
     failure_reason?: string;
   }>;
+  recent_sent_messages: Array<{
+    id: string;
+    subject: string;
+    sent_at: string;
+    lead_email: string;
+    lead_name: string;
+    hunt_id: string;
+    campaign_id: string;
+  }>;
+  recent_reply_events: Array<{
+    id: string;
+    from_email: string;
+    subject: string;
+    snippet: string;
+    received_at: string;
+    lead_name: string;
+    hunt_id: string;
+    campaign_id: string;
+  }>;
   top_failure_reasons: Array<{
     failure_reason: string;
     count: number;

@@ -438,6 +438,29 @@ class EmailStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_reply_events_since(self, *, since_iso: str, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  r.id,
+                  r.from_email,
+                  r.subject,
+                  r.snippet,
+                  r.received_at,
+                  s.lead_name,
+                  s.hunt_id,
+                  s.campaign_id
+                FROM email_reply_events r
+                JOIN lead_email_sequences s ON s.id = r.sequence_id
+                WHERE r.received_at >= ?
+                ORDER BY r.received_at DESC, r.id DESC
+                LIMIT ?
+                """,
+                (since_iso, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_message_failure_reasons(self, *, since_iso: str, limit: int = 5) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

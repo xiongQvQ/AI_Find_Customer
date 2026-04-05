@@ -164,6 +164,8 @@ def collect_automation_metrics(*, hours: int = 24, hunts: dict[str, dict[str, An
             "replied_sequences": store.count_sequences_by_status("replied"),
         },
         "recent_failures": store.list_recent_message_failures(since_iso=since_iso, limit=10),
+        "recent_sent_messages": store.list_sent_messages_since(since_iso=since_iso, limit=10),
+        "recent_reply_events": store.list_reply_events_since(since_iso=since_iso, limit=10),
         "top_failure_reasons": store.list_message_failure_reasons(since_iso=since_iso, limit=5),
         "recent_completed_hunts": recent_completed,
         "recent_failed_hunts": recent_failed_details,
