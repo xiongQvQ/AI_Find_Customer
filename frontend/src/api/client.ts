@@ -333,6 +333,94 @@ export interface AutomationJob {
   leads_count: number;
 }
 
+export interface AutomationStatus {
+  hunt_jobs: {
+    queued: number;
+    running: number;
+    failed: number;
+  };
+  hunts: {
+    running: number;
+    pending: number;
+    running_details: Array<{
+      hunt_id: string;
+      website_url: string;
+      current_stage: string;
+      leads_count: number;
+      email_sequences_count: number;
+    }>;
+  };
+  email_queue: {
+    pending: number;
+    sent: number;
+    failed: number;
+    cancelled: number;
+    active_campaigns: number;
+    draft_campaigns: number;
+    active_sequences: number;
+    replied_sequences: number;
+  };
+  features: {
+    email_auto_send_enabled: boolean;
+    email_reply_detection_enabled: boolean;
+    automation_summary_enabled: boolean;
+    automation_alerts_enabled: boolean;
+  };
+}
+
+export interface AutomationMetrics {
+  window_hours: number;
+  hunt_jobs: {
+    completed: number;
+    failed: number;
+    queued: number;
+    running: number;
+    retrying: number;
+  };
+  hunts: {
+    created: number;
+    completed: number;
+    failed: number;
+    new_leads: number;
+    generated_email_sequences: number;
+  };
+  emails: {
+    queued: number;
+    sent: number;
+    failed: number;
+    replied: number;
+    active_campaigns: number;
+    draft_campaigns: number;
+    active_sequences: number;
+    replied_sequences: number;
+  };
+  recent_failures: Array<{
+    sequence_id?: string;
+    lead_email?: string;
+    subject?: string;
+    failure_reason?: string;
+  }>;
+  top_failure_reasons: Array<{
+    failure_reason: string;
+    count: number;
+  }>;
+  recent_completed_hunts: Array<{
+    hunt_id: string;
+    website_url: string;
+    lead_count: number;
+    email_sequence_count: number;
+    status: string;
+  }>;
+  recent_failed_hunts: Array<{
+    hunt_id: string;
+    website_url: string;
+    current_stage: string;
+    error: string;
+    retry_status: string;
+    retry_attempts: number;
+  }>;
+}
+
 async function requestSettings<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${SETTINGS_API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -378,6 +466,12 @@ export const api = {
 
   getAutomationJobByHunt: (huntId: string) =>
     request<AutomationJob>(`/automation/jobs/by-hunt/${huntId}`),
+
+  getAutomationStatus: () =>
+    request<AutomationStatus>("/automation/status"),
+
+  getAutomationMetrics: (hours = 24) =>
+    request<AutomationMetrics>(`/automation/metrics?hours=${hours}`),
 
   getHuntStatus: (huntId: string) =>
     request<HuntStatus>(`/hunts/${huntId}/status`),

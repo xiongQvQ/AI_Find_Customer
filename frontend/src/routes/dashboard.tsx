@@ -4,7 +4,7 @@ import { api, AutomationJob } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag } from "lucide-react";
+import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow } from "lucide-react";
 
 function formatTime(iso: string) {
   if (!iso) return "";
@@ -52,6 +52,16 @@ export function DashboardPage() {
     queryFn: api.listAutomationJobs,
     refetchInterval: 5000,
   });
+  const { data: automationStatus } = useQuery({
+    queryKey: ["automation-status"],
+    queryFn: api.getAutomationStatus,
+    refetchInterval: 5000,
+  });
+  const { data: automationMetrics } = useQuery({
+    queryKey: ["automation-metrics", 24],
+    queryFn: () => api.getAutomationMetrics(24),
+    refetchInterval: 10000,
+  });
 
   return (
     <div className="space-y-8">
@@ -67,6 +77,114 @@ export function DashboardPage() {
           </Button>
         </Link>
       </div>
+
+      {(automationStatus || automationMetrics) && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">任务队列</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Workflow className="h-5 w-5 text-muted-foreground" />
+                {(automationStatus?.hunt_jobs.queued || 0) + (automationStatus?.hunt_jobs.running || 0)}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                排队 {automationStatus?.hunt_jobs.queued || 0} · 运行 {automationStatus?.hunt_jobs.running || 0} · 重试中 {automationMetrics?.hunt_jobs.retrying || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">新增企业</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                {automationMetrics?.hunts.new_leads || 0}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                最近 {automationMetrics?.window_hours || 24} 小时完成 {automationMetrics?.hunts.completed || 0} 个 hunt
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">邮件发送</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Send className="h-5 w-5 text-muted-foreground" />
+                {automationMetrics?.emails.sent || 0}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                待发 {automationStatus?.email_queue.pending || 0} · 失败 {automationMetrics?.emails.failed || 0} · 回复 {automationMetrics?.emails.replied || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Campaign</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Mail className="h-5 w-5 text-muted-foreground" />
+                {automationStatus?.email_queue.active_campaigns || 0}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                活跃序列 {automationStatus?.email_queue.active_sequences || 0} · 已回复序列 {automationStatus?.email_queue.replied_sequences || 0}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {automationMetrics?.recent_failed_hunts?.length ? (
+        <Card className="border-amber-300">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              最近失败任务
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {automationMetrics.recent_failed_hunts.slice(0, 3).map((hunt) => (
+              <div key={hunt.hunt_id} className="rounded-md border p-3 text-sm">
+                <p className="font-medium">{hunt.website_url || hunt.hunt_id}</p>
+                <p className="text-muted-foreground">
+                  阶段 {hunt.current_stage || "-"} · 重试状态 {hunt.retry_status || "-"} · 已尝试 {hunt.retry_attempts || 0} 次
+                </p>
+                <p className="mt-1 text-destructive">{hunt.error || "未知错误"}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {automationStatus?.hunts.running_details?.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">正在运行的 Hunt</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {automationStatus.hunts.running_details.map((hunt) => (
+              <div key={hunt.hunt_id} className="rounded-md border p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{hunt.website_url || hunt.hunt_id}</p>
+                    <p className="text-muted-foreground">
+                      当前阶段 {hunt.current_stage || "-"} · 已发现 {hunt.leads_count} 家企业 · 邮件序列 {hunt.email_sequences_count}
+                    </p>
+                  </div>
+                  <Link to="/hunts/$huntId" params={{ huntId: hunt.hunt_id }} className="text-primary hover:underline">
+                    查看详情
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
