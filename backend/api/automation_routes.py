@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +16,7 @@ from automation.metrics import collect_automation_metrics, collect_automation_st
 from config.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/automation", tags=["automation"])
+logger = logging.getLogger(__name__)
 
 
 class AutomationJobRequest(BaseModel):
@@ -84,6 +86,13 @@ def _serialize_job(job: dict[str, Any]) -> dict[str, Any]:
 async def create_automation_job(request: AutomationJobRequest):
     queue = _queue()
     job_id = queue.enqueue(request.model_dump(), now_iso=now_iso())
+    logger.info(
+        "[AutomationQueue] enqueued job=%s website=%s target_leads=%s email_craft=%s",
+        job_id[:8],
+        request.website_url or "-",
+        request.target_lead_count,
+        request.enable_email_craft,
+    )
     job = queue.get(job_id)
     return _serialize_job(job or {"id": job_id, "payload": request.model_dump()})
 
@@ -150,6 +159,7 @@ async def cancel_automation_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Automation job not found")
     queue.cancel(job_id, updated_at=now_iso())
+    logger.info("[AutomationQueue] cancelled job=%s", job_id[:8])
     updated = queue.get(job_id)
     return _serialize_job(updated or job)
 
@@ -161,6 +171,7 @@ async def retry_automation_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Automation job not found")
     queue.retry_now(job_id, updated_at=now_iso())
+    logger.info("[AutomationQueue] retried job=%s", job_id[:8])
     updated = queue.get(job_id)
     return _serialize_job(updated or job)
 

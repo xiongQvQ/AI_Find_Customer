@@ -153,3 +153,59 @@ class TestSseEndpoint:
 
         body = resp.text
         assert "event: completed" in body
+
+    @pytest.mark.asyncio
+    async def test_stream_automation_job(self, client, monkeypatch):
+        fake_job = {
+            "id": "job-1",
+            "status": "queued",
+            "created_at": "2026-04-05T00:00:00+00:00",
+            "updated_at": "2026-04-05T00:00:00+00:00",
+            "started_at": "",
+            "finished_at": "",
+            "claimed_by": "",
+            "attempt_count": 0,
+            "last_error": "",
+            "last_hunt_id": "",
+            "progress_stage": "queued",
+            "progress_message": "Waiting for consumer to claim",
+            "template_seed_status": "pending",
+            "template_seed_source": "",
+            "payload": {
+                "website_url": "https://www.gdushun.com/",
+                "description": "Find distributors",
+                "product_keywords": ["micro switch"],
+                "target_regions": ["United States"],
+                "target_lead_count": 100,
+                "enable_email_craft": True,
+            },
+        }
+
+        class FakeQueue:
+            def __init__(self):
+                self.calls = 0
+
+            def get(self, job_id):
+                if job_id != "job-1":
+                    return None
+                self.calls += 1
+                if self.calls == 1:
+                    return fake_job
+                completed = dict(fake_job)
+                completed["status"] = "completed"
+                completed["progress_stage"] = "completed"
+                completed["progress_message"] = "Queue job completed successfully"
+                completed["finished_at"] = "2026-04-05T00:01:00+00:00"
+                return completed
+
+        async def _fast_sleep(_: float):
+            return None
+
+        monkeypatch.setattr("api.sse._automation_job_queue", lambda: FakeQueue())
+        monkeypatch.setattr("api.sse.asyncio.sleep", _fast_sleep)
+
+        resp = await client.get("/api/v1/automation/jobs/job-1/stream")
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+        assert "event: heartbeat" in resp.text
+        assert "Waiting for consumer to claim" in resp.text

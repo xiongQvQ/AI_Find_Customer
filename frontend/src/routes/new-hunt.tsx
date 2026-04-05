@@ -35,8 +35,8 @@ export function NewHuntPage() {
 
   const createHunt = useMutation({
     mutationFn: api.createAutomationJob,
-    onSuccess: () => {
-      navigate({ to: "/" });
+    onSuccess: (job) => {
+      navigate({ to: "/automation/$jobId", params: { jobId: job.job_id } });
     },
   });
 
@@ -134,7 +134,7 @@ export function NewHuntPage() {
     <div className="max-w-2xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">新建任务</h1>
-        <p className="text-muted-foreground mt-1">提交到任务队列，由生产者消费者模式持续执行</p>
+        <p className="text-muted-foreground mt-1">提交到任务队列后会立即进入执行详情页，先准备模板 seed，再由 consumer 持续挖掘并交给发送队列</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -317,7 +317,7 @@ export function NewHuntPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">任务参数</CardTitle>
-            <CardDescription>配置线索数量和搜索轮次</CardDescription>
+            <CardDescription>单个 queue job 的边界。任务达到目标 lead 数、最大轮次，或单轮新增过低时会结束，但整个系统可以持续运行。</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-2">

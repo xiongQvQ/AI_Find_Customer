@@ -65,8 +65,9 @@ class HuntJobQueue:
             conn.execute(
                 """
                 INSERT INTO hunt_jobs (
-                  id, payload_json, status, available_at, created_at, updated_at
-                ) VALUES (?, ?, 'queued', ?, ?, ?)
+                  id, payload_json, status, available_at, created_at, updated_at,
+                  progress_stage, progress_message, template_seed_status
+                ) VALUES (?, ?, 'queued', ?, ?, ?, 'queued', 'Waiting for consumer to claim', 'pending')
                 """,
                 (
                     job_id,

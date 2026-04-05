@@ -214,6 +214,12 @@ class Settings(BaseSettings):
     automation_discovery_batch_size: int = 5
     automation_send_batch_size: int = 10
     automation_event_flush_interval_seconds: int = 600
+    automation_embedded_consumer_enabled: bool = True
+    automation_consumer_poll_seconds: int = 5
+    automation_consumer_retry_delay_seconds: int = 120
+    automation_consumer_status_poll_seconds: int = 15
+    automation_consumer_request_timeout_seconds: int = 60
+    automation_consumer_auto_start_campaign: bool = True
 
     # --- Hunt persistence ---
     hunts_dir: str = _resolve_dir("data/hunts")  # directory for JSON hunt files

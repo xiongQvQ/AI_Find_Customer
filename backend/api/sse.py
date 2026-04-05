@@ -14,12 +14,22 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from api.automation_routes import _serialize_job
 from api.routes import _hunts, _sse_queues
 from api.security import require_api_access
+from automation.job_queue import HuntJobQueue
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 sse_router = APIRouter()
+
+
+def _automation_job_queue() -> HuntJobQueue:
+    settings = get_settings()
+    queue = HuntJobQueue(settings.automation_queue_db_path)
+    queue.init_db()
+    return queue
 
 
 def _sse_event(event_type: str, data: dict) -> str:
@@ -93,6 +103,33 @@ async def _event_generator(hunt_id: str, queue: asyncio.Queue) -> AsyncGenerator
                 del _sse_queues[hunt_id]
 
 
+async def _automation_job_event_generator(job_id: str) -> AsyncGenerator[str, None]:
+    queue = _automation_job_queue()
+    previous_snapshot = ""
+    while True:
+        job = queue.get(job_id)
+        if not job:
+            yield _sse_event("failed", {"error": "Automation job not found"})
+            return
+
+        payload = _serialize_job(job)
+        snapshot = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if snapshot != previous_snapshot:
+            event_type = "update"
+            if previous_snapshot == "":
+                event_type = "heartbeat"
+            elif payload["status"] == "completed":
+                event_type = "completed"
+            elif payload["status"] == "failed":
+                event_type = "failed"
+            yield _sse_event(event_type, payload)
+            previous_snapshot = snapshot
+
+        if payload["status"] in {"completed", "failed"}:
+            return
+        await asyncio.sleep(1.0)
+
+
 @sse_router.get("/hunts/{hunt_id}/stream", dependencies=[Depends(require_api_access)])
 async def stream_hunt(hunt_id: str):
     """Stream real-time hunt progress via SSE.
@@ -117,6 +154,23 @@ async def stream_hunt(hunt_id: str):
 
     return StreamingResponse(
         _event_generator(hunt_id, queue),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@sse_router.get("/automation/jobs/{job_id}/stream", dependencies=[Depends(require_api_access)])
+async def stream_automation_job(job_id: str):
+    queue = _automation_job_queue()
+    if not queue.get(job_id):
+        raise HTTPException(status_code=404, detail="Automation job not found")
+
+    return StreamingResponse(
+        _automation_job_event_generator(job_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

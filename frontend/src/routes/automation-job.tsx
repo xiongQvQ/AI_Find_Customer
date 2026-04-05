@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { api } from "@/api/client";
@@ -5,6 +6,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Clock, Globe, Loader2, RotateCcw, Target, Workflow } from "lucide-react";
+
+const EXECUTION_STAGES = [
+  ["queued", "等待 consumer 领取"],
+  ["claimed", "已被 consumer 领取"],
+  ["template_seed", "准备模板 seed"],
+  ["create_hunt", "创建 Hunt"],
+  ["hunt_created", "Hunt 已创建"],
+  ["wait_hunt", "等待 Hunt 完成"],
+  ["load_result", "加载结果"],
+  ["create_campaign", "创建 Campaign"],
+  ["start_campaign", "启动 Campaign"],
+  ["completed", "已完成"],
+  ["failed", "失败"],
+] as const;
 
 function formatTime(iso: string) {
   if (!iso) return "-";
@@ -37,13 +52,32 @@ function templateSeedLabel(status: string) {
   return "未准备";
 }
 
+function streamLabel(state: string) {
+  if (state === "connected") return "实时更新已连接";
+  if (state === "connecting") return "实时更新连接中";
+  if (state === "fallback") return "实时流断开，回退轮询";
+  return "等待连接";
+}
+
+function stageStatus(current: string, target: string) {
+  if (!current) return "pending";
+  if (current === target) return "current";
+  const currentIndex = EXECUTION_STAGES.findIndex(([id]) => id === current);
+  const targetIndex = EXECUTION_STAGES.findIndex(([id]) => id === target);
+  if (current === "completed" && target !== "failed") return "done";
+  if (current === "failed" && target === "failed") return "current";
+  if (currentIndex > targetIndex && targetIndex >= 0) return "done";
+  return "pending";
+}
+
 export function AutomationJobPage() {
   const { jobId } = useParams({ from: "/automation/$jobId" });
   const queryClient = useQueryClient();
+  const [streamState, setStreamState] = useState<"idle" | "connecting" | "connected" | "fallback">("idle");
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["automation-job", jobId],
     queryFn: () => api.getAutomationJob(jobId),
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
   const cancelMutation = useMutation({
     mutationFn: () => api.cancelAutomationJob(jobId),
@@ -63,6 +97,40 @@ export function AutomationJobPage() {
       await queryClient.invalidateQueries({ queryKey: ["automation-metrics", 24] });
     },
   });
+
+  useEffect(() => {
+    if (!jobId) return;
+    setStreamState("connecting");
+    const source = api.streamAutomationJob(jobId);
+    const sync = () => {
+      void queryClient.invalidateQueries({ queryKey: ["automation-job", jobId] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-metrics", 24] });
+    };
+
+    source.onopen = () => setStreamState("connected");
+    source.addEventListener("heartbeat", sync);
+    source.addEventListener("update", sync);
+    source.addEventListener("completed", () => {
+      sync();
+      setStreamState("connected");
+      source.close();
+    });
+    source.addEventListener("failed", () => {
+      sync();
+      setStreamState("connected");
+      source.close();
+    });
+    source.onerror = () => {
+      setStreamState("fallback");
+      source.close();
+    };
+
+    return () => {
+      source.close();
+    };
+  }, [jobId, queryClient]);
 
   if (isLoading) {
     return (
@@ -90,6 +158,7 @@ export function AutomationJobPage() {
           <p className="text-muted-foreground mt-1">查看 producer / consumer 模式下单个任务的执行状态</p>
         </div>
         <div className="flex items-center gap-2">
+          <Badge variant="outline">{streamLabel(streamState)}</Badge>
           <Badge variant={statusVariant(job.status)}>{statusLabel(job.status)}</Badge>
           {(job.status === "queued" || job.status === "running") && (
             <Button
@@ -243,6 +312,32 @@ export function AutomationJobPage() {
               </Button>
             </Link>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>阶段时间线</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {EXECUTION_STAGES.map(([stageId, label]) => {
+            const state = stageStatus(job.progress_stage, stageId);
+            return (
+              <div
+                key={stageId}
+                className={
+                  state === "current"
+                    ? "rounded-md border border-amber-400 bg-amber-50 p-3 text-sm"
+                    : state === "done"
+                      ? "rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm"
+                      : "rounded-md border p-3 text-sm text-muted-foreground"
+                }
+              >
+                <div className="font-medium">{label}</div>
+                <div className="mt-1 text-xs">{stageId}</div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

@@ -67,8 +67,8 @@ export function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">任务看板</h1>
-          <p className="text-muted-foreground mt-1">管理你的 B2B 智能获客任务</p>
+          <h1 className="text-3xl font-bold tracking-tight">自动化控制台</h1>
+          <p className="text-muted-foreground mt-1">前端负责提交 queue job，后端 consumer 负责准备模板 seed、执行 hunt、创建 campaign 和发送队列</p>
         </div>
         <Link to="/hunts/new">
           <Button>
@@ -79,7 +79,7 @@ export function DashboardPage() {
       </div>
 
       {(automationStatus || automationMetrics) && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">任务队列</CardTitle>
@@ -91,6 +91,22 @@ export function DashboardPage() {
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 排队 {automationStatus?.hunt_jobs.queued || 0} · 运行 {automationStatus?.hunt_jobs.running || 0} · 重试中 {automationMetrics?.hunt_jobs.retrying || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Consumer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Workflow className="h-5 w-5 text-muted-foreground" />
+                {automationStatus?.workers?.consumer?.running ? "在线" : "离线"}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {automationStatus?.workers?.consumer?.active_job_id
+                  ? `正在处理 ${automationStatus.workers.consumer.active_job_id.slice(0, 8)}`
+                  : "当前没有正在执行的 queue job"}
               </p>
             </CardContent>
           </Card>
@@ -317,12 +333,16 @@ export function DashboardPage() {
                         <span className="ml-1">· 尝试 {job.attempt_count}</span>
                       </div>
                     )}
-                    {job.hunt_stage && (
-                      <div>当前阶段：{job.hunt_stage}</div>
-                    )}
-                    {job.last_error && (
-                      <div className="text-destructive">最近错误：{job.last_error}</div>
-                    )}
+                  {job.hunt_stage && (
+                    <div>当前阶段：{job.hunt_stage}</div>
+                  )}
+                  {job.progress_stage && (
+                    <div>队列阶段：{job.progress_stage}</div>
+                  )}
+                  <div>模板 Seed：{job.template_seed_status || "pending"}</div>
+                  {job.last_error && (
+                    <div className="text-destructive">最近错误：{job.last_error}</div>
+                  )}
                     <Link to="/automation/$jobId" params={{ jobId: job.job_id }} className="text-primary hover:underline">
                       查看队列任务详情
                     </Link>

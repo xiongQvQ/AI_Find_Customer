@@ -371,6 +371,19 @@ export interface AutomationStatus {
     automation_summary_enabled: boolean;
     automation_alerts_enabled: boolean;
   };
+  workers: {
+    consumer?: {
+      enabled?: boolean;
+      running?: boolean;
+      worker_id?: string;
+      active_job_id?: string;
+      last_claimed_job_id?: string;
+      last_completed_job_id?: string;
+      last_error?: string;
+      last_poll_at?: string;
+      last_activity_at?: string;
+    };
+  };
 }
 
 export interface AutomationMetrics {
@@ -487,6 +500,12 @@ export const api = {
 
   getAutomationJob: (jobId: string) =>
     request<AutomationJob>(`/automation/jobs/${jobId}`),
+
+  streamAutomationJob: (jobId: string) => {
+    const suffix = API_ACCESS_TOKEN ? `?api_key=${encodeURIComponent(API_ACCESS_TOKEN)}` : "";
+    const url = `${API_BASE}/automation/jobs/${jobId}/stream${suffix}`;
+    return new EventSource(url);
+  },
 
   getAutomationJobByHunt: (huntId: string) =>
     request<AutomationJob>(`/automation/jobs/by-hunt/${huntId}`),

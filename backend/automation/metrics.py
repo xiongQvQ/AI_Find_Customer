@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from automation.job_queue import HuntJobQueue
+from automation.runtime import get_runtime_state
 from api.hunt_store import load_all_hunts
 from config.settings import get_settings
 from emailing.store import EmailStore
@@ -72,6 +73,7 @@ def collect_automation_status(*, hunts: dict[str, dict[str, Any]] | None = None)
             "automation_summary_enabled": bool(settings.automation_summary_enabled),
             "automation_alerts_enabled": bool(settings.automation_alerts_enabled),
         },
+        "workers": get_runtime_state(),
     }
 
 
