@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS hunt_jobs (
   claimed_by TEXT DEFAULT '',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT DEFAULT '',
-  last_hunt_id TEXT DEFAULT ''
+  last_hunt_id TEXT DEFAULT '',
+  progress_stage TEXT DEFAULT '',
+  progress_message TEXT DEFAULT '',
+  template_seed_status TEXT DEFAULT '',
+  template_seed_source TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_hunt_jobs_status_available
 ON hunt_jobs(status, available_at, created_at);
@@ -42,6 +46,18 @@ class HuntJobQueue:
     def init_db(self) -> None:
         with self._connect() as conn:
             conn.executescript(_DDL)
+            self._ensure_column(conn, "hunt_jobs", "progress_stage", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "hunt_jobs", "progress_message", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "hunt_jobs", "template_seed_status", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "hunt_jobs", "template_seed_source", "TEXT DEFAULT ''")
+
+    def _ensure_column(self, conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
     def enqueue(self, payload: dict[str, Any], *, now_iso: str, available_at: str | None = None) -> str:
         job_id = str(uuid.uuid4())
@@ -218,7 +234,9 @@ class HuntJobQueue:
                     finished_at = ?,
                     updated_at = ?,
                     last_hunt_id = ?,
-                    last_error = ''
+                    last_error = '',
+                    progress_stage = 'completed',
+                    progress_message = 'Queue job completed successfully'
                 WHERE id = ?
                 """,
                 (finished_at, finished_at, hunt_id, job_id),
@@ -261,6 +279,8 @@ class HuntJobQueue:
                 SET status = 'failed',
                     finished_at = ?,
                     updated_at = ?,
+                    progress_stage = 'cancelled',
+                    progress_message = 'Cancelled by user',
                     last_error = CASE WHEN last_error = '' THEN 'Cancelled by user' ELSE last_error END
                 WHERE id = ?
                   AND status IN ('queued', 'running')
@@ -278,9 +298,41 @@ class HuntJobQueue:
                     updated_at = ?,
                     finished_at = '',
                     started_at = '',
-                    claimed_by = ''
+                    claimed_by = '',
+                    progress_stage = 'queued',
+                    progress_message = 'Waiting for consumer to claim',
+                    last_error = ''
                 WHERE id = ?
                   AND status IN ('failed', 'completed')
                 """,
                 (updated_at, updated_at, job_id),
+            )
+
+    def update_progress(
+        self,
+        job_id: str,
+        *,
+        updated_at: str,
+        progress_stage: str,
+        progress_message: str = "",
+        hunt_id: str = "",
+        template_seed_status: str | None = None,
+        template_seed_source: str | None = None,
+    ) -> None:
+        fields = ["updated_at = ?", "progress_stage = ?", "progress_message = ?"]
+        values: list[Any] = [updated_at, progress_stage, progress_message[:2000]]
+        if hunt_id:
+            fields.append("last_hunt_id = ?")
+            values.append(hunt_id)
+        if template_seed_status is not None:
+            fields.append("template_seed_status = ?")
+            values.append(template_seed_status)
+        if template_seed_source is not None:
+            fields.append("template_seed_source = ?")
+            values.append(template_seed_source)
+        values.append(job_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE hunt_jobs SET {', '.join(fields)} WHERE id = ?",
+                values,
             )

@@ -210,8 +210,15 @@ def _wait_for_hunt(
 
 
 def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    progress_callback = getattr(args, "progress_callback", None)
+
+    def report(stage: str, message: str, **extra: Any) -> None:
+        if callable(progress_callback):
+            progress_callback(stage=stage, message=message, **extra)
+
     try:
         try:
+            report("template_seed", "Preparing email template seed", template_seed_status="preparing")
             template_seed = _prepare_template_seed(
                 base_url=args.api_base_url,
                 api_token=args.api_token,
@@ -221,10 +228,18 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             if template_seed is not None:
                 payload = dict(payload)
                 payload["template_seed"] = template_seed
+                report(
+                    "template_seed",
+                    "Template seed prepared",
+                    template_seed_status="ready",
+                    template_seed_source=str(template_seed.get("source", "") or "pre_generated"),
+                )
                 logger.info("prepared template seed before hunt creation")
         except Exception as exc:
+            report("template_seed", f"Template seed preparation failed: {exc}", template_seed_status="failed")
             logger.warning("template seed preparation failed, continuing without pre-generated seed: %s", exc)
 
+        report("create_hunt", "Creating hunt from queue job")
         created = _request_json(
             method="POST",
             base_url=args.api_base_url,
@@ -234,6 +249,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             timeout_seconds=args.request_timeout_seconds,
         )
         hunt_id = str(created["hunt_id"])
+        report("hunt_created", "Hunt created, waiting for execution", hunt_id=hunt_id)
         logger.info(
             "created hunt=%s target_leads=%s email_craft=%s",
             hunt_id[:8],
@@ -252,6 +268,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
         raise
 
     try:
+        report("wait_hunt", "Consumer is polling hunt status", hunt_id=hunt_id)
         status = _wait_for_hunt(
             base_url=args.api_base_url,
             api_token=args.api_token,
@@ -261,6 +278,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
         if str(status.get("status", "")) != "completed":
             raise ApiError(f"hunt {hunt_id} failed: {status.get('error', 'unknown error')}")
 
+        report("load_result", "Loading completed hunt result", hunt_id=hunt_id)
         result = _request_json(
             method="GET",
             base_url=args.api_base_url,
@@ -279,6 +297,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
 
         campaign_summary: dict[str, Any] | None = None
         if args.auto_start_campaign and payload.get("enable_email_craft"):
+            report("create_campaign", "Creating campaign from approved email sequences", hunt_id=hunt_id)
             created_campaign = _request_json(
                 method="POST",
                 base_url=args.api_base_url,
@@ -291,6 +310,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             sequence_count = int(created_campaign.get("sequence_count", 0) or 0)
             logger.info("campaign=%s created sequence_count=%s", campaign_id[:8], sequence_count)
             if sequence_count > 0:
+                report("start_campaign", "Starting campaign and handing off to scheduler", hunt_id=hunt_id)
                 campaign_summary = _request_json(
                     method="POST",
                     base_url=args.api_base_url,
@@ -300,6 +320,7 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
                 )
                 logger.info("campaign=%s started", campaign_id[:8])
             else:
+                report("campaign_draft", "Campaign created but no send-ready sequences were available", hunt_id=hunt_id)
                 campaign_summary = {"campaign_id": campaign_id, "status": "draft", "sequence_count": 0}
                 logger.warning("campaign=%s has no send-ready sequences", campaign_id[:8])
 
@@ -310,9 +331,11 @@ def run_hunt_payload(args: argparse.Namespace, payload: dict[str, Any]) -> dict[
             "email_sequence_count": len(sequences) if isinstance(sequences, list) else 0,
             "campaign": campaign_summary,
         }
+        report("completed", "Queue job completed", hunt_id=hunt_id)
         _notify_feishu(render_hunt_completed_text(final_result))
         return final_result
     except Exception as exc:
+        report("failed", f"Queue job failed: {exc}", hunt_id=hunt_id)
         try:
             _notify_feishu(render_hunt_failed_text(payload, error_message=str(exc)))
         except Exception as notify_exc:

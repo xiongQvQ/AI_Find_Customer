@@ -118,7 +118,23 @@ def run_consumer(args: argparse.Namespace) -> int:
 
         logger.info("claimed job=%s", str(job['id'])[:8])
         try:
-            result = run_hunt_payload(consumer_args, job.get("payload") or {})
+            queue.update_progress(
+                str(job["id"]),
+                updated_at=_now_iso(),
+                progress_stage="claimed",
+                progress_message="Consumer claimed this queue job",
+            )
+            progress_args = argparse.Namespace(**vars(consumer_args))
+            progress_args.progress_callback = lambda stage, message, **extra: queue.update_progress(
+                str(job["id"]),
+                updated_at=_now_iso(),
+                progress_stage=str(stage or ""),
+                progress_message=str(message or ""),
+                hunt_id=str(extra.get("hunt_id", "") or ""),
+                template_seed_status=extra.get("template_seed_status"),
+                template_seed_source=extra.get("template_seed_source"),
+            )
+            result = run_hunt_payload(progress_args, job.get("payload") or {})
             queue.mark_completed(str(job["id"]), hunt_id=str(result["hunt_id"]), finished_at=_now_iso())
             logger.info("completed job=%s hunt=%s", str(job["id"])[:8], str(result["hunt_id"])[:8])
         except KeyboardInterrupt:

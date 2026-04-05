@@ -30,6 +30,13 @@ function statusVariant(status: string) {
   return "secondary" as const;
 }
 
+function templateSeedLabel(status: string) {
+  if (status === "ready") return "已准备";
+  if (status === "preparing") return "准备中";
+  if (status === "failed") return "准备失败";
+  return "未准备";
+}
+
 export function AutomationJobPage() {
   const { jobId } = useParams({ from: "/automation/$jobId" });
   const queryClient = useQueryClient();
@@ -140,6 +147,14 @@ export function AutomationJobPage() {
             {job.leads_count}
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">模板 Seed</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold">
+            {templateSeedLabel(job.template_seed_status)}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -183,6 +198,14 @@ export function AutomationJobPage() {
               <div className="font-medium">结束时间</div>
               <div className="text-muted-foreground">{formatTime(job.finished_at)}</div>
             </div>
+            <div>
+              <div className="font-medium">Consumer</div>
+              <div className="text-muted-foreground break-all">{job.claimed_by || "-"}</div>
+            </div>
+            <div>
+              <div className="font-medium">模板 Seed 来源</div>
+              <div className="text-muted-foreground">{job.template_seed_source || "-"}</div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -192,6 +215,14 @@ export function AutomationJobPage() {
           <CardTitle>执行链路</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
+          <div>
+            <div className="font-medium">队列执行阶段</div>
+            <div className="text-muted-foreground">{job.progress_stage || "-"}</div>
+          </div>
+          <div>
+            <div className="font-medium">当前执行说明</div>
+            <div className="text-muted-foreground">{job.progress_message || "-"}</div>
+          </div>
           <div>
             <div className="font-medium">Hunt 状态</div>
             <div className="text-muted-foreground">{job.hunt_status || "-"}</div>

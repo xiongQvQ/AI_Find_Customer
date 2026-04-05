@@ -318,9 +318,14 @@ export interface AutomationJob {
   updated_at: string;
   started_at: string;
   finished_at: string;
+  claimed_by: string;
   attempt_count: number;
   last_error: string;
   last_hunt_id: string;
+  progress_stage: string;
+  progress_message: string;
+  template_seed_status: string;
+  template_seed_source: string;
   website_url: string;
   description: string;
   product_keywords: string[];
