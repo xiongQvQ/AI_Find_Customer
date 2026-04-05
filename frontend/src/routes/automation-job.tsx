@@ -5,7 +5,8 @@ import { api, type EmailCampaignListItem, type EmailSequence, type HuntResult } 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Globe, Loader2, RotateCcw, Target, Workflow, Mail, Building2, Send } from "lucide-react";
+import { Clock, Globe, Loader2, RotateCcw, Target, Workflow, Mail, Building2, Send, Eye } from "lucide-react";
+import { Sheet, SheetBody, SheetHeader } from "@/components/ui/sheet";
 
 const EXECUTION_STAGES = [
   ["queued", "等待 consumer 领取"],
@@ -115,10 +116,151 @@ function flattenCampaignSequences(campaigns: EmailCampaignListItem[] | undefined
   );
 }
 
+function SequenceDetailSheet({
+  sequenceId,
+  open,
+  onClose,
+}: {
+  sequenceId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["email-sequence-detail", sequenceId],
+    queryFn: () => api.getEmailSequence(sequenceId),
+    enabled: open && !!sequenceId,
+  });
+
+  return (
+    <Sheet open={open} onClose={onClose} className="max-w-3xl">
+      <SheetHeader>
+        <div className="pr-10">
+          <h2 className="text-xl font-semibold">邮件发送详情</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            查看该发送序列的收件邮箱、每一步邮件内容、发送状态和回复记录。
+          </p>
+        </div>
+      </SheetHeader>
+      <SheetBody className="space-y-6">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            正在加载邮件详情…
+          </div>
+        ) : error ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            {error instanceof Error ? error.message : "加载邮件详情失败"}
+          </div>
+        ) : data ? (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">发送序列</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <div className="font-medium">收件邮箱</div>
+                  <div className="break-all text-muted-foreground">{data.sequence.lead_email || "-"}</div>
+                </div>
+                <div>
+                  <div className="font-medium">公司 / 联系人</div>
+                  <div className="text-muted-foreground">
+                    {data.sequence.lead_name || "-"} / {data.sequence.decision_maker_name || "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="font-medium">状态</div>
+                  <div className="text-muted-foreground">{data.sequence.status || "-"}</div>
+                </div>
+                <div>
+                  <div className="font-medium">当前步骤</div>
+                  <div className="text-muted-foreground">{data.sequence.current_step || 0}</div>
+                </div>
+                <div>
+                  <div className="font-medium">下一次计划发送</div>
+                  <div className="text-muted-foreground">{formatTime(data.sequence.next_scheduled_at)}</div>
+                </div>
+                <div>
+                  <div className="font-medium">最近发送</div>
+                  <div className="text-muted-foreground">{formatTime(data.sequence.last_sent_at)}</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">邮件内容</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {data.messages.length ? (
+                  data.messages.map((message) => (
+                    <div key={message.id} className="rounded-md border p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium">
+                          第 {message.step_number} 步
+                        </div>
+                        <Badge variant="outline">{message.status || "-"}</Badge>
+                      </div>
+                      <div className="mt-3 text-sm">
+                        <div className="font-medium">主题</div>
+                        <div className="mt-1 text-muted-foreground">{message.subject || "(无主题)"}</div>
+                      </div>
+                      <div className="mt-3 text-sm">
+                        <div className="font-medium">正文</div>
+                        <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+                          {message.body_text || ""}
+                        </pre>
+                      </div>
+                      <div className="mt-3 grid gap-3 text-xs text-muted-foreground md:grid-cols-2">
+                        <div>计划发送: {formatTime(message.scheduled_at)}</div>
+                        <div>实际发送: {formatTime(message.sent_at)}</div>
+                        <div className="break-all">Provider ID: {message.provider_message_id || "-"}</div>
+                        <div className="break-all">失败原因: {message.failure_reason || "-"}</div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
+                    当前还没有该序列的持久化邮件消息
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">回复记录</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {data.reply_events?.length ? (
+                  data.reply_events.map((reply) => (
+                    <div key={reply.id} className="rounded-md border p-3 text-sm">
+                      <div className="font-medium">{reply.subject || "(无主题)"}</div>
+                      <div className="mt-1 break-all text-xs text-muted-foreground">
+                        {reply.from_email || "-"} · {formatTime(reply.received_at)}
+                      </div>
+                      <div className="mt-2 text-muted-foreground">{reply.snippet || "-"}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-dashed p-6 text-center text-muted-foreground">
+                    当前还没有收到回复
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
+      </SheetBody>
+    </Sheet>
+  );
+}
+
 export function AutomationJobPage() {
   const { jobId } = useParams({ from: "/automation/$jobId" });
   const queryClient = useQueryClient();
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "connected" | "fallback">("idle");
+  const [selectedSequenceId, setSelectedSequenceId] = useState("");
   const { data: automationStatus } = useQuery({
     queryKey: ["automation-status"],
     queryFn: api.getAutomationStatus,
@@ -548,9 +690,19 @@ export function AutomationJobPage() {
                 <div className="mt-2 space-y-2">
                   {campaignSequences.slice(0, 20).map((sequence) => (
                     <div key={sequence.id} className="rounded-md border p-3">
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="font-medium">{sequence.lead_name || sequence.lead_email}</div>
-                        <Badge variant="outline">{sequence.status || "-"}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{sequence.status || "-"}</Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedSequenceId(sequence.id)}
+                          >
+                            <Eye className="mr-1 h-4 w-4" />
+                            邮件详情
+                          </Button>
+                        </div>
                       </div>
                       <div className="mt-1 break-all text-muted-foreground">{sequence.lead_email || "-"}</div>
                       <div className="mt-1 text-xs text-muted-foreground">
@@ -585,6 +737,12 @@ export function AutomationJobPage() {
           </CardContent>
         </Card>
       </div>
+
+      <SequenceDetailSheet
+        sequenceId={selectedSequenceId}
+        open={Boolean(selectedSequenceId)}
+        onClose={() => setSelectedSequenceId("")}
+      />
     </div>
   );
 }

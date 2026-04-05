@@ -33,7 +33,6 @@ export function RootLayout() {
             >
               <Settings className="h-4 w-4" />
               系统设置
-              <span className="rounded border px-1.5 py-0.5 text-[10px] leading-none">待开发</span>
             </Link>
           </div>
         </div>

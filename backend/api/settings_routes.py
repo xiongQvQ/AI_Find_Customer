@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from config.settings import get_settings
 from config.settings_store import is_configured, read_settings, update_settings
+from automation.notifier import send_feishu_text
 from emailing.imap_client import test_imap_connection
 from emailing.smtp_client import test_smtp_connection
 
@@ -138,6 +139,12 @@ class ImapTestResponse(BaseModel):
     message: str
     host: str
     username: str
+
+
+class FeishuTestResponse(BaseModel):
+    status: str
+    message: str
+    webhook_url: str
 
 
 def _now_iso() -> str:
@@ -308,6 +315,35 @@ async def test_email_imap_settings():
         message="IMAP connection successful",
         host=result["host"],
         username=result["username"],
+    )
+
+
+@router.post("/automation/feishu-test", response_model=FeishuTestResponse)
+async def test_automation_feishu_webhook():
+    """Send a test message to the configured Feishu webhook."""
+    get_settings.cache_clear()
+    settings = get_settings()
+    webhook_url = str(settings.automation_feishu_webhook_url or "").strip()
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Missing Feishu webhook URL in Settings")
+    try:
+        await asyncio.to_thread(
+            send_feishu_text,
+            webhook_url,
+            "\n".join(
+                [
+                    "AI Hunter 飞书测试",
+                    "这是一条测试消息。",
+                    "如果你能看到这条消息，说明自动化通知 webhook 已生效。",
+                ]
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return FeishuTestResponse(
+        status="ok",
+        message="Feishu webhook test sent",
+        webhook_url=webhook_url,
     )
 
 

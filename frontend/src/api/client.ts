@@ -292,6 +292,12 @@ export interface SettingsApiResponse {
   is_configured: boolean;
 }
 
+export interface FeishuTestResponse {
+  status: string;
+  message: string;
+  webhook_url: string;
+}
+
 export interface SendEmailDraftRequest {
   sequence_number: number;
 }
@@ -481,6 +487,9 @@ async function requestSettings<T>(path: string, options?: RequestInit): Promise<
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -609,8 +618,19 @@ export const api = {
   getSettings: () =>
     requestSettings<SettingsApiResponse>(""),
 
+  saveSettings: (payload: Record<string, string>) =>
+    requestSettings<void>("", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   testImapSettings: () =>
     requestSettings<ImapTestResponse>("/email/imap-test", {
+      method: "POST",
+    }),
+
+  testFeishuWebhook: () =>
+    requestSettings<FeishuTestResponse>("/automation/feishu-test", {
       method: "POST",
     }),
 

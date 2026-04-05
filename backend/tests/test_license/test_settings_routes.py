@@ -245,6 +245,29 @@ class TestEmailSettings:
         assert data["host"] == "imap.example.com"
         assert "EMAIL_IMAP_LAST_TEST_AT" in mock_update.call_args[0][0]
 
+    @pytest.mark.asyncio
+    async def test_feishu_test_success(self, client):
+        with (
+            patch("api.settings_routes.get_settings") as mock_gs,
+            patch("api.settings_routes.send_feishu_text", return_value={"StatusCode": 0}) as mock_send,
+        ):
+            mock_gs.cache_clear = MagicMock()
+            mock_gs.return_value = MagicMock(automation_feishu_webhook_url="https://open.feishu.test/hook/abc")
+            resp = await client.post("/api/settings/automation/feishu-test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["webhook_url"] == "https://open.feishu.test/hook/abc"
+        assert mock_send.called
+
+    @pytest.mark.asyncio
+    async def test_feishu_test_requires_webhook(self, client):
+        with patch("api.settings_routes.get_settings") as mock_gs:
+            mock_gs.cache_clear = MagicMock()
+            mock_gs.return_value = MagicMock(automation_feishu_webhook_url="")
+            resp = await client.post("/api/settings/automation/feishu-test")
+        assert resp.status_code == 400
+
 
 class TestLicenseCompatibility:
     @pytest.mark.asyncio

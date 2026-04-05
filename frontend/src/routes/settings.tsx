@@ -4,6 +4,7 @@ import {
   Search,
   Cpu,
   Mail,
+  Bell,
   CheckCircle2,
   Loader2,
   Eye,
@@ -25,10 +26,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";  // 生产环境: VITE_API_URL=https://license.b2binsights.io
-
-// ── Provider definitions ──────────────────────────────────────────────────────
 
 type Provider = {
   id: string;
@@ -140,23 +137,6 @@ const EMAIL_API_KEY_FIELDS: Record<string, string> = {
   kimi: "email_moonshot_api_key",
   minimax: "email_minimax_api_key",
 };
-
-// ── API helpers ───────────────────────────────────────────────────────────────
-
-async function fetchSettings() {
-  const res = await fetch(`${API_BASE}/api/settings`);
-  if (!res.ok) throw new Error("加载设置失败");
-  return res.json();
-}
-
-async function saveSettings(payload: Record<string, string>) {
-  const res = await fetch(`${API_BASE}/api/settings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("保存设置失败");
-}
 
 // ── Helpers to detect provider from a model string ───────────────────────────
 
@@ -993,6 +973,166 @@ function EmailDeliveryPanel({
   );
 }
 
+function AutomationNotifyPanel({
+  values,
+  onChange,
+  onPersist,
+}: {
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  onPersist: (payload: Record<string, string>) => Promise<void>;
+}) {
+  const webhookConfigured = Boolean(values.automation_feishu_webhook_url?.trim());
+  const feishuTestMutation = useMutation({
+    mutationFn: async () => {
+      await onPersist(values);
+      return api.testFeishuWebhook();
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Bell className="h-5 w-5 text-primary" />
+          <CardTitle className="text-base">飞书通知</CardTitle>
+        </div>
+        <CardDescription>
+          配置飞书机器人 webhook，用于接收任务开始、失败、企业发现、发送批次和周期汇总。点击测试会先自动保存当前表单。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className={`rounded-md border px-4 py-4 text-sm ${webhookConfigured ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
+          <p className="font-semibold">{webhookConfigured ? "Webhook 已配置" : "Webhook 未配置"}</p>
+          <p className="mt-2 text-xs leading-5 opacity-90">
+            {webhookConfigured
+              ? "后端会使用这个地址发送实时通知和汇总。建议先点一次测试，确认群机器人已经能正常收到消息。"
+              : "先在飞书群里添加自定义机器人，复制 webhook 地址填到这里，然后点击测试通知。"}
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="automation_feishu_webhook_url">飞书 Webhook URL</Label>
+          <SecretInput
+            id="automation_feishu_webhook_url"
+            value={values.automation_feishu_webhook_url ?? ""}
+            onChange={(value) => onChange("automation_feishu_webhook_url", value)}
+            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>周期汇总</Label>
+            <div className="flex gap-2">
+              {[
+                ["true", "开启"],
+                ["false", "关闭"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onChange("automation_summary_enabled", value)}
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    (values.automation_summary_enabled ?? "true") === value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={values.automation_summary_interval_seconds ?? ""}
+              onChange={(e) => onChange("automation_summary_interval_seconds", e.target.value)}
+              placeholder="7200"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">单位秒。测试时可先改小，生产建议 7200 秒或更长。</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>异常告警</Label>
+            <div className="flex gap-2">
+              {[
+                ["true", "开启"],
+                ["false", "关闭"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onChange("automation_alerts_enabled", value)}
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    (values.automation_alerts_enabled ?? "true") === value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={values.automation_alert_interval_seconds ?? ""}
+              onChange={(e) => onChange("automation_alert_interval_seconds", e.target.value)}
+              placeholder="1800"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">单位秒。异常告警更适合短间隔，避免失败长期无人感知。</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="automation_alert_backlog_threshold">积压阈值</Label>
+            <Input
+              id="automation_alert_backlog_threshold"
+              value={values.automation_alert_backlog_threshold ?? ""}
+              onChange={(e) => onChange("automation_alert_backlog_threshold", e.target.value)}
+              placeholder="20"
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="automation_alert_failed_messages_threshold">失败邮件阈值</Label>
+            <Input
+              id="automation_alert_failed_messages_threshold"
+              value={values.automation_alert_failed_messages_threshold ?? ""}
+              onChange={(e) => onChange("automation_alert_failed_messages_threshold", e.target.value)}
+              placeholder="10"
+              className="font-mono text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => feishuTestMutation.mutate()}
+            disabled={feishuTestMutation.isPending}
+          >
+            {feishuTestMutation.isPending ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 测试中…</>
+            ) : (
+              "测试飞书通知"
+            )}
+          </Button>
+          {feishuTestMutation.isSuccess && (
+            <p className="text-sm text-emerald-600">
+              已发送测试消息到 {feishuTestMutation.data.webhook_url}
+            </p>
+          )}
+          {feishuTestMutation.isError && (
+            <p className="text-sm text-destructive">{feishuTestMutation.error.message}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -1002,7 +1142,7 @@ export function SettingsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["app-settings"],
-    queryFn: fetchSettings,
+    queryFn: api.getSettings,
   });
 
   useEffect(() => {
@@ -1053,6 +1193,13 @@ export function SettingsPage() {
         EMAIL_LLM_REQUESTS_PER_MINUTE: "email_llm_requests_per_minute",
         EMAIL_REASONING_REQUESTS_PER_MINUTE: "email_reasoning_requests_per_minute",
         EMAIL_REQUIRE_APPROVAL_BEFORE_SEND: "email_require_approval_before_send",
+        AUTOMATION_FEISHU_WEBHOOK_URL: "automation_feishu_webhook_url",
+        AUTOMATION_SUMMARY_ENABLED: "automation_summary_enabled",
+        AUTOMATION_SUMMARY_INTERVAL_SECONDS: "automation_summary_interval_seconds",
+        AUTOMATION_ALERTS_ENABLED: "automation_alerts_enabled",
+        AUTOMATION_ALERT_INTERVAL_SECONDS: "automation_alert_interval_seconds",
+        AUTOMATION_ALERT_BACKLOG_THRESHOLD: "automation_alert_backlog_threshold",
+        AUTOMATION_ALERT_FAILED_MESSAGES_THRESHOLD: "automation_alert_failed_messages_threshold",
         SEARCH_CONCURRENCY: "search_concurrency",
         SCRAPE_CONCURRENCY: "scrape_concurrency",
       };
@@ -1066,7 +1213,7 @@ export function SettingsPage() {
   }, [data]);
 
   const saveMutation = useMutation({
-    mutationFn: saveSettings,
+    mutationFn: api.saveSettings,
     onSuccess: () => {
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ["app-settings"] });
@@ -1092,7 +1239,7 @@ export function SettingsPage() {
   };
 
   const persistSettings = async (payload: Record<string, string>) => {
-    await saveSettings(payload);
+    await api.saveSettings(payload);
     await queryClient.invalidateQueries({ queryKey: ["app-settings"] });
   };
 
@@ -1153,6 +1300,8 @@ export function SettingsPage() {
       />
 
       <EmailDeliveryPanel values={values} onChange={handleChange} onPersist={persistSettings} />
+
+      <AutomationNotifyPanel values={values} onChange={handleChange} onPersist={persistSettings} />
 
       {/* Concurrency */}
       <FieldGroup
