@@ -80,3 +80,55 @@ def test_recover_interrupted_running_jobs(tmp_path):
     assert recovered_job["started_at"] == ""
     assert recovered_job["progress_stage"] == "queued"
     assert "Recovered after API restart" in recovered_job["progress_message"]
+
+
+def test_template_seed_prewarm_lifecycle(tmp_path):
+    queue = HuntJobQueue(str(tmp_path / "queue.db"))
+    queue.init_db()
+
+    job_id = queue.enqueue(
+        {
+            "website_url": "https://www.gdushun.com/",
+            "description": "Find distributors",
+            "enable_email_craft": True,
+        },
+        now_iso="2026-04-04T00:00:00+00:00",
+    )
+    queued = queue.get(job_id)
+    assert queued is not None
+    assert queued["template_seed_status"] == "pending"
+
+    assert queue.mark_template_seed_preparing(job_id, updated_at="2026-04-04T00:00:05+00:00") is True
+    preparing = queue.get(job_id)
+    assert preparing is not None
+    assert preparing["template_seed_status"] == "preparing"
+
+    queue.attach_template_seed(
+        job_id,
+        template_seed={"source": "pre_generated", "template_profile": {}, "template_plan": {}},
+        updated_at="2026-04-04T00:00:10+00:00",
+    )
+    ready = queue.get(job_id)
+    assert ready is not None
+    assert ready["template_seed_status"] == "ready"
+    assert ready["template_seed_source"] == "pre_generated"
+    assert isinstance(ready["payload"]["template_seed"], dict)
+
+
+def test_claim_next_skips_seed_jobs_while_preparing(tmp_path):
+    queue = HuntJobQueue(str(tmp_path / "queue.db"))
+    queue.init_db()
+
+    slow_job = queue.enqueue(
+        {"description": "Find buyers", "enable_email_craft": True},
+        now_iso="2026-04-04T00:00:00+00:00",
+    )
+    fast_job = queue.enqueue(
+        {"description": "Find buyers without email"},
+        now_iso="2026-04-04T00:00:01+00:00",
+    )
+    assert queue.mark_template_seed_preparing(slow_job, updated_at="2026-04-04T00:00:02+00:00") is True
+
+    claimed = queue.claim_next(worker_id="worker-a", now_iso="2026-04-04T00:00:03+00:00")
+    assert claimed is not None
+    assert claimed["id"] == fast_job

@@ -61,13 +61,16 @@ class HuntJobQueue:
 
     def enqueue(self, payload: dict[str, Any], *, now_iso: str, available_at: str | None = None) -> str:
         job_id = str(uuid.uuid4())
+        template_seed = payload.get("template_seed") if isinstance(payload.get("template_seed"), dict) else None
+        template_seed_status = "ready" if template_seed else "pending"
+        template_seed_source = str((template_seed or {}).get("source", "") or "")
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO hunt_jobs (
                   id, payload_json, status, available_at, created_at, updated_at,
-                  progress_stage, progress_message, template_seed_status
-                ) VALUES (?, ?, 'queued', ?, ?, ?, 'queued', 'Waiting for consumer to claim', 'pending')
+                  progress_stage, progress_message, template_seed_status, template_seed_source
+                ) VALUES (?, ?, 'queued', ?, ?, ?, 'queued', 'Waiting for consumer to claim', ?, ?)
                 """,
                 (
                     job_id,
@@ -75,6 +78,8 @@ class HuntJobQueue:
                     available_at or now_iso,
                     now_iso,
                     now_iso,
+                    template_seed_status,
+                    template_seed_source,
                 ),
             )
         return job_id
@@ -141,7 +146,9 @@ class HuntJobQueue:
             row = conn.execute(
                 """
                 SELECT * FROM hunt_jobs
-                WHERE status = 'queued' AND available_at <= ?
+                WHERE status = 'queued'
+                  AND available_at <= ?
+                  AND COALESCE(template_seed_status, '') != 'preparing'
                 ORDER BY created_at ASC
                 LIMIT 1
                 """,
@@ -348,6 +355,82 @@ class HuntJobQueue:
             conn.execute(
                 f"UPDATE hunt_jobs SET {', '.join(fields)} WHERE id = ?",
                 values,
+            )
+
+    def mark_template_seed_preparing(self, job_id: str, *, updated_at: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET updated_at = ?,
+                    template_seed_status = 'preparing',
+                    progress_stage = CASE
+                      WHEN progress_stage IN ('', 'queued') THEN 'template_seed'
+                      ELSE progress_stage
+                    END,
+                    progress_message = CASE
+                      WHEN progress_stage IN ('', 'queued') THEN 'Prewarming template seed before consumer claim'
+                      ELSE progress_message
+                    END
+                WHERE id = ?
+                  AND status = 'queued'
+                  AND COALESCE(template_seed_status, '') IN ('', 'pending', 'failed')
+                """,
+                (updated_at, job_id),
+            )
+            return int(cur.rowcount or 0) > 0
+
+    def attach_template_seed(self, job_id: str, *, template_seed: dict[str, Any], updated_at: str) -> None:
+        job = self.get(job_id)
+        if not job:
+            return
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        payload = dict(payload)
+        payload["template_seed"] = template_seed
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET payload_json = ?,
+                    updated_at = ?,
+                    template_seed_status = 'ready',
+                    template_seed_source = ?,
+                    progress_stage = CASE
+                      WHEN status = 'queued' THEN 'queued'
+                      ELSE progress_stage
+                    END,
+                    progress_message = CASE
+                      WHEN status = 'queued' THEN 'Template seed prewarmed; waiting for consumer claim'
+                      ELSE progress_message
+                    END
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(payload, ensure_ascii=False),
+                    updated_at,
+                    str(template_seed.get("source", "") or ""),
+                    job_id,
+                ),
+            )
+
+    def mark_template_seed_failed(self, job_id: str, *, error_message: str, updated_at: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET updated_at = ?,
+                    template_seed_status = 'failed',
+                    progress_stage = CASE
+                      WHEN status = 'queued' THEN 'queued'
+                      ELSE progress_stage
+                    END,
+                    progress_message = CASE
+                      WHEN status = 'queued' THEN 'Template seed prewarm failed; consumer will continue without cached seed'
+                      ELSE progress_message
+                    END
+                WHERE id = ?
+                """,
+                (updated_at, job_id),
             )
 
     def recover_interrupted_running_jobs(self, *, updated_at: str) -> int:

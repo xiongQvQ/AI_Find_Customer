@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import AsyncMock
 
-from api.app import _run_automation_consumer_once
+from api.app import _run_automation_consumer_once, _run_template_seed_prewarm_once
 from automation.job_queue import HuntJobQueue
 
 
@@ -90,3 +91,42 @@ async def test_embedded_consumer_stops_cancelled_job(monkeypatch, tmp_path):
     assert job["status"] == "failed"
     assert job["progress_stage"] == "cancelled"
     assert requested == []
+
+
+@pytest.mark.asyncio
+async def test_template_seed_worker_prewarms_queued_job(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "queue.db")
+    queue = HuntJobQueue(queue_path)
+    queue.init_db()
+    job_id = queue.enqueue(
+        {
+            "website_url": "https://www.gdushun.com/",
+            "description": "Find distributors",
+            "product_keywords": ["micro switch"],
+            "target_regions": ["United States"],
+            "enable_email_craft": True,
+        },
+        now_iso="2026-04-05T00:00:00+00:00",
+    )
+
+    settings = type(
+        "S",
+        (),
+        {
+            "automation_queue_db_path": queue_path,
+            "automation_template_seed_prewarm_enabled": True,
+            "automation_consumer_poll_seconds": 5,
+        },
+    )()
+    monkeypatch.setattr("api.app.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "api.app._prepare_template_seed",
+        AsyncMock(return_value={"source": "pre_generated", "template_profile": {}, "template_plan": {}}),
+    )
+
+    assert await _run_template_seed_prewarm_once() is True
+    job = queue.get(job_id)
+    assert job is not None
+    assert job["template_seed_status"] == "ready"
+    assert job["template_seed_source"] == "pre_generated"
+    assert isinstance(job["payload"]["template_seed"], dict)

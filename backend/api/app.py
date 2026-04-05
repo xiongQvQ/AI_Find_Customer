@@ -17,7 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.automation_routes import router as automation_router
 from api.hunt_store import load_all_hunts
 from api.email_routes import router as email_router
-from api.routes import router, start_background_workers, stop_background_workers, request_hunt_cancel
+from api.routes import (
+    TemplateSeedRequest,
+    _prepare_template_seed,
+    router,
+    start_background_workers,
+    stop_background_workers,
+    request_hunt_cancel,
+)
 from api.settings_routes import router as settings_router
 from api.sse import sse_router
 from automation.job_queue import HuntJobQueue
@@ -77,6 +84,126 @@ def _embedded_consumer_enabled(settings) -> bool:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return False
     return bool(getattr(settings, "automation_embedded_consumer_enabled", True))
+
+
+def _template_seed_prewarm_enabled(settings) -> bool:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return bool(getattr(settings, "automation_template_seed_prewarm_enabled", True))
+
+
+def _job_needs_template_seed(job: dict[str, object] | None) -> bool:
+    if not isinstance(job, dict):
+        return False
+    payload = job.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    if not bool(payload.get("enable_email_craft")):
+        return False
+    return not isinstance(payload.get("template_seed"), dict)
+
+
+def _template_seed_request_from_payload(payload: dict[str, object]) -> TemplateSeedRequest:
+    return TemplateSeedRequest(
+        website_url=str(payload.get("website_url", "") or ""),
+        description=str(payload.get("description", "") or ""),
+        product_keywords=list(payload.get("product_keywords", []) or []),
+        target_customer_profile=str(payload.get("target_customer_profile", "") or ""),
+        target_regions=list(payload.get("target_regions", []) or []),
+        uploaded_file_ids=list(payload.get("uploaded_file_ids", []) or payload.get("uploaded_files", []) or []),
+        email_template_examples=list(payload.get("email_template_examples", []) or []),
+        email_template_notes=str(payload.get("email_template_notes", "") or ""),
+    )
+
+
+async def _run_template_seed_prewarm_once() -> bool:
+    settings = get_settings()
+    queue = HuntJobQueue(settings.automation_queue_db_path)
+    queue.init_db()
+
+    update_worker_state(
+        "template_seed",
+        enabled=_template_seed_prewarm_enabled(settings),
+        running=True,
+        worker_id=f"{socket.gethostname()}:template-seed",
+        last_poll_at=_now_iso(),
+    )
+    for job in queue.list_jobs(limit=50):
+        if str(job.get("status", "") or "") != "queued":
+            continue
+        if str(job.get("template_seed_status", "") or "") == "preparing":
+            continue
+        if not _job_needs_template_seed(job):
+            continue
+        job_id = str(job.get("id", "") or "")
+        if not job_id or not queue.mark_template_seed_preparing(job_id, updated_at=_now_iso()):
+            continue
+        update_worker_state(
+            "template_seed",
+            active_job_id=job_id,
+            last_activity_at=_now_iso(),
+            last_error="",
+        )
+        try:
+            payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+            template_seed = await _prepare_template_seed(_template_seed_request_from_payload(payload))
+            queue.attach_template_seed(job_id, template_seed=template_seed, updated_at=_now_iso())
+            update_worker_state(
+                "template_seed",
+                active_job_id="",
+                last_completed_job_id=job_id,
+                last_activity_at=_now_iso(),
+                last_error="",
+            )
+            logger.info("[TemplateSeedWorker] prewarmed template seed for job=%s", job_id[:8])
+        except Exception as exc:
+            queue.mark_template_seed_failed(job_id, error_message=str(exc), updated_at=_now_iso())
+            update_worker_state(
+                "template_seed",
+                active_job_id="",
+                last_activity_at=_now_iso(),
+                last_error=str(exc),
+            )
+            logger.warning("[TemplateSeedWorker] prewarm failed for job=%s: %s", job_id[:8], exc)
+        return True
+
+    update_worker_state(
+        "template_seed",
+        active_job_id="",
+        last_poll_at=_now_iso(),
+    )
+    return False
+
+
+async def _template_seed_prewarm_loop() -> None:
+    while True:
+        try:
+            settings = get_settings()
+            if not _template_seed_prewarm_enabled(settings):
+                update_worker_state(
+                    "template_seed",
+                    enabled=False,
+                    running=False,
+                    active_job_id="",
+                    last_poll_at=_now_iso(),
+                )
+                await asyncio.sleep(5)
+                continue
+            update_worker_state(
+                "template_seed",
+                enabled=True,
+                running=True,
+                worker_id=f"{socket.gethostname()}:template-seed",
+            )
+            did_work = await _run_template_seed_prewarm_once()
+            if did_work:
+                continue
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            update_worker_state("template_seed", last_error="prewarm iteration failed", last_activity_at=_now_iso())
+            logger.exception("[TemplateSeedWorker] prewarm iteration failed")
+        await asyncio.sleep(max(1, int(get_settings().automation_consumer_poll_seconds)))
 
 
 async def _run_automation_consumer_once() -> bool:
@@ -386,6 +513,7 @@ async def lifespan(app: FastAPI):
     app.state.email_reply_task = None
     app.state.automation_notify_task = None
     app.state.automation_consumer_task = None
+    app.state.template_seed_task = None
     queue = HuntJobQueue(settings.automation_queue_db_path)
     queue.init_db()
     recovered_jobs = queue.recover_interrupted_running_jobs(updated_at=_now_iso())
@@ -402,6 +530,8 @@ async def lifespan(app: FastAPI):
     logger.info("[EmailReply] background loop started")
     app.state.automation_notify_task = asyncio.create_task(_automation_notify_loop())
     logger.info("[AutomationNotify] background loop started")
+    app.state.template_seed_task = asyncio.create_task(_template_seed_prewarm_loop())
+    logger.info("[TemplateSeedWorker] background loop started")
     app.state.automation_consumer_task = asyncio.create_task(_automation_consumer_loop())
     logger.info("[AutomationConsumer] background loop started")
     update_worker_state("consumer", enabled=_embedded_consumer_enabled(settings), running=True, worker_id=_automation_worker_id())
@@ -423,6 +553,12 @@ async def lifespan(app: FastAPI):
             with suppress(asyncio.CancelledError):
                 await reply_task
             logger.info("[EmailReply] background loop stopped")
+        template_seed_task = getattr(app.state, "template_seed_task", None)
+        if template_seed_task:
+            template_seed_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await template_seed_task
+            logger.info("[TemplateSeedWorker] background loop stopped")
         notify_task = getattr(app.state, "automation_notify_task", None)
         if notify_task:
             notify_task.cancel()

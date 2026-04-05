@@ -216,6 +216,7 @@ class Settings(BaseSettings):
     automation_send_batch_size: int = 10
     automation_event_flush_interval_seconds: int = 600
     automation_embedded_consumer_enabled: bool = True
+    automation_template_seed_prewarm_enabled: bool = True
     automation_consumer_poll_seconds: int = 5
     automation_consumer_retry_delay_seconds: int = 120
     automation_consumer_status_poll_seconds: int = 15
