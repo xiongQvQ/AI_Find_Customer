@@ -361,6 +361,13 @@ export function AutomationJobPage() {
     () => generatedTargetEmails.filter((email) => !queuedOrSentEmails.includes(email)),
     [generatedTargetEmails, queuedOrSentEmails],
   );
+  const navItems = [
+    ["overview", "执行概况"],
+    ["pipeline", "执行链路"],
+    ["leads", "企业"],
+    ["templates", "模板"],
+    ["delivery", "发送"],
+  ] as const;
 
   if (isLoading) {
     return (
@@ -411,6 +418,20 @@ export function AutomationJobPage() {
           )}
         </div>
       </div>
+
+      <Card className="border-dashed">
+        <CardContent className="flex flex-wrap gap-2 py-4">
+          {navItems.map(([id, label]) => (
+            <a
+              key={id}
+              href={`#${id}`}
+              className="rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+            >
+              {label}
+            </a>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -472,7 +493,7 @@ export function AutomationJobPage() {
         </Card>
       )}
 
-      <Card>
+      <Card id="overview">
         <CardHeader>
           <CardTitle>任务信息</CardTitle>
         </CardHeader>
@@ -533,7 +554,7 @@ export function AutomationJobPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="pipeline">
         <CardHeader>
           <CardTitle>执行链路</CardTitle>
         </CardHeader>
@@ -596,7 +617,7 @@ export function AutomationJobPage() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card>
+        <Card id="leads">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Building2 className="h-4 w-4 text-muted-foreground" />
@@ -624,7 +645,7 @@ export function AutomationJobPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="templates">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Mail className="h-4 w-4 text-muted-foreground" />
@@ -665,7 +686,7 @@ export function AutomationJobPage() {
           </CardContent>
         </Card>
 
-        <Card className={missingTargetEmails.length ? "border-amber-300" : undefined}>
+        <Card id="delivery" className={missingTargetEmails.length ? "border-amber-300" : undefined}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Send className="h-4 w-4 text-muted-foreground" />

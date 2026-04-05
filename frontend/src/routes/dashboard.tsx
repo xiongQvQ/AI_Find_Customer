@@ -4,7 +4,7 @@ import { api, AutomationJob } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow, Reply } from "lucide-react";
+import { Plus, Crosshair, Users, Loader2, Globe, Clock, MapPin, Tag, Mail, Send, AlertTriangle, Workflow, Reply, Bell } from "lucide-react";
 
 function formatTime(iso: string) {
   if (!iso) return "";
@@ -62,9 +62,16 @@ export function DashboardPage() {
     queryFn: () => api.getAutomationMetrics(24),
     refetchInterval: 10000,
   });
+  const { data: settings } = useQuery({
+    queryKey: ["app-settings"],
+    queryFn: api.getSettings,
+    refetchInterval: 15000,
+  });
   const jobList = jobs ?? [];
   const consumer = automationStatus?.workers?.consumer;
   const dashboardErrors = [jobsError, statusError, metricsError].filter(Boolean) as Error[];
+  const feishuWebhook = settings?.settings?.AUTOMATION_FEISHU_WEBHOOK_URL || "";
+  const feishuConfigured = Boolean(feishuWebhook && !feishuWebhook.includes("****") ? feishuWebhook : feishuWebhook.includes("****"));
 
   return (
     <div className="space-y-8">
@@ -97,7 +104,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">任务队列</CardTitle>
@@ -167,6 +174,20 @@ export function DashboardPage() {
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 活跃序列 {automationStatus?.email_queue.active_sequences || 0} · 已回复序列 {automationStatus?.email_queue.replied_sequences || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">飞书通知</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2 text-2xl font-semibold">
+                <Bell className="h-5 w-5 text-muted-foreground" />
+                {feishuConfigured ? "已配置" : "未配置"}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {feishuConfigured ? "可发送开始、失败、批量发送和汇总通知" : "去系统设置填写 webhook 并点测试通知"}
               </p>
             </CardContent>
           </Card>
