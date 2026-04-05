@@ -261,6 +261,7 @@ export function AutomationJobPage() {
   const queryClient = useQueryClient();
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "connected" | "fallback">("idle");
   const [selectedSequenceId, setSelectedSequenceId] = useState("");
+  const [activeSection, setActiveSection] = useState<"overview" | "pipeline" | "leads" | "templates" | "delivery">("overview");
   const { data: automationStatus } = useQuery({
     queryKey: ["automation-status"],
     queryFn: api.getAutomationStatus,
@@ -422,13 +423,18 @@ export function AutomationJobPage() {
       <Card className="border-dashed">
         <CardContent className="flex flex-wrap gap-2 py-4">
           {navItems.map(([id, label]) => (
-            <a
+            <button
               key={id}
-              href={`#${id}`}
-              className="rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+              type="button"
+              onClick={() => setActiveSection(id)}
+              className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                activeSection === id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:border-primary hover:text-foreground"
+              }`}
             >
               {label}
-            </a>
+            </button>
           ))}
         </CardContent>
       </Card>
@@ -493,6 +499,7 @@ export function AutomationJobPage() {
         </Card>
       )}
 
+      {activeSection === "overview" && (
       <Card id="overview">
         <CardHeader>
           <CardTitle>任务信息</CardTitle>
@@ -553,7 +560,10 @@ export function AutomationJobPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {activeSection === "pipeline" && (
+      <>
       <Card id="pipeline">
         <CardHeader>
           <CardTitle>执行链路</CardTitle>
@@ -615,9 +625,11 @@ export function AutomationJobPage() {
           })}
         </CardContent>
       </Card>
+      </>
+      )}
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card id="leads">
+      {activeSection === "leads" && (
+      <Card id="leads">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Building2 className="h-4 w-4 text-muted-foreground" />
@@ -643,9 +655,11 @@ export function AutomationJobPage() {
               </div>
             )}
           </CardContent>
-        </Card>
+      </Card>
+      )}
 
-        <Card id="templates">
+      {activeSection === "templates" && (
+      <Card id="templates">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Mail className="h-4 w-4 text-muted-foreground" />
@@ -684,9 +698,11 @@ export function AutomationJobPage() {
               </div>
             )}
           </CardContent>
-        </Card>
+      </Card>
+      )}
 
-        <Card id="delivery" className={missingTargetEmails.length ? "border-amber-300" : undefined}>
+      {activeSection === "delivery" && (
+      <Card id="delivery" className={missingTargetEmails.length ? "border-amber-300" : undefined}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Send className="h-4 w-4 text-muted-foreground" />
@@ -756,8 +772,8 @@ export function AutomationJobPage() {
               )}
             </div>
           </CardContent>
-        </Card>
-      </div>
+      </Card>
+      )}
 
       <SequenceDetailSheet
         sequenceId={selectedSequenceId}

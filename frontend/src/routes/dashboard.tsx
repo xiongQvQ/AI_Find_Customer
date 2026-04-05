@@ -72,6 +72,8 @@ export function DashboardPage() {
   const dashboardErrors = [jobsError, statusError, metricsError].filter(Boolean) as Error[];
   const feishuWebhook = settings?.settings?.AUTOMATION_FEISHU_WEBHOOK_URL || "";
   const feishuConfigured = Boolean(feishuWebhook && !feishuWebhook.includes("****") ? feishuWebhook : feishuWebhook.includes("****"));
+  const summaryEnabled = (settings?.settings?.AUTOMATION_SUMMARY_ENABLED || "true") === "true";
+  const alertsEnabled = (settings?.settings?.AUTOMATION_ALERTS_ENABLED || "true") === "true";
 
   return (
     <div className="space-y-8">
@@ -187,8 +189,15 @@ export function DashboardPage() {
                 {feishuConfigured ? "已配置" : "未配置"}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {feishuConfigured ? "可发送开始、失败、批量发送和汇总通知" : "去系统设置填写 webhook 并点测试通知"}
+                {feishuConfigured
+                  ? `汇总 ${summaryEnabled ? "已开" : "已关"} · 告警 ${alertsEnabled ? "已开" : "已关"}`
+                  : "去系统设置填写 webhook 并点测试通知"}
               </p>
+              <div className="mt-3">
+                <Link to="/settings" className="text-xs text-primary hover:underline">
+                  前往通知设置
+                </Link>
+              </div>
             </CardContent>
           </Card>
       </div>
