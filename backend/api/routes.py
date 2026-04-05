@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import uuid
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 # ── In-memory hunt store — hydrated from disk on startup ─────────────────
-_hunts: dict[str, dict] = load_all_hunts()
+_hunts: dict[str, dict] = load_all_hunts(mark_interrupted=True)
 # SSE event queues per hunt — subscribers listen here
 _sse_queues: dict[str, list[asyncio.Queue]] = {}
 _reply_detection_task: asyncio.Task[Any] | None = None
@@ -261,7 +262,49 @@ def _fallback_template_seed(request: TemplateSeedRequest, insight: dict[str, Any
     }
 
 
+def _template_seed_cache_key(request: TemplateSeedRequest) -> str:
+    payload = {
+        "website_url": request.website_url.strip(),
+        "description": request.description.strip(),
+        "product_keywords": sorted(str(item).strip() for item in request.product_keywords if str(item).strip()),
+        "target_customer_profile": request.target_customer_profile.strip(),
+        "target_regions": sorted(str(item).strip() for item in request.target_regions if str(item).strip()),
+        "uploaded_file_ids": sorted(str(item).strip() for item in request.uploaded_file_ids if str(item).strip()),
+        "email_template_examples": [str(item).strip() for item in request.email_template_examples if str(item).strip()],
+        "email_template_notes": request.email_template_notes.strip(),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_template_seed_cache() -> dict[str, Any]:
+    path = Path(get_settings().template_seed_cache_path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("[TemplateSeed] Failed to read cache, ignoring: %s", exc)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_template_seed_cache(cache: dict[str, Any]) -> None:
+    path = Path(get_settings().template_seed_cache_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+
+
 async def _prepare_template_seed(request: TemplateSeedRequest) -> dict[str, Any]:
+    cache_key = _template_seed_cache_key(request)
+    cached = _load_template_seed_cache().get(cache_key)
+    if isinstance(cached, dict):
+        result = dict(cached)
+        result["cache_status"] = "hit"
+        return result
+
     uploaded_files = _validate_uploaded_file_ids(request.uploaded_file_ids)
     insight_state = {
         "website_url": request.website_url,
@@ -333,7 +376,7 @@ async def _prepare_template_seed(request: TemplateSeedRequest) -> dict[str, Any]
             template_profile=template_profile,
             notes=request.email_template_notes,
         )
-        return {
+        prepared = {
             "source": "pre_generated",
             "prepared_from": {
                 "website_url": request.website_url,
@@ -348,9 +391,19 @@ async def _prepare_template_seed(request: TemplateSeedRequest) -> dict[str, Any]
             "template_plan": template_plan,
             "notes": request.email_template_notes,
         }
+        cache = _load_template_seed_cache()
+        cache[cache_key] = prepared
+        _save_template_seed_cache(cache)
+        prepared["cache_status"] = "miss"
+        return prepared
     except Exception as exc:
         logger.warning("[TemplateSeed] Preparation failed, using fallback seed: %s", exc)
-        return _fallback_template_seed(request, insight)
+        fallback = _fallback_template_seed(request, insight)
+        cache = _load_template_seed_cache()
+        cache[cache_key] = fallback
+        _save_template_seed_cache(cache)
+        fallback["cache_status"] = "miss"
+        return fallback
     finally:
         await llm.close()
 

@@ -92,6 +92,11 @@ async def _run_automation_consumer_once() -> bool:
     )
     job = queue.claim_next(worker_id=_automation_worker_id(), now_iso=_now_iso())
     if not job:
+        update_worker_state(
+            "consumer",
+            active_job_id="",
+            last_poll_at=_now_iso(),
+        )
         return False
 
     job_id = str(job["id"])
@@ -274,7 +279,7 @@ async def _automation_notify_loop() -> None:
                 discovery_batch_size = max(1, int(getattr(settings, "automation_discovery_batch_size", 5) or 5))
                 send_batch_size = max(1, int(getattr(settings, "automation_send_batch_size", 10) or 10))
 
-                hunts = load_all_hunts()
+                hunts = load_all_hunts(mark_interrupted=False)
                 store = EmailStore(settings.email_db_path)
                 store.init_db()
                 if not primed:

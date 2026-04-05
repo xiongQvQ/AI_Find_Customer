@@ -6,6 +6,7 @@ MiniMax, and 100+ other providers through litellm.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 _RESPONSE_FORMAT_UNSUPPORTED_PREFIXES = (
     "zai/",
 )
+
+_RATE_LIMIT_BACKOFF_SECONDS = (2, 5, 10)
 
 
 def normalize_minimax_api_base(api_base: str) -> str:
@@ -51,6 +54,17 @@ def normalize_model_name(model: str) -> str:
         logger.warning("Normalizing legacy model alias from %s to %s", model, normalized)
         return normalized
     return model
+
+
+def _is_retryable_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc or "").lower()
+    return (
+        "rate_limit" in message
+        or '"http_code":"429"' in message
+        or '"http_code": "429"' in message
+        or "上游返回 429" in message
+        or "too many requests" in message
+    )
 
 
 def _provider_key_map(settings: Settings, scope: str) -> dict[str, str]:
@@ -219,11 +233,30 @@ class LLMTool:
                     self.model,
                 )
 
-        try:
-            await get_llm_rate_limiter(self._model_type, self._requests_per_minute).acquire()
-            response = await litellm.acompletion(**kwargs)
-        except Exception as exc:
-            raise RuntimeError(format_llm_error(exc)) from exc
+        limiter = get_llm_rate_limiter(self._model_type, self._requests_per_minute)
+        last_exc: Exception | None = None
+        response = None
+        for attempt in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            try:
+                await limiter.acquire()
+                response = await litellm.acompletion(**kwargs)
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= len(_RATE_LIMIT_BACKOFF_SECONDS) or not _is_retryable_rate_limit_error(exc):
+                    raise RuntimeError(format_llm_error(exc)) from exc
+                delay_seconds = _RATE_LIMIT_BACKOFF_SECONDS[attempt]
+                logger.warning(
+                    "LLM rate limited for model %s; retrying in %ss (attempt %s/%s)",
+                    self.model,
+                    delay_seconds,
+                    attempt + 1,
+                    len(_RATE_LIMIT_BACKOFF_SECONDS) + 1,
+                )
+                await asyncio.sleep(delay_seconds)
+
+        if response is None and last_exc is not None:
+            raise RuntimeError(format_llm_error(last_exc)) from last_exc
 
         # Record cost to tracker if hunt_id is set
         if self._hunt_id:

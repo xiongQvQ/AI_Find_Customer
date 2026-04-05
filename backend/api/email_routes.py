@@ -212,12 +212,19 @@ async def create_email_campaign(hunt_id: str, payload: CreateCampaignRequest):
         if template_status in {"underperforming", "exhausted"}:
             continue
         for target in targets:
+            lead_key = (
+                str((lead.get("website") or lead.get("company_name") or "")).lower()
+                + "|"
+                + str(target.get("target_email") or "").lower()
+            )
+            if store.has_contact_history_for_lead_key(lead_key):
+                continue
             sequence_id = str(uuid.uuid4())
             store.create_sequence({
                 "id": sequence_id,
                 "campaign_id": campaign_id,
                 "hunt_id": hunt_id,
-                "lead_key": str((lead.get("website") or lead.get("company_name") or sequence_id)).lower() + "|" + str(target.get("target_email") or "").lower(),
+                "lead_key": lead_key or (sequence_id.lower() + "|" + str(target.get("target_email") or "").lower()),
                 "lead_email": str(target.get("target_email") or ""),
                 "lead_name": str(lead.get("company_name") or ""),
                 "decision_maker_name": str(target.get("target_name") or ""),

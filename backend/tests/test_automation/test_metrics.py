@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from automation.job_queue import HuntJobQueue
 from automation.metrics import collect_automation_metrics, collect_automation_status
+from api.hunt_store import load_all_hunts, save_hunt
 from emailing.store import EmailStore
 
 
@@ -183,7 +184,7 @@ def test_collect_automation_metrics_loads_persisted_hunts_when_not_provided(monk
     )
     monkeypatch.setattr(
         "automation.metrics.load_all_hunts",
-        lambda: {
+        lambda **kwargs: {
             "hunt_2": {
                 "status": "completed",
                 "created_at": "9999-04-04T00:00:00+00:00",
@@ -200,3 +201,26 @@ def test_collect_automation_metrics_loads_persisted_hunts_when_not_provided(monk
     assert metrics["hunts"]["completed"] == 1
     assert metrics["hunts"]["new_leads"] == 1
     assert metrics["hunts"]["generated_email_sequences"] == 3
+
+
+def test_load_all_hunts_runtime_read_does_not_mark_running_as_failed(monkeypatch, tmp_path):
+    hunts_dir = tmp_path / "hunts"
+    monkeypatch.setattr(
+        "api.hunt_store.get_settings",
+        lambda: type("S", (), {"hunts_dir": str(hunts_dir)})(),
+    )
+
+    save_hunt(
+        "hunt-running",
+        {
+            "status": "running",
+            "current_stage": "lead_extract",
+            "created_at": "9999-04-04T00:00:00+00:00",
+        },
+    )
+
+    runtime_view = load_all_hunts(mark_interrupted=False)
+    startup_view = load_all_hunts(mark_interrupted=True)
+
+    assert runtime_view["hunt-running"]["status"] == "running"
+    assert startup_view["hunt-running"]["status"] == "failed"

@@ -203,6 +203,7 @@ class Settings(BaseSettings):
     checkpoint_db_path: str = _resolve_file("hunt_sessions.db")
     email_db_path: str = _resolve_file("email_automation.db")
     automation_queue_db_path: str = _resolve_file("automation_queue.db")
+    template_seed_cache_path: str = _resolve_file("template_seed_cache.json")
     automation_feishu_webhook_url: str = ""
     automation_summary_enabled: bool = False
     automation_summary_interval_seconds: int = 7200

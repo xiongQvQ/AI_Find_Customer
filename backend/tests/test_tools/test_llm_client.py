@@ -227,6 +227,28 @@ class TestLLMToolGenerate:
         mock_get.assert_called_once_with("email", 7)
         limiter.acquire.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_generate_retries_rate_limit_then_succeeds(self):
+        tool = LLMTool(settings=_make_settings())
+        limiter = AsyncMock()
+        mock_resp = _mock_completion("ok")
+        rate_limit_exc = Exception(
+            'litellm.APIConnectionError: MinimaxException - {"type":"error","error":{"type":"rate_limit_error","message":"too many requests","http_code":"429"}}'
+        )
+
+        with patch("tools.llm_client.get_llm_rate_limiter", return_value=limiter):
+            with patch(
+                "tools.llm_client.litellm.acompletion",
+                new_callable=AsyncMock,
+                side_effect=[rate_limit_exc, mock_resp],
+            ) as mock_call:
+                with patch("tools.llm_client.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                    result = await tool.generate("test")
+
+        assert result == "ok"
+        assert mock_call.await_count == 2
+        mock_sleep.assert_awaited_once_with(2)
+
 
 class TestLLMToolErrors:
     @pytest.mark.asyncio

@@ -206,6 +206,30 @@ class EmailStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def has_contact_history_for_lead_key(self, lead_key: str) -> bool:
+        """Return whether a lead/email pair was already queued or contacted before.
+
+        Purely failed sequences with no sent messages do not block retry.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM lead_email_sequences seq
+                LEFT JOIN email_messages msg
+                  ON msg.sequence_id = seq.id
+                 AND msg.status = 'sent'
+                WHERE seq.lead_key = ?
+                  AND (
+                    seq.status != 'failed'
+                    OR msg.id IS NOT NULL
+                  )
+                LIMIT 1
+                """,
+                (lead_key,),
+            ).fetchone()
+        return row is not None
+
     def update_sequence_status(
         self,
         sequence_id: str,

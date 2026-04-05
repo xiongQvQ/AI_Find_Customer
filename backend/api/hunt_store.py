@@ -35,8 +35,12 @@ def save_hunt(hunt_id: str, hunt_data: dict[str, Any]) -> None:
         logger.warning("[HuntStore] Failed to save hunt %s: %s", hunt_id[:8], e)
 
 
-def load_all_hunts() -> dict[str, dict[str, Any]]:
-    """Load all hunts from disk into a dict keyed by hunt_id."""
+def load_all_hunts(*, mark_interrupted: bool = False) -> dict[str, dict[str, Any]]:
+    """Load all hunts from disk into a dict keyed by hunt_id.
+
+    `mark_interrupted=True` should only be used during process startup recovery.
+    Runtime readers such as metrics/notifiers must not mutate running hunts.
+    """
     hunts: dict[str, dict[str, Any]] = {}
     hunts_path = _hunts_dir()
 
@@ -44,8 +48,9 @@ def load_all_hunts() -> dict[str, dict[str, Any]]:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             hid = data.pop("hunt_id", path.stem)
-            # Any hunt that was running/pending when the process died is now interrupted
-            if data.get("status") in ("running", "pending"):
+            # Any hunt that was running/pending when the process died is now interrupted.
+            # This mutation is only safe during startup recovery, not during runtime reads.
+            if mark_interrupted and data.get("status") in ("running", "pending"):
                 data["status"] = "failed"
                 data["error"] = "Process was interrupted (server restarted)"
                 data["completed_at"] = now_iso()

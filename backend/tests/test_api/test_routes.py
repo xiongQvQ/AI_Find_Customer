@@ -8,6 +8,7 @@ from httpx import AsyncClient, ASGITransport
 
 from api.app import create_app
 from api.routes import _hunts, _sequence_is_send_approved, stop_background_workers
+from config.settings import get_settings
 
 # Patch save_hunt globally so tests never write to disk
 pytestmark = pytest.mark.usefixtures("_mock_save_hunt")
@@ -187,6 +188,7 @@ class TestHuntStatus:
 class TestTemplateSeed:
     @pytest.mark.asyncio
     async def test_prepare_template_seed(self, client, monkeypatch):
+        Path(get_settings().template_seed_cache_path).unlink(missing_ok=True)
         monkeypatch.setattr(
             "api.routes.insight_node",
             AsyncMock(return_value={"insight": {
@@ -218,8 +220,49 @@ class TestTemplateSeed:
         assert resp.status_code == 200
         data = resp.json()["template_seed"]
         assert data["source"] == "pre_generated"
+        assert data["cache_status"] == "miss"
         assert "template_profile" in data
         assert "template_plan" in data
+
+    @pytest.mark.asyncio
+    async def test_prepare_template_seed_uses_cache(self, client, monkeypatch):
+        Path(get_settings().template_seed_cache_path).unlink(missing_ok=True)
+        monkeypatch.setattr(
+            "api.routes.insight_node",
+            AsyncMock(return_value={"insight": {
+                "company_name": "Guangdong Yushun",
+                "products": ["micro switch"],
+                "industries": ["Electrical components"],
+                "value_propositions": ["Factory-direct supply"],
+                "target_customer_profile": "Distributors",
+                "summary": "Switch manufacturer",
+            }}),
+        )
+
+        payload = {
+            "website_url": "https://www.gdushun.com/",
+            "description": "Find distributors",
+            "product_keywords": ["micro switch"],
+            "target_customer_profile": "Distributors",
+            "target_regions": ["United States"],
+            "email_template_examples": ["Dear Sir/Madam"],
+            "email_template_notes": "Keep it concise",
+        }
+
+        with patch("api.routes.LLMTool") as MockLLM:
+            llm = AsyncMock()
+            llm.close = AsyncMock()
+            llm.generate = AsyncMock(return_value='{"tone":"professional"}')
+            MockLLM.return_value = llm
+
+            first = await client.post("/api/v1/email-template-seeds/prepare", json=payload)
+            second = await client.post("/api/v1/email-template-seeds/prepare", json=payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["template_seed"]["cache_status"] == "miss"
+        assert second.json()["template_seed"]["cache_status"] == "hit"
+        assert llm.generate.await_count == 2
 
 
 class TestHuntResult:

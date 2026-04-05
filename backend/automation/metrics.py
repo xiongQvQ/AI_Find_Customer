@@ -23,7 +23,7 @@ def _since_iso(hours: int) -> str:
 def _resolve_hunt_map(hunts: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
     if hunts is not None:
         return hunts
-    return load_all_hunts()
+    return load_all_hunts(mark_interrupted=False)
 
 
 def collect_automation_status(*, hunts: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
