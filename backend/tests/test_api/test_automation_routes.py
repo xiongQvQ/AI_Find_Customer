@@ -172,3 +172,55 @@ def test_create_automation_job_from_hunt(monkeypatch):
     assert queued_payloads[0]["target_lead_count"] == 300
     assert queued_payloads[0]["enable_email_craft"] is True
     assert missing.status_code == 404
+
+
+def test_cancel_and_retry_automation_job(monkeypatch):
+    app = create_app()
+    client = TestClient(app)
+
+    state = {
+        "id": "job-3",
+        "status": "queued",
+        "created_at": "2026-04-05T00:00:00+00:00",
+        "updated_at": "2026-04-05T00:00:00+00:00",
+        "started_at": "",
+        "finished_at": "",
+        "attempt_count": 1,
+        "last_error": "",
+        "last_hunt_id": "",
+        "payload": {"website_url": "https://www.gdushun.com/"},
+    }
+
+    class FakeQueue:
+        def init_db(self):
+            return None
+
+        def get(self, job_id):
+            if job_id != "job-3":
+                return None
+            return state.copy()
+
+        def cancel(self, job_id, updated_at):
+            state["status"] = "failed"
+            state["finished_at"] = updated_at
+            state["updated_at"] = updated_at
+            state["last_error"] = "Cancelled by user"
+
+        def retry_now(self, job_id, updated_at):
+            state["status"] = "queued"
+            state["updated_at"] = updated_at
+            state["finished_at"] = ""
+
+    monkeypatch.setattr("api.automation_routes._queue", lambda: FakeQueue())
+    monkeypatch.setattr("api.automation_routes.load_hunt", lambda hunt_id: None)
+
+    cancelled = client.post("/api/v1/automation/jobs/job-3/cancel")
+    retried = client.post("/api/v1/automation/jobs/job-3/retry")
+    missing = client.post("/api/v1/automation/jobs/missing/retry")
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "failed"
+    assert "Cancelled by user" in cancelled.json()["last_error"]
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "queued"
+    assert missing.status_code == 404

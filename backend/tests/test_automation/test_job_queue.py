@@ -42,3 +42,21 @@ def test_requeue_failed_job(tmp_path):
     assert job["status"] == "queued"
     assert job["last_error"] == "temporary failure"
     assert job["last_hunt_id"] == "hunt-456"
+
+
+def test_cancel_and_retry_job(tmp_path):
+    queue = HuntJobQueue(str(tmp_path / "queue.db"))
+    queue.init_db()
+
+    job_id = queue.enqueue({"description": "Find buyers"}, now_iso="2026-04-04T00:00:00+00:00")
+    queue.cancel(job_id, updated_at="2026-04-04T00:05:00+00:00")
+    cancelled = queue.get(job_id)
+    assert cancelled is not None
+    assert cancelled["status"] == "failed"
+    assert cancelled["last_error"] == "Cancelled by user"
+
+    queue.retry_now(job_id, updated_at="2026-04-04T00:06:00+00:00")
+    retried = queue.get(job_id)
+    assert retried is not None
+    assert retried["status"] == "queued"
+    assert retried["finished_at"] == ""

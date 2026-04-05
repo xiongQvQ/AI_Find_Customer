@@ -138,6 +138,28 @@ async def create_automation_job_from_hunt(hunt_id: str, request: AutomationJobCo
     return _serialize_job(job or {"id": job_id, "payload": next_payload})
 
 
+@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(require_api_access)])
+async def cancel_automation_job(job_id: str):
+    queue = _queue()
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Automation job not found")
+    queue.cancel(job_id, updated_at=now_iso())
+    updated = queue.get(job_id)
+    return _serialize_job(updated or job)
+
+
+@router.post("/jobs/{job_id}/retry", dependencies=[Depends(require_api_access)])
+async def retry_automation_job(job_id: str):
+    queue = _queue()
+    job = queue.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Automation job not found")
+    queue.retry_now(job_id, updated_at=now_iso())
+    updated = queue.get(job_id)
+    return _serialize_job(updated or job)
+
+
 @router.get("/status", dependencies=[Depends(require_api_access)])
 async def get_automation_status():
     return collect_automation_status(hunts=_hunts)

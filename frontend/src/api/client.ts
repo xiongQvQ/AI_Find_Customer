@@ -473,6 +473,16 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  cancelAutomationJob: (jobId: string) =>
+    request<AutomationJob>(`/automation/jobs/${jobId}/cancel`, {
+      method: "POST",
+    }),
+
+  retryAutomationJob: (jobId: string) =>
+    request<AutomationJob>(`/automation/jobs/${jobId}/retry`, {
+      method: "POST",
+    }),
+
   getAutomationStatus: () =>
     request<AutomationStatus>("/automation/status"),
 

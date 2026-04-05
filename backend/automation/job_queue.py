@@ -252,3 +252,35 @@ class HuntJobQueue:
                 """,
                 (available_at, updated_at, error_message[:2000], hunt_id, hunt_id, job_id),
             )
+
+    def cancel(self, job_id: str, *, updated_at: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET status = 'failed',
+                    finished_at = ?,
+                    updated_at = ?,
+                    last_error = CASE WHEN last_error = '' THEN 'Cancelled by user' ELSE last_error END
+                WHERE id = ?
+                  AND status IN ('queued', 'running')
+                """,
+                (updated_at, updated_at, job_id),
+            )
+
+    def retry_now(self, job_id: str, *, updated_at: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE hunt_jobs
+                SET status = 'queued',
+                    available_at = ?,
+                    updated_at = ?,
+                    finished_at = '',
+                    started_at = '',
+                    claimed_by = ''
+                WHERE id = ?
+                  AND status IN ('failed', 'completed')
+                """,
+                (updated_at, updated_at, job_id),
+            )

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { api } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,10 +32,29 @@ function statusVariant(status: string) {
 
 export function AutomationJobPage() {
   const { jobId } = useParams({ from: "/automation/$jobId" });
+  const queryClient = useQueryClient();
   const { data: job, isLoading, error } = useQuery({
     queryKey: ["automation-job", jobId],
     queryFn: () => api.getAutomationJob(jobId),
     refetchInterval: 5000,
+  });
+  const cancelMutation = useMutation({
+    mutationFn: () => api.cancelAutomationJob(jobId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["automation-job", jobId] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-jobs"] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-metrics", 24] });
+    },
+  });
+  const retryMutation = useMutation({
+    mutationFn: () => api.retryAutomationJob(jobId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["automation-job", jobId] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-jobs"] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-metrics", 24] });
+    },
   });
 
   if (isLoading) {
@@ -63,7 +82,28 @@ export function AutomationJobPage() {
           <h1 className="text-3xl font-bold tracking-tight">队列任务详情</h1>
           <p className="text-muted-foreground mt-1">查看 producer / consumer 模式下单个任务的执行状态</p>
         </div>
-        <Badge variant={statusVariant(job.status)}>{statusLabel(job.status)}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={statusVariant(job.status)}>{statusLabel(job.status)}</Badge>
+          {(job.status === "queued" || job.status === "running") && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+            >
+              {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "取消任务"}
+            </Button>
+          )}
+          {(job.status === "failed" || job.status === "completed") && (
+            <Button
+              size="sm"
+              onClick={() => retryMutation.mutate()}
+              disabled={retryMutation.isPending}
+            >
+              {retryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "重新入队"}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
