@@ -975,6 +975,28 @@ bun run build
 - 根据产品资料自动反推目标客户画像与搜索词
 - 针对特定国家或区域进行批量线索挖掘
 
+## 联系作者
+
+如有问题、建议或定制需求，欢迎添加微信交流：
+
+<div align="center">
+  <img src="wechat-qr.jpeg" alt="微信二维码" width="200" />
+  <p><strong>微信号</strong></p>
+</div>
+
+---
+
+## 赞赏
+
+如果这个项目对你有帮助，欢迎请作者喝杯咖啡 ☕
+
+<div align="center">
+  <img src="payment-qr.jpeg" alt="收款码" width="200" />
+  <p><strong>收款码</strong></p>
+</div>
+
+---
+
 ## License
 
 本项目采用 [MIT License](LICENSE)。
