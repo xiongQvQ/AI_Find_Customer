@@ -1,10 +1,11 @@
-"""WebSearchTool — unified Tavily-based web search with multi-key round-robin.
+"""WebSearchTool — unified web search with multi-backend round-robin.
 
 Google Search and Google Maps are configured separately through `SERPER_API_KEY`.
-This tool is intentionally limited to user-supplied Tavily keys.
+This tool supports Tavily and You.com backends, each with multi-key round-robin.
 
-Multi-key support:
+Multi-key support (per backend):
     TAVILY_API_KEY=key1,key2
+    YOUCOM_API_KEY=key1,key2
 
 Keys are rotated in round-robin per-process using a thread-safe atomic counter,
 so concurrent searches spread load evenly across all configured keys.
@@ -120,8 +121,68 @@ async def _tavily_search(
         return _parse_tavily_response(response)
 
 
+async def _youcom_search(
+    api_key: str,
+    query: str,
+    num: int,
+    gl: str,
+) -> list[dict]:
+    import asyncio
+
+    import requests
+
+    YOUCOM_SEARCH_URL = "https://ydc-index.io/v1/search"
+
+    # You.com doesn't have native geo params — append as site hint
+    effective_query = query
+    if gl and len(gl) == 2:
+        effective_query = f"{query} site:.{gl}"
+
+    def _sync():
+        resp = requests.post(
+            YOUCOM_SEARCH_URL,
+            headers={
+                "Accept": "application/json",
+                "X-API-Key": api_key,
+            },
+            json={"query": effective_query, "count": min(num, 20)},
+            timeout=30,
+        )
+        if resp.status_code == 429:
+            raise RuntimeError("You.com Search rate limit exceeded (429)")
+        if resp.status_code == 401:
+            raise RuntimeError("You.com API Key is invalid or expired")
+        if resp.status_code == 403:
+            raise RuntimeError("You.com API Key has insufficient permissions")
+        if resp.status_code != 200:
+            raise RuntimeError(f"You.com Search failed (Status {resp.status_code})")
+        return resp.json()
+
+    response = await asyncio.to_thread(_sync)
+
+    results = []
+    for i, item in enumerate(response.get("results", []), start=1):
+        snippets = item.get("snippets", [])
+        snippet_raw = (
+            snippets[0]
+            if isinstance(snippets, list) and snippets
+            else item.get("description", "")
+        )
+        snippet = snippet_raw[:300] + "..." if len(snippet_raw) > 300 else snippet_raw
+        results.append({
+            "title": item.get("title", ""),
+            "link": item.get("url", ""),
+            "snippet": snippet,
+            "position": i,
+        })
+    return results
+
+
 class WebSearchTool:
-    """Unified Tavily-based web search tool with multi-key round-robin.
+    """Unified web search tool with multi-backend round-robin.
+
+    Supports Tavily and You.com backends simultaneously.
+    Keys from each backend are rotated in round-robin independently.
 
     Usage:
         tool = WebSearchTool()
@@ -132,20 +193,27 @@ class WebSearchTool:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
-        # Build key pools
         self._tavily_pool = _RoundRobinPool(_parse_keys(self._settings.tavily_api_key))
+        self._youcom_pool = _RoundRobinPool(_parse_keys(self._settings.youcom_api_key))
 
-        if not self._tavily_pool:
+        backends = []
+        if self._tavily_pool:
+            backends.append(f"Tavily({len(self._tavily_pool)} key(s))")
+        if self._youcom_pool:
+            backends.append(f"You.com({len(self._youcom_pool)} key(s))")
+
+        if not backends:
             raise ValueError(
-                "No general web search API key configured. Set TAVILY_API_KEY."
+                "No general web search API key configured. Set TAVILY_API_KEY and/or YOUCOM_API_KEY."
             )
-        self._backend = "tavily"
-        logger.info("[WebSearch] Backend: Tavily (%d key(s))", len(self._tavily_pool))
+
+        self._backends = backends
+        logger.info("[WebSearch] Backends: %s", ", ".join(backends))
 
     @property
     def backend(self) -> str:
-        """Active backend name."""
-        return self._backend
+        """Comma-separated active backend names."""
+        return ", ".join(self._backends)
 
     async def search(
         self,
@@ -157,7 +225,8 @@ class WebSearchTool:
     ) -> list[dict]:
         """Execute a general web search.
 
-        Automatically picks the next key from the round-robin pool.
+        Chooses a backend using round-robin across all available backends.
+        Within each backend, keys are also rotated round-robin.
 
         Args:
             query: Search query string.
@@ -168,8 +237,24 @@ class WebSearchTool:
         Returns:
             List of dicts with keys: title, link, snippet, position.
         """
-        key = self._tavily_pool.next_key()
-        return await _tavily_search(key, query, num, gl)
+        # Round-robin across backends
+        with threading.Lock():
+            if not hasattr(self, "_backend_cycle"):
+                self._backend_cycle = itertools.cycle(self._backends)
+            backend_name = next(self._backend_cycle)
+
+        if backend_name.startswith("You.com") and self._youcom_pool:
+            key = self._youcom_pool.next_key()
+            return await _youcom_search(key, query, num, gl)
+        elif self._tavily_pool:
+            key = self._tavily_pool.next_key()
+            return await _tavily_search(key, query, num, gl)
+        elif self._youcom_pool:
+            # Tavily pool empty but You.com available
+            key = self._youcom_pool.next_key()
+            return await _youcom_search(key, query, num, gl)
+        else:
+            raise ValueError("No search backend available")
 
     async def close(self) -> None:
         return None
