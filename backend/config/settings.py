@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     # --- Search ---
     serper_api_key: str = ""
     tavily_api_key: str = ""      # supports multiple keys: "key1,key2"
+    youcom_api_key: str = ""       # supports multiple keys: "key1,key2"
     jina_api_key: str = ""
 
     # --- Email ---
