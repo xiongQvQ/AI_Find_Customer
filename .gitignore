@@ -110,3 +110,8 @@ logs/
 
 # ── License server runtime ───────────────────────────────────
 license-server/.env
+
+# ── Raw QR source images (contain personal info, do not publish) ──
+/20261029-010847.png
+/WechatIMG1660.jpeg
+/WechatIMG1661.jpeg
