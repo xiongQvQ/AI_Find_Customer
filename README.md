@@ -11,13 +11,13 @@ AI Hunter 是一个面向外贸与 B2B 线索挖掘场景的开源版项目。�
 
 ## 官方链接
 
-- 官网：https://b2binsights.io/
+- 官网：https://blog.b2binsights.io/
 - 视频介绍：https://www.bilibili.com/video/BV1AzwYzXEGD/?spm_id_from=333.1387.list.card_archive.click
 - 开源仓库：https://github.com/xiongQvQ/AI_Find_Customer
 
 ## 不想自己折腾？看看 B2Binsights
 
-这个开源项目适合愿意折腾的技术型用户。如果你的团队想把这套能力真正落进业务流程，但没有人手长期维护，可以看看 [B2Binsights](https://b2binsights.io/)——它背后是一个 **AI FDE 团队**，做 AI 咨询与驻场改造，理解业务的人也是写代码的人：
+这个开源项目适合愿意折腾的技术型用户。如果你的团队想把这套能力真正落进业务流程，但没有人手长期维护，可以看看 [B2Binsights](https://blog.b2binsights.io/)——它背后是一个 **AI FDE 团队**，做 AI 咨询与驻场改造，理解业务的人也是写代码的人：
 
 - **外贸 AI 获客**：把开源版的主线能力（搜索与初筛、交叉验证、联系线索整理）定制成你自己的获客系统，产出可直接跟进的客户档案
 - **企业知识问答**：资料整理、检索与问答、人工核对，交付面向业务的知识助手
@@ -25,7 +25,7 @@ AI Hunter 是一个面向外贸与 B2B 线索挖掘场景的开源版项目。�
 - **交付方式**：本地、内网或云端按业务要求选择，源码、文档与团队培训完整交接，AI 账号用你自己的——系统交付给你，选择权也留给你
 - **收费方式**：AI 咨询按次收费，FDE 改造按项目一口价；需求聊清楚再报价，中途不加价，不做免费试用，也不按人天计费
 
-> 想聊聊你的获客场景？去 [b2binsights.io](https://b2binsights.io/) 联系我们，或拉到文末扫企业微信 / 飞书二维码。
+> 想聊聊你的获客场景？去 [blog.b2binsights.io](https://blog.b2binsights.io/) 联系我们，或拉到文末扫企业微信 / 飞书二维码。
 
 ## 开源仓库范围
 
