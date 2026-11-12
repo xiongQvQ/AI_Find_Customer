@@ -10,6 +10,7 @@ from config.settings import get_settings
 from graph.state import HuntState
 from tools.google_maps_search import GoogleMapsSearchTool
 from tools.platform_registry import PlatformRegistryTool  # backward-compatible patch target
+from tools.scavio_maps_search import ScavioMapsSearchTool
 from tools.web_search import WebSearchTool  # backward-compatible patch target
 
 logger = logging.getLogger(__name__)
@@ -198,7 +199,7 @@ def _result_identity_key(item: dict) -> str:
 
 async def _maps_search_keyword(
     keyword: str,
-    maps_tool: GoogleMapsSearchTool,
+    maps_tool: GoogleMapsSearchTool | ScavioMapsSearchTool,
     semaphore: asyncio.Semaphore,
     *,
     gl: str = "",
@@ -277,7 +278,12 @@ async def search_node(state: HuntState) -> dict:
         logger.info("[SearchAgent] No geo params resolved from regions=%s, searching globally", target_regions)
 
     semaphore = asyncio.Semaphore(settings.search_concurrency)
-    maps_tool = GoogleMapsSearchTool(settings)
+    # Serper stays the default; Scavio is used only when chosen explicitly.
+    maps_provider = "scavio" if settings.maps_search_provider == "scavio" else "serper"
+    if maps_provider == "scavio":
+        maps_tool = ScavioMapsSearchTool(settings)
+    else:
+        maps_tool = GoogleMapsSearchTool(settings)
 
     search_tasks = [
         _maps_search_keyword(kw, maps_tool, semaphore, gl=gl, hl=hl)
@@ -286,7 +292,7 @@ async def search_node(state: HuntState) -> dict:
     logger.info(
         "[SearchAgent] Tool routing: regions=%s → %s",
         target_regions,
-        ["google_maps(serper)"],
+        [f"google_maps({maps_provider})"],
     )
     logger.info("[SearchAgent] Launching %d maps tasks (concurrency=%d)", len(search_tasks), settings.search_concurrency)
 

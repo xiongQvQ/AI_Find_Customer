@@ -213,6 +213,50 @@ class TestSearchNode:
         assert result["current_stage"] == "search"
 
 
+    @pytest.mark.asyncio
+    async def test_scavio_provider_runs_the_scavio_tool(self):
+        state = _base_state(keywords=["k1"])
+
+        with patch("agents.search_agent.GoogleMapsSearchTool") as mock_maps, \
+             patch("agents.search_agent.ScavioMapsSearchTool") as mock_scavio, \
+             patch("agents.search_agent.get_settings") as mock_settings:
+
+            mock_settings.return_value.search_concurrency = 5
+            mock_settings.return_value.maps_search_provider = "scavio"
+            scavio_inst = AsyncMock()
+            scavio_inst.search = AsyncMock(return_value=[{"title": "S1", "place_id": "s1"}])
+            scavio_inst.close = AsyncMock()
+            mock_scavio.return_value = scavio_inst
+
+            result = await search_node(state)
+
+        mock_maps.assert_not_called()
+        scavio_inst.search.assert_called_once()
+        scavio_inst.close.assert_called_once()
+        assert result["search_results"][0]["source"] == "google_maps"
+
+    @pytest.mark.asyncio
+    async def test_serper_stays_the_default_with_a_scavio_key_set(self):
+        state = _base_state(keywords=["k1"])
+
+        with patch("agents.search_agent.GoogleMapsSearchTool") as mock_maps, \
+             patch("agents.search_agent.ScavioMapsSearchTool") as mock_scavio, \
+             patch("agents.search_agent.get_settings") as mock_settings:
+
+            mock_settings.return_value.search_concurrency = 5
+            mock_settings.return_value.maps_search_provider = "serper"
+            mock_settings.return_value.scavio_api_key = "sk-scavio"
+            maps_inst = AsyncMock()
+            maps_inst.search = AsyncMock(return_value=[])
+            maps_inst.close = AsyncMock()
+            mock_maps.return_value = maps_inst
+
+            await search_node(state)
+
+        mock_scavio.assert_not_called()
+        maps_inst.search.assert_called_once()
+
+
 class TestIsChinaRegion:
     def test_china_english(self):
         assert _is_china_region(["China"]) is True
