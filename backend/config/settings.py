@@ -119,6 +119,8 @@ class Settings(BaseSettings):
 
     # --- Search ---
     serper_api_key: str = ""
+    maps_search_provider: str = "serper"  # "serper" (default) or "scavio"
+    scavio_api_key: str = ""      # used only when maps_search_provider is "scavio"
     tavily_api_key: str = ""      # supports multiple keys: "key1,key2"
     youcom_api_key: str = ""       # supports multiple keys: "key1,key2"
     jina_api_key: str = ""
